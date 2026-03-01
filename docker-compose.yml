@@ -1,0 +1,81 @@
+version: "3.8"
+
+services:
+  # ============ PostgreSQL with pgvector ============
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: mirage-db
+    environment:
+      POSTGRES_USER: mirage
+      POSTGRES_PASSWORD: mirage
+      POSTGRES_DB: miragedb
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mirage -d miragedb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mirage-net
+
+  # ============ Backend API ============
+  backend:
+    build:
+      context: .
+      dockerfile: build/backend/Dockerfile
+    container_name: mirage-backend
+    ports:
+      - "8443:8443"
+    environment:
+      DATABASE_URL: postgres://mirage:mirage@postgres:5432/miragedb?sslmode=disable
+      DOCKER_HOST: unix:///var/run/docker.sock
+      SANDBOX_IMAGE: mirage-tools:latest
+      CODEX_HOME: /root/.codex
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.3-codex}
+      # Optional API key fallback (not needed if using codex login)
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${HOME:-${USERPROFILE}}/.codex:/root/.codex:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - mirage-net
+
+  # ============ Frontend ============
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: mirage-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      VITE_API_URL: localhost:8443
+      VITE_WS_URL: ws://localhost:8443/ws
+    depends_on:
+      - backend
+    networks:
+      - mirage-net
+
+  # ============ Persistent Sandbox ============
+  # This container stays alive permanently. The backend will 
+  # explicitly `docker exec` into it, meaning installed tools
+  # and downloaded payloads will strictly persist across flows.
+  sandbox:
+    image: mirage-tools:latest
+    container_name: mirage-sandbox
+    command: tail -f /dev/null
+    networks:
+      - mirage-net
+
+volumes:
+  pgdata:
+
+networks:
+  mirage-net:
+    driver: bridge
