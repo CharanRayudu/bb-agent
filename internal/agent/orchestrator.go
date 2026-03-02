@@ -15,7 +15,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const maxIterations = 25
+const maxIterations = 50
 
 // EventType for WebSocket streaming
 type EventType string
@@ -123,16 +123,28 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 			return fmt.Errorf("LLM error on iteration %d: %w", i, err)
 		}
 
-		// If the LLM responded with text (no tool calls), we're done
+		// If the LLM responded with text (no tool calls), we're done ONLY IF it actually used complete_task before.
+		// Sometimes LLMs hit token limits and stop. We should prompt them to continue.
 		if len(resp.ToolCalls) == 0 {
-			finalResult = resp.Content
 			o.emit(flowID.String(), Event{
 				Type:    EventMessage,
 				FlowID:  flowID.String(),
 				TaskID:  task.ID.String(),
 				Content: resp.Content,
 			})
-			break
+
+			// Add assistant message
+			messages = append(messages, models.ChatMessage{
+				Role:    "assistant",
+				Content: resp.Content,
+			})
+
+			// Force it to continue or call complete_task
+			messages = append(messages, models.ChatMessage{
+				Role:    "user",
+				Content: "Please continue your analysis or explicitly use the `complete_task` tool if you are finished.",
+			})
+			continue
 		}
 
 		// Add assistant message with tool calls to conversation

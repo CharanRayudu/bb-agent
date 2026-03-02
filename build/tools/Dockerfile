@@ -17,6 +17,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     dirb \
     wfuzz \
     sqlmap \
+    seclists \
+    wordlists \
     # Network
     netcat-openbsd \
     socat \
