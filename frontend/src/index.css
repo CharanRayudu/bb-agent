@@ -567,6 +567,8 @@ body {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
   gap: 24px;
+  grid-auto-rows: 1fr;
+  /* Force all rows to have same height */
 }
 
 .flow-grid>a {

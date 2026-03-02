@@ -197,21 +197,30 @@ func (s *Server) handleFlowEvents(w http.ResponseWriter, r *http.Request, id uui
 		// Map DB Actions to WebSocket-style Events
 		for _, a := range actions {
 			toolName := ""
-			if a.Type == models.ActionTypeCommand {
+			sType := string(a.Type)
+			if sType == "command" {
 				toolName = "execute_command"
-			} else if a.Type == models.ActionTypeAnalyze {
+			} else if sType == "analyze" || sType == "llm_call" {
 				toolName = "think"
-			} else if a.Type == models.ActionTypeReport {
+			} else if sType == "report" {
 				toolName = "report_findings"
+			} else if sType == "search" {
+				toolName = "search_nuclei_templates"
 			} else {
-				toolName = string(a.Type)
+				toolName = sType
 			}
 
 			// Reconstruct the Tool Call Event
 			args := a.Input
-			// Ensure args is a JSON string if it's a command
-			if toolName == "execute_command" && !strings.HasPrefix(args, "{") {
+			isJSON := strings.HasPrefix(strings.TrimSpace(args), "{")
+
+			// Ensure args is a JSON string of an object
+			if toolName == "execute_command" && !isJSON {
 				args = fmt.Sprintf(`{"command": %q}`, args)
+			} else if toolName == "think" && !isJSON {
+				args = fmt.Sprintf(`{"thought": %q}`, args)
+			} else if !isJSON {
+				args = fmt.Sprintf(`{"input": %q}`, args)
 			}
 
 			events = append(events, database.EventWithTimestamp{

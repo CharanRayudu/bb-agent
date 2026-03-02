@@ -1,6 +1,6 @@
-# 🛡️ PentAGI — Autonomous Penetration Testing Agent
+# 🛡️ Mirage — Autonomous Penetration Testing Agent
 
-A fully autonomous AI-powered penetration testing system inspired by [PentAGI](https://github.com/vxcontrol/pentagi). The AI agent autonomously plans, executes, and reports on security assessments using professional penetration testing tools.
+An open-source, fully autonomous AI-powered penetration testing system. The AI agent autonomously plans, executes, and reports on security assessments using professional penetration testing tools.
 
 ## ✨ Features
 
@@ -36,7 +36,7 @@ cp .env.example .env
 # Edit .env and set your OPENAI_API_KEY
 
 # Build the security tools image
-docker build -t pentagi-tools:latest -f build/tools/Dockerfile .
+docker build -t mirage-tools:latest -f build/tools/Dockerfile .
 
 # Start everything
 docker-compose up --build
@@ -52,7 +52,7 @@ go mod download
 cp .env.example .env
 # Edit .env with your API key
 # Source env vars, then:
-go run cmd/pentagi/main.go
+go run cmd/mirage/main.go
 
 # Frontend (separate terminal)
 cd frontend
@@ -64,7 +64,7 @@ npm run dev
 
 ```
 bb-agent/
-├── cmd/pentagi/main.go          # Entry point
+├── cmd/mirage/main.go           # Entry point
 ├── internal/
 │   ├── agent/orchestrator.go    # AI agent ReAct loop
 │   ├── config/config.go         # Environment config
