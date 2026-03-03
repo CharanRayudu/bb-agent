@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Link, useLocation, useNavigate } from 'react-router-dom'
+import { AnimatePresence, motion } from 'framer-motion'
 import { Shield, LayoutDashboard, Zap, Activity } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
 import NewTask from './pages/NewTask'
@@ -51,7 +52,7 @@ function Navbar() {
                         {/* Segmented control for desktop with sliding pill */}
                         <div className="hidden sm:flex items-center relative rounded-full bg-white/5 border border-white/10 p-0.5 overflow-hidden">
                             <div
-                                className={`absolute inset-y-0 left-0 w-1/2 rounded-full bg-gradient-to-r from-accent-cyan to-accent-green shadow-[0_0_16px_rgba(0,212,255,0.45)] transition-transform duration-400 ease-out ${
+                                className={`absolute inset-y-0 left-0 w-1/2 rounded-full bg-gradient-to-r from-accent-cyan to-accent-green shadow-[0_0_16px_rgba(0,212,255,0.45)] transition-transform duration-500 ease-out ${
                                     onNew ? 'translate-x-full' : 'translate-x-0'
                                 }`}
                             />
@@ -171,20 +172,66 @@ function CommandPalette() {
     )
 }
 
+function AppShell() {
+    const location = useLocation()
+
+    return (
+        <div className="min-h-screen bg-primary-bg bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:60px_60px] animate-grid-move font-display text-text-primary">
+            <Navbar />
+            <CommandPalette />
+            <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative">
+                <AnimatePresence mode="wait">
+                    <Routes location={location} key={location.pathname}>
+                        <Route
+                            path="/"
+                            element={
+                                <motion.div
+                                    initial={{ opacity: 0, y: 8 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, y: -8 }}
+                                    transition={{ duration: 0.25, ease: 'easeOut' }}
+                                >
+                                    <Dashboard />
+                                </motion.div>
+                            }
+                        />
+                        <Route
+                            path="/new"
+                            element={
+                                <motion.div
+                                    initial={{ opacity: 0, y: 8 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, y: -8 }}
+                                    transition={{ duration: 0.25, ease: 'easeOut' }}
+                                >
+                                    <NewTask />
+                                </motion.div>
+                            }
+                        />
+                        <Route
+                            path="/flow/:id"
+                            element={
+                                <motion.div
+                                    initial={{ opacity: 0, y: 8 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, y: -8 }}
+                                    transition={{ duration: 0.25, ease: 'easeOut' }}
+                                >
+                                    <FlowDetail />
+                                </motion.div>
+                            }
+                        />
+                    </Routes>
+                </AnimatePresence>
+            </main>
+        </div>
+    )
+}
+
 function App() {
     return (
         <BrowserRouter>
-            <div className="min-h-screen bg-primary-bg bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:60px_60px] animate-grid-move font-display text-text-primary">
-                <Navbar />
-                <CommandPalette />
-                <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative">
-                    <Routes>
-                        <Route path="/" element={<Dashboard />} />
-                        <Route path="/new" element={<NewTask />} />
-                        <Route path="/flow/:id" element={<FlowDetail />} />
-                    </Routes>
-                </main>
-            </div>
+            <AppShell />
         </BrowserRouter>
     )
 }

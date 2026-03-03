@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { motion } from 'framer-motion'
+import { AnimatePresence, motion } from 'framer-motion'
 import { ArrowLeft, Target, Clock, Activity, Cpu, Wrench, MessageSquare, CheckCircle, XCircle, ChevronRight, Terminal } from 'lucide-react'
 
 const API_BASE = '/api'
@@ -35,7 +35,11 @@ function FindingList({ findings, formatTime }) {
                         key={idx}
                         type="button"
                         onClick={() => setExpandedIndex(isExpanded ? null : idx)}
-                        className="w-full text-left rounded-xl border border-white/10 bg-white/4 hover:bg-white/8 backdrop-blur-xl px-3 py-2 text-xs text-text-primary flex flex-col transition-colors"
+                        className={`w-full text-left rounded-xl border px-3 py-2 text-xs text-text-primary flex flex-col transition-all ${
+                            isExpanded
+                                ? 'bg-white/10 border-white/20 shadow-[0_12px_40px_rgba(15,23,42,0.9)] scale-[1.01]'
+                                : 'bg-white/4 hover:bg-white/8 border-white/10'
+                        }`}
                     >
                         <div className="flex items-center justify-between gap-3">
                             <div className="flex items-center gap-2 min-w-0">
@@ -298,7 +302,25 @@ function FlowDetail() {
                     <h1 className={`text-3xl md:text-4xl font-display font-black text-transparent bg-clip-text ${headerGradientClass} mb-2 tracking-tight`}>
                         {flow.name}
                     </h1>
-                    <p className="text-text-muted/80 max-w-2xl text-sm leading-relaxed">{flow.description}</p>
+                    <p className="text-text-muted/80 max-w-2xl text-sm leading-relaxed mb-2">{flow.description}</p>
+                    <div className="flex flex-wrap gap-2 text-[10px] font-mono uppercase tracking-[0.16em] text-text-muted/80">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/5 border border-white/10">
+                            <Target className="w-3 h-3 text-accent-cyan" />
+                            <span className="truncate max-w-[160px]">{flow.target}</span>
+                        </span>
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/5 border border-white/10">
+                            <Clock className="w-3 h-3 text-accent-yellow" />
+                            <span>Started {new Date(flow.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                        </span>
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/5 border border-white/10">
+                            <Clock className="w-3 h-3 text-accent-purple" />
+                            <span>Updated {new Date(flow.updated_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                        </span>
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/5 border border-white/10">
+                            <span className="w-2 h-2 rounded-full bg-text-muted" />
+                            <span>{flow.id.slice(0, 8)}</span>
+                        </span>
+                    </div>
                 </div>
                 <div className="flex items-center gap-3">
                     <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-mono font-bold tracking-[0.16em] uppercase border backdrop-blur-md shadow-sm ${isActive ? 'bg-accent-cyan/10 text-accent-cyan border-accent-cyan/30 animate-pulse' :
@@ -489,16 +511,27 @@ function FlowDetail() {
                         <h3 className="text-sm font-bold text-text-muted tracking-widest uppercase flex items-center gap-2">
                             <Activity className="w-4 h-4 text-accent-cyan" /> Scan Story
                         </h3>
-                        <div className="inline-flex items-center rounded-full bg-white/5 border border-white/10 p-1 text-xs font-mono">
+                        <div className="relative inline-flex items-center rounded-full bg-white/5 border border-white/10 p-1 text-xs font-mono overflow-hidden min-w-[220px]">
+                            <div
+                                className="absolute inset-y-0 left-0 rounded-full bg-accent-cyan shadow-[0_0_10px_rgba(0,212,255,0.4)] transition-transform duration-500 ease-out"
+                                style={{
+                                    width: `${100 / 3}%`,
+                                    transform:
+                                        activeTab === 'timeline'
+                                            ? 'translateX(0%)'
+                                            : activeTab === 'findings'
+                                                ? 'translateX(100%)'
+                                                : 'translateX(200%)',
+                                }}
+                            />
                             {['timeline', 'findings', 'raw'].map((tab) => (
                                 <button
                                     key={tab}
                                     type="button"
                                     onClick={() => setActiveTab(tab)}
-                                    className={`px-2.5 py-1 rounded-full transition-all ${activeTab === tab
-                                            ? 'bg-accent-cyan text-primary-bg shadow-[0_0_10px_rgba(0,212,255,0.5)]'
-                                            : 'text-text-muted hover:text-text-primary'
-                                        }`}
+                                    className={`relative z-10 flex-1 px-2.5 py-1 rounded-full text-center transition-colors duration-200 ${
+                                        activeTab === tab ? 'text-primary-bg' : 'text-text-muted hover:text-text-primary'
+                                    }`}
                                 >
                                     {tab === 'timeline' && 'Timeline'}
                                     {tab === 'findings' && 'Findings'}
@@ -513,66 +546,77 @@ function FlowDetail() {
                                 {eventsError}
                             </div>
                         )}
-                        {activeTab === 'timeline' && (
-                            <>
-                                {events.length === 0 ? (
-                                    <div className="h-full flex items-center justify-center text-text-muted text-sm italic py-10">
-                                        Waiting for signals...
-                                    </div>
-                                ) : (
-                                    <div className="relative border-l-2 border-border/60 ml-3 space-y-6 pb-4 pt-2">
-                                        {events.map((event, i) => (
-                                            <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} key={i} className="relative pl-6 group">
-                                                {/* Timeline Dot */}
-                                                <div className={`absolute -left-[7px] top-1.5 w-3 h-3 rounded-full border-2 border-card-bg transition-transform group-hover:scale-125 ${event.type === 'error' ? 'bg-accent-red shadow-[0_0_10px_rgba(255,49,49,0.5)]' : event.type === 'complete' ? 'bg-accent-green shadow-[0_0_10px_rgba(0,230,118,0.5)]' : 'bg-text-muted'}`}></div>
+                        <AnimatePresence mode="wait">
+                            <motion.div
+                                key={activeTab}
+                                initial={{ opacity: 0, y: 4 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -4 }}
+                                transition={{ duration: 0.18, ease: 'easeOut' }}
+                                className="h-full"
+                            >
+                                {activeTab === 'timeline' && (
+                                    <>
+                                        {events.length === 0 ? (
+                                            <div className="h-full flex items-center justify-center text-text-muted text-sm italic py-10">
+                                                Waiting for signals...
+                                            </div>
+                                        ) : (
+                                            <div className="relative border-l-2 border-border/60 ml-3 space-y-6 pb-4 pt-2">
+                                                {events.map((event, i) => (
+                                                    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} key={i} className="relative pl-6 group">
+                                                        {/* Timeline Dot */}
+                                                        <div className={`absolute -left-[7px] top-1.5 w-3 h-3 rounded-full border-2 border-card-bg transition-transform group-hover:scale-125 ${event.type === 'error' ? 'bg-accent-red shadow-[0_0_10px_rgba(255,49,49,0.5)]' : event.type === 'complete' ? 'bg-accent-green shadow-[0_0_10px_rgba(0,230,118,0.5)]' : 'bg-text-muted'}`}></div>
 
-                                                <div className="flex justify-between items-start mb-1.5">
-                                                    <div className={`flex items-center gap-2 text-xs font-bold uppercase tracking-wider ${getEventColorClass(event.type)}`}>
-                                                        {getEventIcon(event.type)}
-                                                        {event.type.replace('_', ' ')}
-                                                    </div>
-                                                </div>
+                                                        <div className="flex justify-between items-start mb-1.5">
+                                                            <div className={`flex items-center gap-2 text-xs font-bold uppercase tracking-wider ${getEventColorClass(event.type)}`}>
+                                                                {getEventIcon(event.type)}
+                                                                {event.type.replace('_', ' ')}
+                                                            </div>
+                                                        </div>
 
-                                                <div className="text-sm text-text-primary/80 leading-relaxed bg-[#111827]/50 rounded border border-border/30 p-2.5 shadow-sm group-hover:border-accent-cyan/20 transition-colors">
-                                                    {event.content.length > 100 ? event.content.substring(0, 100) + '...' : event.content}
+                                                        <div className="text-sm text-text-primary/80 leading-relaxed bg-[#111827]/50 rounded border border-border/30 p-2.5 shadow-sm group-hover:border-accent-cyan/20 transition-colors">
+                                                            {event.content.length > 100 ? event.content.substring(0, 100) + '...' : event.content}
 
-                                                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-border/30">
-                                                        <span className="text-[10px] font-mono text-text-muted/60 tracking-wider">
-                                                            {formatTime(event.timestamp)}
-                                                        </span>
-                                                        {event.metadata?.tool && (
-                                                            <span className="inline-block px-1.5 py-0.5 bg-accent-cyan/10 border border-accent-cyan/20 rounded text-[9px] font-mono text-accent-cyan uppercase tracking-wider">
-                                                                {event.metadata.tool}
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            </motion.div>
-                                        ))}
-                                    </div>
+                                                            <div className="flex items-center justify-between mt-2 pt-2 border-t border-border/30">
+                                                                <span className="text-[10px] font-mono text-text-muted/60 tracking-wider">
+                                                                    {formatTime(event.timestamp)}
+                                                                </span>
+                                                                {event.metadata?.tool && (
+                                                                    <span className="inline-block px-1.5 py-0.5 bg-accent-cyan/10 border border-accent-cyan/20 rounded text-[9px] font-mono text-accent-cyan uppercase tracking-wider">
+                                                                        {event.metadata.tool}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </motion.div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </>
                                 )}
-                            </>
-                        )}
-                        {activeTab === 'findings' && (
-                            <>
-                                {findings.length === 0 ? (
-                                    <div className="h-full flex items-center justify-center text-text-muted text-sm italic py-10">
-                                        No structured findings reported yet.
-                                    </div>
-                                ) : (
-                                    <FindingList findings={findings} formatTime={formatTime} />
+                                {activeTab === 'findings' && (
+                                    <>
+                                        {findings.length === 0 ? (
+                                            <div className="h-full flex items-center justify-center text-text-muted text-sm italic py-10">
+                                                No structured findings reported yet.
+                                            </div>
+                                        ) : (
+                                            <FindingList findings={findings} formatTime={formatTime} />
+                                        )}
+                                    </>
                                 )}
-                            </>
-                        )}
-                        {activeTab === 'raw' && (
-                            <pre className="text-[11px] font-mono text-text-muted whitespace-pre-wrap">
-                                {events.map((event) => {
-                                    const time = formatTime(event.timestamp)
-                                    const tool = event.metadata?.tool ? ` [${event.metadata.tool}]` : ''
-                                    return `[${time}] (${event.type})${tool} ${event.content}\n\n`
-                                })}
-                            </pre>
-                        )}
+                                {activeTab === 'raw' && (
+                                    <pre className="text-[11px] font-mono text-text-muted whitespace-pre-wrap">
+                                        {events.map((event) => {
+                                            const time = formatTime(event.timestamp)
+                                            const tool = event.metadata?.tool ? ` [${event.metadata.tool}]` : ''
+                                            return `[${time}] (${event.type})${tool} ${event.content}\n\n`
+                                        })}
+                                    </pre>
+                                )}
+                            </motion.div>
+                        </AnimatePresence>
                     </div>
                 </div>
 

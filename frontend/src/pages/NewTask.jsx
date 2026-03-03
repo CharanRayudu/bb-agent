@@ -235,7 +235,7 @@ function NewTask() {
                             <button
                                 type="submit"
                                 disabled={loading}
-                                className="w-full group relative flex items-center justify-center gap-3 px-8 py-4 bg-text-primary text-primary-bg rounded-xl font-bold text-lg overflow-hidden transition-all hover:scale-[1.02] disabled:opacity-70 disabled:hover:scale-100"
+                                className="w-full group relative flex items-center justify-center gap-3 px-8 py-4 bg-text-primary text-primary-bg rounded-xl font-bold text-lg overflow-hidden transition-all hover:scale-[1.02] disabled:opacity-70 disabled:hover:scale-100 cta-breathe"
                             >
                                 <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-accent-cyan via-accent-green to-accent-cyan opacity-0 group-hover:opacity-100 transition-opacity duration-500 bg-[length:200%_auto] animate-[shimmer_3s_linear_infinite]" />
                                 {loading ? (

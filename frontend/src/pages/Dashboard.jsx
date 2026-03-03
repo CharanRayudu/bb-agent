@@ -12,6 +12,7 @@ function Dashboard() {
     const [findings, setFindings] = useState([])
     const [findingsLoading, setFindingsLoading] = useState(false)
     const findingsLoadedRef = useRef(false)
+    const [statusFilter, setStatusFilter] = useState('all')
 
     useEffect(() => {
         fetchFlows()
@@ -108,6 +109,24 @@ function Dashboard() {
         })
     }
 
+    const filters = ['all', 'running', 'active', 'completed', 'failed']
+
+    const statusCounts = flows.reduce(
+        (acc, flow) => {
+            const s = (flow.status || '').toLowerCase()
+            if (s === 'running') acc.running++
+            else if (s === 'active') acc.active++
+            else if (s === 'completed') acc.completed++
+            else if (s === 'failed') acc.failed++
+            return acc
+        },
+        { all: flows.length, running: 0, active: 0, completed: 0, failed: 0 }
+    )
+
+    const filteredFlows = statusFilter === 'all'
+        ? flows
+        : flows.filter((flow) => (flow.status || '').toLowerCase() === statusFilter)
+
     if (loading) {
         return (
             <div className="relative pb-12">
@@ -185,7 +204,7 @@ function Dashboard() {
                         <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}>
                             <Link
                                 to="/new"
-                                className="group relative inline-flex items-center justify-center gap-2 px-8 py-3.5 text-sm font-semibold text-primary-bg rounded-full overflow-hidden transition-all duration-300 hover:scale-105 hover:shadow-[0_0_24px_rgba(0,212,255,0.55)] bg-gradient-to-r from-accent-cyan via-accent-green to-accent-cyan"
+                                className="group relative inline-flex items-center justify-center gap-2 px-8 py-3.5 text-sm font-semibold text-primary-bg rounded-full overflow-hidden transition-all duration-300 hover:scale-105 bg-gradient-to-r from-accent-cyan via-accent-green to-accent-cyan cta-breathe"
                             >
                                 <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-white/40 via-transparent to-white/40 opacity-0 group-hover:opacity-100 transition-opacity duration-700 bg-[length:220%_100%] animate-[shimmer_3s_linear_infinite]" />
                                 <Zap className="w-4 h-4 relative z-10" />
@@ -195,6 +214,36 @@ function Dashboard() {
                     </div>
                 </div>
             </div>
+
+            {/* Status Filter Bar with sliding pill */}
+            {flows.length > 0 && (
+                <div className="mb-8 relative z-10 flex items-center justify-between">
+                    <div className="relative inline-flex items-center rounded-full bg-white/5 border border-white/10 p-0.5 text-[11px] font-mono overflow-hidden min-w-[260px]">
+                        <div
+                            className="absolute inset-y-0 left-0 rounded-full bg-accent-cyan shadow-[0_0_12px_rgba(0,212,255,0.6)] transition-transform duration-500 ease-out"
+                            style={{
+                                width: `${100 / filters.length}%`,
+                                transform: `translateX(${filters.indexOf(statusFilter) * 100}%)`,
+                            }}
+                        />
+                        {filters.map((key) => (
+                            <button
+                                key={key}
+                                type="button"
+                                onClick={() => setStatusFilter(key)}
+                                className={`relative z-10 flex-1 px-3 py-1 rounded-full uppercase tracking-[0.16em] text-center transition-colors duration-200 ${
+                                    statusFilter === key ? 'text-primary-bg' : 'text-text-muted hover:text-text-primary'
+                                }`}
+                            >
+                                {key}{' '}
+                                <span className="ml-1 text-[10px] text-text-muted/80">
+                                    ({statusCounts[key] || 0})
+                                </span>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {/* Findings Overview */}
             {(findingsLoading || findings.length > 0) && (
@@ -284,7 +333,7 @@ function Dashboard() {
                     animate="visible"
                     className="relative z-10 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 auto-rows-[1fr]"
                 >
-                    {flows.map((flow) => (
+                    {filteredFlows.map((flow) => (
                         <motion.div key={flow.id} variants={itemVariants} className="h-full">
                             <Link to={`/flow/${flow.id}`} className="block h-full group">
                                 <div className="h-full relative overflow-hidden rounded-3xl border border-white/15 bg-white/8 backdrop-blur-2xl p-6 shadow-[0_18px_80px_rgba(15,23,42,0.95)] transition-all duration-500 transform hover:-translate-y-1 hover:shadow-[0_0_45px_rgba(0,212,255,0.45)] hover:border-accent-cyan/60">
@@ -296,24 +345,7 @@ function Dashboard() {
                                     <div className="relative z-10 flex flex-col h-full">
                                         <div className="flex justify-between items-start mb-4 gap-4">
                                             <h3 className="text-lg font-bold text-text-primary truncate" title={flow.name}>{flow.name}</h3>
-                                            <div className="flex-shrink-0 flex items-center gap-2">
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.preventDefault();
-                                                        e.stopPropagation();
-                                                        if (confirm(`Are you sure you want to delete "${flow.name}"? This cannot be undone.`)) {
-                                                            fetch(`${API_BASE}/flows/${flow.id}`, { method: 'DELETE' })
-                                                                .then(res => {
-                                                                    if (res.ok) fetchFlows();
-                                                                })
-                                                                .catch(err => console.error('Delete failed:', err));
-                                                        }
-                                                    }}
-                                                    className="p-1.5 rounded-lg bg-accent-red/10 text-accent-red border border-accent-red/20 hover:bg-accent-red/20 transition-colors"
-                                                    title="Delete Flow"
-                                                >
-                                                    <Search className="w-3.5 h-3.5 rotate-45" /> {/* Using Search rotated as a makeshift 'x' or just use X icon if available */}
-                                                </button>
+                                            <div className="flex-shrink-0">
                                                 <span className={getStatusBadge(flow.status)}>{flow.status}</span>
                                             </div>
                                         </div>

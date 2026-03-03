@@ -789,6 +789,27 @@ body {
   color: var(--text-secondary);
 }
 
+/* ============ CTAs (soft breathing glow) ============ */
+@keyframes cta-breathe {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 rgba(0, 212, 255, 0);
+  }
+  50% {
+    transform: scale(1.015);
+    box-shadow: 0 0 28px rgba(0, 212, 255, 0.28);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 rgba(0, 212, 255, 0);
+  }
+}
+
+.cta-breathe {
+  animation: cta-breathe 4s ease-in-out infinite;
+  transform-origin: center;
+}
+
 /* ============ Responsive ============ */
 @media (max-width: 768px) {
   .main-content {
