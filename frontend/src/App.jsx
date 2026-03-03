@@ -114,23 +114,44 @@ function CommandPalette() {
     const navigate = useNavigate()
     const [open, setOpen] = useState(false)
     const [query, setQuery] = useState('')
+    const [activeIndex, setActiveIndex] = useState(0)
 
     useEffect(() => {
         function handler(e) {
             if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
                 e.preventDefault()
                 setOpen((prev) => !prev)
+                setActiveIndex(0)
+            }
+            if (!open) return
+            if (e.key === 'ArrowDown') {
+                e.preventDefault()
+                setActiveIndex((prev) => (prev + 1) % options.length)
+            }
+            if (e.key === 'ArrowUp') {
+                e.preventDefault()
+                setActiveIndex((prev) => (prev - 1 + options.length) % options.length)
+            }
+            if (e.key === 'Enter') {
+                e.preventDefault()
+                const opt = options[activeIndex]
+                if (opt) {
+                    opt.action()
+                    setOpen(false)
+                    setQuery('')
+                }
             }
         }
         window.addEventListener('keydown', handler)
         return () => window.removeEventListener('keydown', handler)
-    }, [])
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open, activeIndex])
 
     if (!open) return null
 
     const options = [
-        { label: 'Go to Dashboard', action: () => navigate('/') },
-        { label: 'Start New Scan', action: () => navigate('/new') },
+        { label: 'Go to Dashboard', action: () => navigate('/'), icon: LayoutDashboard },
+        { label: 'Start New Scan', action: () => navigate('/new'), icon: Zap },
     ]
 
     const filtered = options.filter((opt) => opt.label.toLowerCase().includes(query.toLowerCase()))
@@ -151,20 +172,27 @@ function CommandPalette() {
                     {filtered.length === 0 ? (
                         <div className="px-4 py-3 text-xs text-text-muted">No results.</div>
                     ) : (
-                        filtered.map((opt) => (
+                        filtered.map((opt, idx) => {
+                            const Icon = opt.icon
+                            const isActive = idx === activeIndex
+                            return (
                             <button
-                                key={opt.label}
-                                type="button"
-                                onClick={() => {
-                                    opt.action()
-                                    setOpen(false)
-                                    setQuery('')
-                                }}
-                                className="w-full text-left px-4 py-2 text-sm text-text-primary hover:bg-white/10 transition-colors"
-                            >
-                                {opt.label}
-                            </button>
-                        ))
+                                    key={opt.label}
+                                    type="button"
+                                    onClick={() => {
+                                        opt.action()
+                                        setOpen(false)
+                                        setQuery('')
+                                    }}
+                                    className={`w-full flex items-center gap-3 px-4 py-2 text-sm transition-colors ${
+                                        isActive ? 'bg-white/15 text-text-primary' : 'text-text-primary hover:bg-white/10'
+                                    }`}
+                                >
+                                    {Icon && <Icon className="w-4 h-4 text-accent-cyan flex-shrink-0" />}
+                                    <span>{opt.label}</span>
+                                </button>
+                            )
+                        })
                     )}
                 </div>
             </div>

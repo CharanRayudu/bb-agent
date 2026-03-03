@@ -5,6 +5,8 @@ import { Search, Zap, Clock, Activity, Target, ArrowRight } from 'lucide-react'
 
 const API_BASE = '/api'
 
+const CHIP_BASE = 'inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-mono uppercase tracking-[0.16em]'
+
 function Dashboard() {
     const [flows, setFlows] = useState([])
     const [loading, setLoading] = useState(true)
@@ -86,7 +88,7 @@ function Dashboard() {
     }
 
     function getStatusBadge(status) {
-        const baseClasses = 'inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-mono uppercase tracking-[0.16em] border backdrop-blur-sm shadow-sm'
+        const baseClasses = `${CHIP_BASE} px-3 gap-1.5 backdrop-blur-sm shadow-sm`
         switch (status) {
             case 'completed':
                 return `${baseClasses} bg-accent-green/10 text-accent-green border-accent-green/30`
@@ -278,7 +280,7 @@ function Dashboard() {
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             {findings.slice(0, 6).map((finding) => {
                                 const { severity } = finding
-                                const badgeClasses =
+                                const severityClasses =
                                     severity === 'critical'
                                         ? 'bg-accent-red/15 text-accent-red border-accent-red/40'
                                         : severity === 'high'
@@ -297,7 +299,7 @@ function Dashboard() {
                                     >
                                         <div className="flex items-center justify-between mb-2 gap-2">
                                             <span
-                                                className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-mono uppercase tracking-widest ${badgeClasses}`}
+                                                className={`${CHIP_BASE} ${severityClasses}`}
                                             >
                                                 {severity}
                                             </span>

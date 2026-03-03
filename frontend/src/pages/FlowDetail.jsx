@@ -5,6 +5,8 @@ import { ArrowLeft, Target, Clock, Activity, Cpu, Wrench, MessageSquare, CheckCi
 
 const API_BASE = '/api'
 
+const CHIP_BASE = 'inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-mono uppercase tracking-[0.16em]'
+
 function FindingList({ findings, formatTime }) {
     const [expandedIndex, setExpandedIndex] = useState(null)
 
@@ -44,7 +46,7 @@ function FindingList({ findings, formatTime }) {
                         <div className="flex items-center justify-between gap-3">
                             <div className="flex items-center gap-2 min-w-0">
                                 <span
-                                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-mono uppercase tracking-widest ${badgeClasses}`}
+                                    className={`${CHIP_BASE} text-[9px] ${badgeClasses}`}
                                 >
                                     {severity}
                                 </span>
@@ -304,32 +306,32 @@ function FlowDetail() {
                     </h1>
                     <p className="text-text-muted/80 max-w-2xl text-sm leading-relaxed mb-2">{flow.description}</p>
                     <div className="flex flex-wrap gap-2 text-[10px] font-mono uppercase tracking-[0.16em] text-text-muted/80">
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/5 border border-white/10">
+                        <span className={`${CHIP_BASE} bg-white/5 border-white/10`}>
                             <Target className="w-3 h-3 text-accent-cyan" />
                             <span className="truncate max-w-[160px]">{flow.target}</span>
                         </span>
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/5 border border-white/10">
+                        <span className={`${CHIP_BASE} bg-white/5 border-white/10`}>
                             <Clock className="w-3 h-3 text-accent-yellow" />
                             <span>Started {new Date(flow.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                         </span>
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/5 border border-white/10">
+                        <span className={`${CHIP_BASE} bg-white/5 border-white/10`}>
                             <Clock className="w-3 h-3 text-accent-purple" />
                             <span>Updated {new Date(flow.updated_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                         </span>
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/5 border border-white/10">
+                        <span className={`${CHIP_BASE} bg-white/5 border-white/10`}>
                             <span className="w-2 h-2 rounded-full bg-text-muted" />
                             <span>{flow.id.slice(0, 8)}</span>
                         </span>
                     </div>
                 </div>
                 <div className="flex items-center gap-3">
-                    <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-mono font-bold tracking-[0.16em] uppercase border backdrop-blur-md shadow-sm ${isActive ? 'bg-accent-cyan/10 text-accent-cyan border-accent-cyan/30 animate-pulse' :
+                    <span className={`${CHIP_BASE} px-3 py-1 font-bold backdrop-blur-md shadow-sm ${isActive ? 'bg-accent-cyan/10 text-accent-cyan border-accent-cyan/30 animate-pulse' :
                         flow.status === 'completed' ? 'bg-accent-green/10 text-accent-green border-accent-green/30' :
                             'bg-accent-red/10 text-accent-red border-accent-red/30'
                         }`}>
                         {flow.status}
                     </span>
-                    <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-mono font-bold tracking-[0.16em] uppercase border backdrop-blur-md shadow-sm ${connected ? 'bg-accent-green/10 text-accent-green border-accent-green/30' : 'bg-text-muted/10 text-text-muted border-text-muted/30'
+                    <span className={`${CHIP_BASE} px-3 py-1 font-bold backdrop-blur-md shadow-sm ${connected ? 'bg-accent-green/10 text-accent-green border-accent-green/30' : 'bg-text-muted/10 text-text-muted border-text-muted/30'
                         }`}>
                         <span className={`w-2 h-2 rounded-full ${connected ? 'bg-accent-green animate-ping' : 'bg-text-muted'}`}></span>
                         {connected ? 'Uplink Live' : 'Offline'}
