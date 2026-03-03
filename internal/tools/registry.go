@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -172,6 +173,29 @@ func (r *Registry) registerBuiltins() {
 			return result, nil
 		},
 	})
+
+	// execute_browser_script — native headless browser driver
+	r.Register(&Tool{
+		Definition: llm.ToolDefinition{
+			Name:        "execute_browser_script",
+			Description: "Execute a custom Playwright (Node.js) script inside the headless browser environment to interact with SPAs, bypass captchas, extract DOM-based data, or login. Provide the raw javascript code. The script will be saved to a temporary file and run with `node`. Console output will be returned. Note: the `playwright` module is globally installed, so you can `require('playwright')`. Always make sure your scripts handle errors and clean up cleanly using `browser.close()`.",
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"script": map[string]interface{}{
+						"type":        "string",
+						"description": "The raw Javascript code using Playwright to run.",
+					},
+					"timeout": map[string]interface{}{
+						"type":        "integer",
+						"description": "Maximum execution time in seconds (default: 60)",
+					},
+				},
+				"required": []string{"script"},
+			},
+		},
+		Execute: r.executeBrowserScript,
+	})
 }
 
 // AddUpdateMemoryTool registers the memory tool with a callback to the orchestrator's state array
@@ -243,6 +267,50 @@ func (r *Registry) executeCommand(ctx context.Context, args json.RawMessage) (st
 	const maxOutput = 15000
 	if len(output) > maxOutput {
 		output = output[:maxOutput] + "\n\n... [output truncated, showing first 15000 characters]"
+	}
+
+	return output, nil
+}
+
+func (r *Registry) executeBrowserScript(ctx context.Context, args json.RawMessage) (string, error) {
+	var params struct {
+		Script  string `json:"script"`
+		Timeout int    `json:"timeout"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return "", fmt.Errorf("invalid browser script args: %w", err)
+	}
+
+	if params.Timeout <= 0 {
+		params.Timeout = 60
+	}
+	if params.Timeout > 300 {
+		params.Timeout = 300
+	}
+
+	log.Printf("🌐 Executing Browser Script (timeout: %ds)", params.Timeout)
+
+	// Base64 encode the script to avoid shell escaping issues
+	encodedScript := base64.StdEncoding.EncodeToString([]byte(params.Script))
+
+	// Decode script and execute with node
+	cmd := fmt.Sprintf("echo %s | base64 -d > /tmp/browser_script.js && export NODE_PATH=/usr/lib/node_modules/ && node /tmp/browser_script.js", encodedScript)
+
+	result, err := r.sandbox.Execute(ctx, cmd, params.Timeout)
+	if err != nil {
+		return "", fmt.Errorf("sandbox browser execution failed: %w", err)
+	}
+
+	output := result.Stdout
+	if result.Stderr != "" {
+		output += "\n" + result.Stderr
+	}
+	output += fmt.Sprintf("\n\n[Exit Code: %d | Duration: %s]", result.ExitCode, result.Duration.Round(time.Millisecond))
+
+	// Truncate very long output
+	const maxOutput = 20000
+	if len(output) > maxOutput {
+		output = output[:maxOutput] + "\n\n... [output truncated, showing first 20000 characters]"
 	}
 
 	return output, nil

@@ -41,7 +41,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     traceroute \
     unzip \
     python3-requests \
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Playwright for Headless Browser Orchestration
+ENV PLAYWRIGHT_BROWSERS_PATH=/usr/lib/playwright
+RUN npm install -g playwright && \
+    npx playwright install --with-deps chromium
 
 # Install additional Python-based tools
 RUN python3 -m pip install --break-system-packages \
