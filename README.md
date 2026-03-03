@@ -1,14 +1,15 @@
 # 🛡️ Mirage — Enterprise Autonomous Penetration Testing Agent
 
-Mirage is a fully autonomous, AI-driven penetration testing system. Unlike simple LLM wrappers that naively run tools and hallucinate, Mirage is built on a **Cognitive Architecture** designed to mimic a human Senior Penetration Tester. It autonomously plans, dynamically exploits, memorizes past findings, and visually interacts with Single Page Applications using native browser orchestration.
+Mirage is a fully autonomous, AI-driven penetration testing system. It mimics a Senior Penetration Tester by planning, exploiting, and memorizing findings through a sophisticated **Cognitive Architecture**.
 
 ## ✨ Core Capabilities
 
-- 🤖 **Conscious Testing Philosophy**: Mirage doesn't just run scans; it consciously hypothesizes vulnerabilities based on reconnaissance output and dynamically chains exploit tools to prove them.
-- �️ **Native Headless Browser Orchestration**: Integrated Node.js & Playwright allow the AI to bypass SPA rendering walls, interact with complex login portals, and natively extract DOM data.
-- 🧠 **Neural Scratchpad Memory**: Mirage features a persistent Scratchpad (`update_memory` tool) and Historical Context extraction. It will never "forget" an open port mid-scan, solving the LLM Context Window Treadmill problem.
-- 🛡️ **Air-Gapped Sandbox**: All tools (from Nmap to Metasploit) execute inside a strictly isolated Kali Linux Docker container.
-- 🧬 **Autonomous Tooling**: If Mirage discovers it lacks a specific exploit script, it has root permissions to use `apt-get` or `git clone` to seamlessly install the missing weapon mid-flight.
+- 🤖 **Conscious Testing Philosophy**: Mirage hypothesizes vulnerabilities and dynamically chains tools for proof.
+- ⏹️ **Responsive Stop Scan**: A multi-layered cancellation system that halts LLM calls and tool execution instantly.
+- 🧠 **Neural Scratchpad Memory**: Persistent `update_memory` and Historical Context skip redundant discovery phases.
+- 🌐 **SPA Native Interaction**: Integrated Node.js & Playwright for headless browser orchestration of modern web apps.
+- 🧪 **Air-Gapped Sandbox**: Tools execute in a strictly isolated Kali Linux container (`mirage-sandbox`).
+- 🧬 **Autonomous Arsenal**: Root-level permissions to `apt-get` or `git clone` missing tools mid-scan.
 
 ---
 
@@ -16,82 +17,83 @@ Mirage is a fully autonomous, AI-driven penetration testing system. Unlike simpl
 
 ```mermaid
 graph LR
-    A[Frontend (React + Vite)] -->|WebSocket & REST| B(Backend Orchestrator)
-    B -->|SQL| C[(PostgreSQL + pgvector)]
-    B -->|Docker API| D[Kali Linux Sandbox]
-    D -.->|Native Playwright| E(SPA / Target)
+    A["Frontend (React + Vite)"] -->|WebSocket & REST| B["Backend Orchestrator"]
+    B -->|SQL| C[("PostgreSQL + pgvector")]
+    B -->|Docker API| D["Kali Linux Sandbox"]
+    D -.->|Native Playwright| E["SPA / Target"]
     D -.->|CLI Scanners| E
 ```
 
 ---
 
-## 🚀 Quick Start (Docker Compose)
-
-The easiest way to launch Mirage is via the unified Docker Compose stack, which provisions the Database, the Backend Orchestrator, and builds the Kali Linux Sandbox with all required Node.js/Playwright binaries.
+## 🚀 Getting Started
 
 ### Prerequisites
+- Windows (for PowerShell scripts) or Linux/macOS (manual setup)
 - Docker & Docker Compose
-- An OpenAI API Key (or compatible LLM endpoint)
+- OpenAI API Key (or Codex CLI login)
 
-### Installation
+### 🏎️ Fast Track (Windows)
 
-1. **Clone the Repository**
+We provide hardened PowerShell scripts to manage the lifecycle of your Mirage environment autonomously.
+
+| Operation | Command | Description |
+|-----------|---------|-------------|
+| **Start** | `./start.ps1` | Clears port 3000, boots Postgres, builds/runs containers, and starts Vite. |
+| **Stop** | `./stop.ps1` | Gracefully shuts down containers and kills orphaned Node/Frontend processes. |
+
+### 🛠️ Manual Installation
+
+1. **Clone & Configure**
    ```bash
    git clone https://github.com/your-org/bb-agent.git
-   cd bb-agent
+   cp .env.example .env # Add your OPENAI_API_KEY
    ```
 
-2. **Configure Environment**
-   ```bash
-   cp .env.example .env
-   # Open .env and insert your OPENAI_API_KEY
-   ```
-
-3. **Build & Boot the Stack**
-   Windows users can run the native startup script:
-   ```powershell
-   ./start.ps1
-   ```
-   Or manually via Docker Compose:
+2. **Launch Infrastructure**
    ```bash
    docker-compose up -d --build
    ```
 
-4. **Access the Dashboard**
-   Navigate to `http://localhost:3000` to interact with the AI and launch pentests.
+3. **Start Frontend**
+   ```bash
+   cd frontend && npm install && npm run dev
+   ```
 
 ---
 
 ## 📁 Project Structure
 
-```
+```text
 bb-agent/
-├── cmd/mirage/main.go           # Go backend entry point
 ├── internal/
-│   ├── agent/orchestrator.go    # AI agent ReAct loop & System Constraints
-│   ├── database/queries.go      # PostgreSQL + Neural Memory extraction
-│   ├── docker/sandbox.go        # Isolated Docker exec controller
-│   └── tools/registry.go        # Tool Registry (think, execute, execute_browser_script)
-├── frontend/                    # Glassmorphic React + Vite dashboard
-├── build/
-│   ├── backend/Dockerfile       # Go container
-│   └── tools/Dockerfile         # Kali pentest sandbox (Node, Playwright, Nmap, etc.)
-└── docker-compose.yml
+│   ├── agent/orchestrator.go    # ReAct Loop & Cancellation Logic
+│   ├── llm/                     # OpenAI & Codex Provider (Context-aware)
+│   ├── database/queries.go      # Neural Memory & Batch Status updates
+│   └── docker/sandbox.go        # Isolated Docker exec controller
+├── frontend/src/                # Glassmorphic React (21st.dev Style)
+├── start.ps1 / stop.ps1        # Hardened Infrastructure Scripts
+└── docker-compose.yml           # Multi-container orchestration
 ```
 
 ---
 
-## 🔧 Default Sandbox Arsenal
+## 🔧 Operational Arsenal
 
-The `mirage-tools` Kali sandbox comes pre-loaded with an enterprise toolkit. If a tool is missing, the AI is instructed to install it autonomously.
+| Category | Tools | AI Interaction |
+|----------|-------|----------------|
+| **Recon** | Nmap, Amass, Httpx | Scopes targets via IP/Domain |
+| **Exploit** | Metasploit, SQLMap | Chained prove-of-vulnerability |
+| **Web** | Nuclei, Gobuster | SPA crawling via Playwright |
+| **Custom** | `apt-get` / `git` | Autonomous tool installation |
 
-| Category | Available Weapons |
-|----------|-------|
-| **Reconnaissance** | Nmap, Masscan, Amass, Subfinder, Httpx |
-| **Web Enumeration** | Nikto, Gobuster, SQLMap, Wfuzz, Nuclei |
-| **GUI Bypassing** | Playwright (Node.js DOM Execution) |
-| **Exploitation** | Metasploit-Framework, Searchsploit |
-| **Network & Utilities** | Netcat, Socat, Curl, Wget, Python3, Git |
+---
+
+## 🛠️ Troubleshooting
+
+- **Port 3000 Conflict**: Use `./start.ps1` on Windows; it automatically kills lingering Node processes.
+- **Orphaned Scans**: If the UI shows "active" for a dead scan, just click the **Stop Scan** button in Flow Detail to force-clear it.
+- **DB Connection**: Ensure `mirage-db` is healthy before starting the backend (handled natively by `start.ps1`).
 
 ---
 

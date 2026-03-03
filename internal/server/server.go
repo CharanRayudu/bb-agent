@@ -131,8 +131,8 @@ func (s *Server) handleFlow(w http.ResponseWriter, r *http.Request) {
 	// Simple router for /api/flows/{id} vs /api/flows/{id}/events
 	path := r.URL.Path[len("/api/flows/"):]
 
-	// Check if this is the events or cancel sub-route
-	if len(path) > 36 {
+	// Check if this is a sub-route like /api/flows/{id}/events or /api/flows/{id}/cancel
+	if len(path) > 36 && path[36] == '/' {
 		idStr := path[:36]
 		subRoute := path[36:]
 		id, err := uuid.Parse(idStr)
@@ -141,22 +141,33 @@ func (s *Server) handleFlow(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if subRoute == "/events" {
+		if subRoute == "/events" && r.Method == http.MethodGet {
 			s.handleFlowEvents(w, r, id)
 			return
-		} else if subRoute == "/cancel" {
+		} else if subRoute == "/cancel" && r.Method == http.MethodPost {
 			s.handleCancelFlow(w, r, id)
 			return
 		}
+
+		http.Error(w, "Endpoint or method not supported", http.StatusNotFound)
+		return
 	}
 
-	// Otherwise, handle regular FlowByID
+	// Otherwise, handle regular FlowByID (GET) or DeleteFlow (DELETE)
 	id, err := uuid.Parse(path)
 	if err != nil {
 		http.Error(w, "Invalid flow ID", http.StatusBadRequest)
 		return
 	}
-	s.handleFlowByID(w, r, id)
+
+	switch r.Method {
+	case http.MethodGet:
+		s.handleFlowByID(w, r, id)
+	case http.MethodDelete:
+		s.handleDeleteFlow(w, r, id)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 func (s *Server) handleCancelFlow(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
@@ -181,6 +192,14 @@ func (s *Server) handleCancelFlow(w http.ResponseWriter, r *http.Request, id uui
 
 	// ALWAYS update database and broadcast event to ensure orphans are cleared in the UI
 	s.queries.UpdateFlowStatus(id, models.FlowStatusFailed)
+
+	// Also failure any tasks that might still be shown as pending/running
+	// (This is a coarse sweep but effective for orphan cleanup)
+	s.queries.UpdateTasksStatusByFlow(id, models.TaskStatusFailed, "Scan cancelled by user")
+
+	// Persist the cancellation event so it shows up in the timeline on reload
+	s.queries.CreateFlowEvent(id, string(agent.EventError), "Scan cancelled by user.", nil)
+
 	s.broadcast(agent.Event{
 		Type:      agent.EventError,
 		FlowID:    id.String(),
@@ -189,6 +208,21 @@ func (s *Server) handleCancelFlow(w http.ResponseWriter, r *http.Request, id uui
 	})
 
 	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleDeleteFlow(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	// First stop the flow if it's active
+	if cancel, ok := s.activeScans[id]; ok {
+		cancel()
+		delete(s.activeScans, id)
+	}
+
+	if err := s.queries.DeleteFlow(id); err != nil {
+		http.Error(w, "Failed to delete flow", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleFlowByID(w http.ResponseWriter, r *http.Request, id uuid.UUID) {

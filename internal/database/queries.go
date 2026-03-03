@@ -83,6 +83,11 @@ func (q *Queries) UpdateFlowStatus(id uuid.UUID, status models.FlowStatus) error
 	return err
 }
 
+func (q *Queries) DeleteFlow(id uuid.UUID) error {
+	_, err := q.db.Exec(`DELETE FROM flows WHERE id = $1`, id)
+	return err
+}
+
 // GetHistoricalContext retrieves the compiled scratchpad memories and final reports from the most recent completed flow for a given target.
 func (q *Queries) GetHistoricalContext(target string) (string, error) {
 	// First, find the ID of the most recent completed flow for this exact target
@@ -184,6 +189,14 @@ func (q *Queries) UpdateTaskStatus(id uuid.UUID, status models.TaskStatus, resul
 	_, err := q.db.Exec(
 		`UPDATE tasks SET status = $1, result = $2, updated_at = NOW() WHERE id = $3`,
 		status, result, id,
+	)
+	return err
+}
+
+func (q *Queries) UpdateTasksStatusByFlow(flowID uuid.UUID, status models.TaskStatus, result string) error {
+	_, err := q.db.Exec(
+		`UPDATE tasks SET status = $1, result = $2, updated_at = NOW() WHERE flow_id = $3 AND (status = 'pending' OR status = 'running')`,
+		status, result, flowID,
 	)
 	return err
 }

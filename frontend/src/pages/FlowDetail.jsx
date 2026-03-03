@@ -323,6 +323,24 @@ function FlowDetail() {
                             {stopping ? 'Stopping...' : <><XCircle className="w-3 h-3" /> Stop Scan</>}
                         </button>
                     )}
+
+                    <button
+                        onClick={async () => {
+                            if (confirm(`Are you sure you want to delete "${flow.name}"? This action is permanent.`)) {
+                                try {
+                                    const res = await fetch(`${API_BASE}/flows/${id}`, { method: 'DELETE' });
+                                    if (res.ok) {
+                                        window.location.href = '/';
+                                    }
+                                } catch (err) {
+                                    console.error('Delete failed:', err);
+                                }
+                            }
+                        }}
+                        className="flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-mono font-bold tracking-widest uppercase border border-accent-red/20 bg-accent-red/5 text-accent-red/70 hover:bg-accent-red/20 hover:text-accent-red backdrop-blur-md shadow-sm transition-all hover:scale-105"
+                    >
+                        <XCircle className="w-3 h-3" /> Delete Trace
+                    </button>
                 </div>
             </div>
 
@@ -477,11 +495,10 @@ function FlowDetail() {
                                     key={tab}
                                     type="button"
                                     onClick={() => setActiveTab(tab)}
-                                    className={`px-2.5 py-1 rounded-full transition-all ${
-                                        activeTab === tab
+                                    className={`px-2.5 py-1 rounded-full transition-all ${activeTab === tab
                                             ? 'bg-accent-cyan text-primary-bg shadow-[0_0_10px_rgba(0,212,255,0.5)]'
                                             : 'text-text-muted hover:text-text-primary'
-                                    }`}
+                                        }`}
                                 >
                                     {tab === 'timeline' && 'Timeline'}
                                     {tab === 'findings' && 'Findings'}

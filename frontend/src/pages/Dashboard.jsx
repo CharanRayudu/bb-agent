@@ -296,7 +296,24 @@ function Dashboard() {
                                     <div className="relative z-10 flex flex-col h-full">
                                         <div className="flex justify-between items-start mb-4 gap-4">
                                             <h3 className="text-lg font-bold text-text-primary truncate" title={flow.name}>{flow.name}</h3>
-                                            <div className="flex-shrink-0">
+                                            <div className="flex-shrink-0 flex items-center gap-2">
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.preventDefault();
+                                                        e.stopPropagation();
+                                                        if (confirm(`Are you sure you want to delete "${flow.name}"? This cannot be undone.`)) {
+                                                            fetch(`${API_BASE}/flows/${flow.id}`, { method: 'DELETE' })
+                                                                .then(res => {
+                                                                    if (res.ok) fetchFlows();
+                                                                })
+                                                                .catch(err => console.error('Delete failed:', err));
+                                                        }
+                                                    }}
+                                                    className="p-1.5 rounded-lg bg-accent-red/10 text-accent-red border border-accent-red/20 hover:bg-accent-red/20 transition-colors"
+                                                    title="Delete Flow"
+                                                >
+                                                    <Search className="w-3.5 h-3.5 rotate-45" /> {/* Using Search rotated as a makeshift 'x' or just use X icon if available */}
+                                                </button>
                                                 <span className={getStatusBadge(flow.status)}>{flow.status}</span>
                                             </div>
                                         </div>
