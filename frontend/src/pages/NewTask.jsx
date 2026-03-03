@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { motion } from 'framer-motion'
+import { Zap, Search, Globe, Network, Shield, Lightbulb, ChevronRight, Server, Database, Terminal, Ghost, Bug } from 'lucide-react'
 
 const API_BASE = '/api'
 
@@ -16,7 +18,6 @@ function NewTask() {
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState('')
 
-    // Fetch available models on mount
     useEffect(() => {
         fetchModels()
     }, [])
@@ -27,7 +28,6 @@ function NewTask() {
             if (res.ok) {
                 const data = await res.json()
                 setModels(data || [])
-                // Auto-select the current model (marked by backend)
                 const current = data.find((m) => m.current)
                 if (current) {
                     setForm((prev) => ({ ...prev, model: current.id }))
@@ -85,28 +85,37 @@ function NewTask() {
 
     const presets = [
         {
-            name: 'Full Port Scan',
-            description: 'Perform a comprehensive port scan, identify all running services, detect OS and versions, then enumerate discovered services for potential vulnerabilities.',
-            icon: '🔍',
+            name: 'Stealth Reconnaissance',
+            description: 'Perform quiet, passive OSINT and low-rate SYN scanning. Discover subdomains and open ports without triggering IDS/IPS alerts.',
+            icon: Ghost,
         },
         {
-            name: 'Web Application Test',
-            description: 'Scan the web application for common vulnerabilities including SQL injection, XSS, directory traversal, misconfigured headers, and known CVEs using automated tools.',
-            icon: '🌐',
+            name: 'OWASP Web Exploitation',
+            description: 'Run deep directory brute-force, test for SQLi, XSS, SSRF, and hunt for exposed admin panels using Nuclei templates.',
+            icon: Globe,
         },
         {
-            name: 'Network Recon',
-            description: 'Perform DNS enumeration, subdomain discovery, reverse DNS lookup, and map the target network infrastructure. Identify related hosts and services.',
-            icon: '🗺️',
+            name: 'API Endpoint Fuzzing',
+            description: 'Discover hidden API routes (v1/v2/graphql), test for Broken Object Level Authorization (BOLA), and JWT misconfigurations.',
+            icon: Terminal,
         },
         {
-            name: 'Vulnerability Assessment',
-            description: 'Run a comprehensive vulnerability scan using nuclei templates and other scanners. Identify known CVEs, misconfigurations, and security weaknesses with severity ratings.',
-            icon: '🛡️',
+            name: 'Database Extraction',
+            description: 'Focus exclusively on DB ports (3306, 5432, 1433). Attempt weak credential brute-forcing and data extraction using SQLMap.',
+            icon: Database,
+        },
+        {
+            name: 'Internal Infrastructure',
+            description: 'Identify internal services. Enumerate SMB/LDAP/Kerberos, check for anonymous logins, and map Active Directory attack paths.',
+            icon: Server,
+        },
+        {
+            name: 'Full Red Team Chain',
+            description: 'Leave no stone unturned. Perform exhaustive port scanning, deep web enum, CVE hunting, and attempt authorized exploitation chains.',
+            icon: Bug,
         },
     ]
 
-    // Group models by category
     const modelsByCategory = models.reduce((acc, model) => {
         if (!acc[model.category]) acc[model.category] = []
         acc[model.category].push(model)
@@ -116,198 +125,168 @@ function NewTask() {
     const selectedModel = models.find((m) => m.id === form.model)
 
     return (
-        <div>
-            <div className="page-header">
-                <div>
-                    <h1 className="page-title">⚡ New Penetration Test</h1>
-                    <p className="page-subtitle">Configure and launch an autonomous security assessment</p>
-                </div>
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="pb-12 max-w-6xl mx-auto">
+            <div className="mb-10 text-center">
+                <h1 className="text-4xl font-display font-black text-transparent bg-clip-text bg-gradient-to-r from-text-primary to-text-muted mb-3 tracking-tight">Initiate New Attack</h1>
+                <p className="text-text-muted text-lg">Configure the autonomous agent's parameters and operational scope.</p>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px' }}>
-                {/* Form */}
-                <div>
-                    <div className="card" style={{ marginBottom: '24px' }}>
-                        <h3 className="card-title" style={{ marginBottom: '20px' }}>Scan Configuration</h3>
-                        <form onSubmit={handleSubmit}>
-                            {/* Model Selector */}
-                            <div className="form-group">
-                                <label className="form-label">
-                                    🧠 AI Model
+            <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
+                {/* Form Column */}
+                <div className="lg:col-span-3">
+                    <div className="bg-card-bg/50 backdrop-blur-md border border-border/60 rounded-2xl p-8 shadow-lg relative overflow-hidden">
+                        {/* Glow effect */}
+                        <div className="absolute top-0 right-0 -mr-20 -mt-20 w-64 h-64 bg-accent-cyan/10 rounded-full blur-[80px] pointer-events-none"></div>
+
+                        <h3 className="text-xl font-bold text-text-primary mb-8 flex items-center gap-2">
+                            <span className="w-8 h-8 rounded-lg bg-accent-cyan/10 text-accent-cyan flex items-center justify-center">1</span>
+                            Operational Configuration
+                        </h3>
+
+                        <form onSubmit={handleSubmit} className="space-y-6 relative z-10">
+                            {/* Model */}
+                            <div>
+                                <label className="block text-sm font-semibold text-text-primary mb-2 flex items-center gap-2">
+                                    Agent Brain Override
                                     {selectedModel?.current && (
-                                        <span style={{
-                                            marginLeft: '8px',
-                                            padding: '2px 8px',
-                                            background: 'var(--accent-green)',
-                                            color: '#000',
-                                            borderRadius: '4px',
-                                            fontSize: '10px',
-                                            fontWeight: '700',
-                                            textTransform: 'uppercase',
-                                            letterSpacing: '0.5px',
-                                        }}>
-                                            Current
-                                        </span>
+                                        <span className="px-2 py-0.5 bg-accent-green/20 text-accent-green rounded text-[10px] font-bold uppercase tracking-wider border border-accent-green/30">Current</span>
                                     )}
                                 </label>
                                 {modelsLoading ? (
-                                    <div style={{
-                                        padding: '12px 16px',
-                                        background: 'var(--bg-input)',
-                                        border: '1px solid var(--border-color)',
-                                        borderRadius: 'var(--radius-md)',
-                                        color: 'var(--text-muted)',
-                                        fontSize: '13px',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '8px',
-                                    }}>
-                                        <div className="spinner" style={{ width: '14px', height: '14px' }}></div>
-                                        Loading models from Codex CLI...
+                                    <div className="w-full bg-[#0d1321] border border-border rounded-xl p-4 flex items-center gap-3 text-text-muted">
+                                        <div className="w-4 h-4 border-2 border-accent-cyan/30 border-t-accent-cyan rounded-full animate-spin"></div>
+                                        <span className="text-sm font-mono">Syncing models from Codex API...</span>
                                     </div>
                                 ) : (
-                                    <select
-                                        name="model"
-                                        value={form.model}
+                                    <div className="relative group">
+                                        <select
+                                            name="model"
+                                            value={form.model}
+                                            onChange={handleChange}
+                                            className="w-full bg-[#0d1321] text-text-primary border border-border rounded-xl p-4 appearance-none outline-none transition-all duration-300 focus:border-accent-cyan focus:ring-1 focus:ring-accent-cyan focus:shadow-[0_0_15px_rgba(0,212,255,0.15)] group-hover:border-border-focus"
+                                        >
+                                            {Object.entries(modelsByCategory).map(([category, catModels]) => (
+                                                <optgroup key={category} label={category} className="bg-card-bg text-text-muted font-bold">
+                                                    {catModels.map((m) => (
+                                                        <option key={m.id} value={m.id} className="text-text-primary font-normal">
+                                                            {m.name} {m.current ? '✓' : ''}
+                                                        </option>
+                                                    ))}
+                                                </optgroup>
+                                            ))}
+                                        </select>
+                                        <div className="absolute inset-y-0 right-4 flex items-center pointer-events-none text-text-muted">
+                                            <ChevronRight className="w-5 h-5 rotate-90" />
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <label className="block text-sm font-semibold text-text-primary mb-2">Operation Name</label>
+                                    <input
+                                        type="text"
+                                        name="name"
+                                        value={form.name}
                                         onChange={handleChange}
-                                        className="form-input"
-                                        style={{ cursor: 'pointer' }}
-                                    >
-                                        {Object.entries(modelsByCategory).map(([category, catModels]) => (
-                                            <optgroup key={category} label={category}>
-                                                {catModels.map((m) => (
-                                                    <option key={m.id} value={m.id}>
-                                                        {m.name} {m.current ? '✓' : ''}
-                                                    </option>
-                                                ))}
-                                            </optgroup>
-                                        ))}
-                                    </select>
-                                )}
-                                {selectedModel && (
-                                    <p style={{
-                                        fontSize: '12px',
-                                        color: 'var(--text-muted)',
-                                        marginTop: '6px',
-                                        lineHeight: '1.4',
-                                    }}>
-                                        {selectedModel.description}
-                                    </p>
-                                )}
+                                        className="w-full bg-[#0d1321] text-text-primary border border-border rounded-xl p-4 outline-none transition-all duration-300 focus:border-accent-cyan focus:ring-1 focus:ring-accent-cyan focus:shadow-[0_0_15px_rgba(0,212,255,0.15)] placeholder-text-muted/50"
+                                        placeholder="e.g., Red Team Assessment"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-semibold text-text-primary mb-2">Target Scope</label>
+                                    <input
+                                        type="text"
+                                        name="target"
+                                        value={form.target}
+                                        onChange={handleChange}
+                                        className="w-full bg-[#0d1321] text-text-primary border border-border rounded-xl p-4 outline-none transition-all duration-300 focus:border-accent-cyan focus:ring-1 focus:ring-accent-cyan focus:shadow-[0_0_15px_rgba(0,212,255,0.15)] placeholder-text-muted/50"
+                                        placeholder="IP, Domain, or CIDR"
+                                    />
+                                </div>
                             </div>
 
-                            <div className="form-group">
-                                <label className="form-label">Scan Name</label>
-                                <input
-                                    type="text"
-                                    name="name"
-                                    value={form.name}
-                                    onChange={handleChange}
-                                    className="form-input"
-                                    placeholder="e.g., Production Server Assessment"
-                                />
-                            </div>
-
-                            <div className="form-group">
-                                <label className="form-label">Target</label>
-                                <input
-                                    type="text"
-                                    name="target"
-                                    value={form.target}
-                                    onChange={handleChange}
-                                    className="form-input"
-                                    placeholder="e.g., 192.168.1.1, example.com, 10.0.0.0/24"
-                                />
-                            </div>
-
-                            <div className="form-group">
-                                <label className="form-label">Task Description</label>
+                            <div>
+                                <label className="block text-sm font-semibold text-text-primary mb-2">Agent Instructions / Context</label>
                                 <textarea
                                     name="description"
                                     value={form.description}
                                     onChange={handleChange}
-                                    className="form-textarea"
-                                    placeholder="Describe what you want the AI agent to do. Be specific about scope, depth, and any particular areas of interest..."
+                                    className="w-full bg-[#0d1321] text-text-primary border border-border rounded-xl p-4 outline-none transition-all duration-300 focus:border-accent-cyan focus:ring-1 focus:ring-accent-cyan focus:shadow-[0_0_15px_rgba(0,212,255,0.15)] placeholder-text-muted/50 resize-none font-mono text-sm leading-relaxed"
+                                    placeholder="Provide explicit instructions. e.g., 'Discover subdomains, then run dirb on all discovered HTTP servers. Avoid DoS tools.' If left blank, default Recon & Scan occurs."
                                     rows={5}
                                 />
                             </div>
 
                             {error && (
-                                <div style={{
-                                    padding: '12px 16px',
-                                    background: '#ff475720',
-                                    border: '1px solid #ff475740',
-                                    borderRadius: 'var(--radius-md)',
-                                    color: 'var(--accent-red)',
-                                    fontSize: '13px',
-                                    marginBottom: '16px',
-                                }}>
-                                    ⚠️ {error}
+                                <div className="p-4 bg-accent-red/10 border border-accent-red/30 rounded-xl text-accent-red text-sm flex items-center gap-3">
+                                    <span className="text-xl">⚠️</span> {error}
                                 </div>
                             )}
 
                             <button
                                 type="submit"
-                                className="btn btn-primary btn-lg"
                                 disabled={loading}
-                                style={{ width: '100%', justifyContent: 'center' }}
+                                className="w-full group relative flex items-center justify-center gap-3 px-8 py-4 bg-text-primary text-primary-bg rounded-xl font-bold text-lg overflow-hidden transition-all hover:scale-[1.02] disabled:opacity-70 disabled:hover:scale-100"
                             >
+                                <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-accent-cyan via-accent-green to-accent-cyan opacity-0 group-hover:opacity-100 transition-opacity duration-500 bg-[length:200%_auto] animate-[shimmer_3s_linear_infinite]" />
                                 {loading ? (
                                     <>
-                                        <div className="spinner"></div>
-                                        Launching Agent...
+                                        <div className="w-5 h-5 border-2 border-primary-bg border-t-transparent rounded-full animate-spin relative z-10"></div>
+                                        <span className="relative z-10">Initializing Payload...</span>
                                     </>
                                 ) : (
-                                    '🚀 Launch Autonomous Scan'
+                                    <>
+                                        <Zap className="w-5 h-5 relative z-10" />
+                                        <span className="relative z-10">Deploy Agent</span>
+                                    </>
                                 )}
                             </button>
                         </form>
                     </div>
                 </div>
 
-                {/* Right column: Presets + Tips */}
-                <div>
-                    <h3 style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                        Quick Presets
-                    </h3>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                        {presets.map((preset) => (
-                            <div
-                                key={preset.name}
-                                className="card"
-                                style={{ cursor: 'pointer', padding: '16px' }}
-                                onClick={() =>
-                                    setForm({
-                                        ...form,
-                                        name: preset.name,
-                                        description: preset.description,
-                                    })
-                                }
-                            >
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
-                                    <span style={{ fontSize: '20px' }}>{preset.icon}</span>
-                                    <span style={{ fontWeight: '600', fontSize: '14px' }}>{preset.name}</span>
-                                </div>
-                                <p style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
-                                    {preset.description}
-                                </p>
-                            </div>
-                        ))}
+                {/* Presets Column */}
+                <div className="lg:col-span-2 space-y-6">
+                    <h3 className="text-sm font-bold text-text-muted tracking-widest uppercase mb-2">Tactical Presets</h3>
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                        {presets.map((preset, idx) => {
+                            const Icon = preset.icon
+                            return (
+                                <motion.div
+                                    key={preset.name}
+                                    initial={{ opacity: 0, scale: 0.95 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    transition={{ delay: idx * 0.05 }}
+                                    onClick={() => setForm({ ...form, name: preset.name, description: preset.description })}
+                                    className="group cursor-pointer bg-card-bg/40 border border-border rounded-xl p-4 hover:bg-card-hover hover:border-accent-cyan/40 transition-all duration-300 flex flex-col h-full"
+                                >
+                                    <div className="flex items-center gap-3 mb-3 shrink-0">
+                                        <div className="p-2.5 rounded-lg bg-[#111827] border border-border group-hover:border-accent-cyan/50 group-hover:text-accent-cyan group-hover:shadow-[0_0_15px_rgba(0,212,255,0.2)] transition-all">
+                                            <Icon className="w-5 h-5" />
+                                        </div>
+                                        <h4 className="font-bold text-text-primary text-sm leading-tight">{preset.name}</h4>
+                                    </div>
+                                    <p className="text-xs text-text-muted/80 leading-relaxed grow">{preset.description}</p>
+                                </motion.div>
+                            )
+                        })}
                     </div>
 
-                    <div className="card" style={{ marginTop: '16px', padding: '16px', borderColor: '#a855f720' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                            <span style={{ fontSize: '16px' }}>💡</span>
-                            <span style={{ fontWeight: '600', fontSize: '13px', color: 'var(--accent-purple)' }}>Pro Tip</span>
+                    <div className="bg-card-bg/20 border border-accent-purple/20 rounded-xl p-5 relative overflow-hidden mt-8">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-accent-purple/10 rounded-full blur-[40px] pointer-events-none"></div>
+                        <div className="flex items-center gap-2 mb-2 relative z-10">
+                            <Lightbulb className="w-4 h-4 text-accent-purple" />
+                            <span className="font-bold text-sm text-accent-purple uppercase tracking-widest">Pro Tip</span>
                         </div>
-                        <p style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.5' }}>
-                            Be as specific as possible in your task description. The AI agent works best when it knows the scope
-                            (e.g., "focus on web services on ports 80 and 443") and any constraints ("do not run exploits, recon only").
+                        <p className="text-xs text-text-muted leading-relaxed relative z-10">
+                            The Sandboxed Agent parses your instructions natively using the selected LLM. Natural language scoping (e.g. "Ignore port 443" or "Run Nikto before Nmap") works perfectly.
                         </p>
                     </div>
                 </div>
             </div>
-        </div>
+        </motion.div>
     )
 }
 

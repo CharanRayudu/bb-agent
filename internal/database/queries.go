@@ -82,6 +82,26 @@ func (q *Queries) UpdateFlowStatus(id uuid.UUID, status models.FlowStatus) error
 	return err
 }
 
+// GetHistoricalContext retrieves the final summary/result from the most recent completed flow for a given target.
+func (q *Queries) GetHistoricalContext(target string) (string, error) {
+	var result string
+	err := q.db.QueryRow(`
+		SELECT t.result 
+		FROM flows f
+		JOIN tasks t ON f.id = t.flow_id
+		WHERE f.target = $1 AND f.status = 'completed' AND t.status = 'done'
+		ORDER BY f.created_at DESC LIMIT 1
+	`, target).Scan(&result)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", nil // Normal if they've never scanned it before
+		}
+		return "", err
+	}
+	return result, nil
+}
+
 // ============ Tasks ============
 
 func (q *Queries) CreateTask(flowID uuid.UUID, name, description string) (*models.Task, error) {

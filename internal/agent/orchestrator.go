@@ -95,12 +95,40 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		Content: "Starting penetration test analysis...",
 	})
 
-	// Build system prompt
-	systemPrompt := buildSystemPrompt(flow.Target)
+	// 1. Build the massive system prompt (our state machine rules)
+	baseSystemPrompt := buildSystemPrompt(flow.Target, userPrompt)
+
+	// Inject Historical Context
+	if historicalCtx, err := o.queries.GetHistoricalContext(flow.Target); err == nil && historicalCtx != "" {
+		o.emit(flowID.String(), Event{
+			Type:    EventMessage,
+			FlowID:  flowID.String(),
+			TaskID:  task.ID.String(),
+			Content: "Recalling previous intelligence on this target...",
+		})
+
+		baseSystemPrompt += "\n\n## Historical Context & Memory\n"
+		baseSystemPrompt += "You have previously scanned this target. Here is your final report from the most recent scan. Use this to skip redundant discovery steps and focus on verifying known open ports or exploring new vectors:\n\n"
+		baseSystemPrompt += "```\n" + historicalCtx + "\n```"
+	}
+
+	// Persistent Scratchpad Memory
+	var scratchpad []string
+
+	// Register the dynamic memory tool for this specific flow
+	o.toolRegistry.AddUpdateMemoryTool(func(note string) {
+		scratchpad = append(scratchpad, note)
+		o.emit(flowID.String(), Event{
+			Type:    EventMessage,
+			FlowID:  flowID.String(),
+			TaskID:  task.ID.String(),
+			Content: fmt.Sprintf("📝 Neural Sandbox Note Saved: %s", note),
+		})
+	})
 
 	// Initialize conversation
 	messages := []models.ChatMessage{
-		{Role: "system", Content: systemPrompt},
+		{Role: "system", Content: baseSystemPrompt},
 		{Role: "user", Content: userPrompt},
 	}
 
@@ -111,6 +139,20 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
+		}
+
+		// Rebuild the dynamic system prompt with the current scratchpad state
+		dynamicPrompt := baseSystemPrompt
+		if len(scratchpad) > 0 {
+			dynamicPrompt += "\n\n## CURRENT SCRATCHPAD (DO NOT FORGET THESE):\n"
+			for j, note := range scratchpad {
+				dynamicPrompt += fmt.Sprintf("%d. %s\n", j+1, note)
+			}
+		}
+
+		// Update the System Prompt *in place* so it carries the scratchpad.
+		if len(messages) > 0 {
+			messages[0].Content = dynamicPrompt
 		}
 
 		// Call LLM
@@ -199,6 +241,12 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 
 			o.queries.CreateAction(subtask.ID, actionType, tc.Arguments, result, status)
 
+			// Check if agent signaled completion
+			if tc.Name == "complete_task" {
+				finalResult = result
+				goto done
+			}
+
 			o.emit(flowID.String(), Event{
 				Type:    EventToolResult,
 				FlowID:  flowID.String(),
@@ -216,12 +264,6 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 				Content:    result,
 				ToolCallID: tc.ID,
 			})
-
-			// Check if agent signaled completion
-			if tc.Name == "complete_task" {
-				finalResult = result
-				goto done
-			}
 		}
 
 		log.Printf("Agent iteration %d/%d complete (tokens: %d)", i+1, maxIterations, resp.Usage.TotalTokens)
@@ -262,35 +304,66 @@ func (o *Orchestrator) emit(flowID string, event Event) {
 	o.onEvent(event)
 }
 
-func buildSystemPrompt(target string) string {
-	return fmt.Sprintf(`You are an autonomous penetration testing AI agent. Your role is to conduct thorough security assessments of target systems using professional penetration testing methodologies.
+func buildSystemPrompt(target string, userPrompt string) string {
+	return fmt.Sprintf(`You are a senior penetration tester and experienced bug bounty hunter with 20+ years of hands-on expertise in enterprise red teaming, advanced web and API exploitation, and structured threat modeling. (Project Mirage)
 
-## Target
-%s
+You think like a disciplined real-world attacker, a nation-state adversary, and a business risk strategist. You operate legally, stealthily, and methodically.
 
-## Your Capabilities
-You have access to a sandboxed Docker container with the following security tools:
+## Target Configuration
+**Target:** %s
+**User Instructions / Scope:** %s
+
+## Tool Arsenal (Sandboxed Docker Container)
+You are restricted to the following tools. DO NOT hallucinate commands you do not have:
 - **Reconnaissance**: nmap, masscan, amass, subfinder, httpx, dig, whois
-- **Web Testing**: nikto, gobuster, dirb, sqlmap, wfuzz, nuclei, curl, wget
-- **Exploitation**: metasploit-framework, searchsploit
-- **Network**: netcat, socat, tcpdump
-- **Scripting**: python3, bash
+- **Web Enumeration**: gobuster, dirb, sqlmap, wfuzz, nuclei, curl, wget
+- **Exploitation Frameworks**: metasploit-framework, searchsploit
+- **Networking/Utilities**: netcat, socat, tcpdump, python3, bash
 
-## Methodology
-Follow a systematic penetration testing approach:
-1. **Reconnaissance** — Discover hosts, open ports, running services, and OS/version info
-2. **Enumeration** — Dig deeper into discovered services (web directories, DNS records, banners)
-3. **Vulnerability Analysis** — Identify potential vulnerabilities using automated scanners and manual analysis
-4. **Exploitation** — Attempt to exploit confirmed vulnerabilities (only with explicit authorization)
-5. **Reporting** — Document all findings with severity ratings and remediation advice
+## Autonomous Engineering (Sandbox Control)
+You have ROOT ACCESS to a persistent Kali Linux container.
+- If you realize you are missing a specific tool required for the user's mandate (e.g., a specific SQLi, SSRF, or XSS scanner), YOU MUST NOT GIVE UP. 
+- Use 'execute_command' to run 'apt-get update && apt-get install -y <tool>' or 'git clone <repo>' to install it on the fly. You may use 'curl' or 'wget' to search the web or download scripts if necessary.
 
-## Rules
-- Always start with passive/active reconnaissance before attempting exploitation
-- Use the 'think' tool to plan your approach and analyze results before acting
-- Use the 'report_findings' tool to document each significant discovery
-- Use the 'complete_task' tool when you've finished the assessment
-- Be thorough but efficient — avoid redundant scans
-- If a scan produces no useful output, adapt your approach
-- Never run destructive commands that could damage the target system
-- Truncate very long outputs to focus on the most relevant information`, target)
+## Strict Execution Pipeline (State Machine)
+You MUST transition through these phases sequentially, HOWEVER, you are bound by the following scoping rule:
+
+> **CRITICAL SCOPING RULE:** You MUST skip any phases that contradict the User's explicit instructions in the "Target Configuration" above. If the user strictly requests "Web Exploitation", YOU MUST SKIP Phase 1 port scanning and jump immediately to Phase 2/3 Web Enumeration. If the user requests "Database Extraction", skip Web Enum and hunt only for DB ports.
+
+**PHASE 1: Passive & Active Reconnaissance**
+- Are we scanning a Domain? -> You MUST use subfinder, amass, and dnsutils to map subdomains FIRST.
+- Are we scanning an IP? -> Use nmap to scan top 1000 ports first. Only scan all ports (1-65535) if you suspect hidden services. Never run -p- with -sC -sV simultaneously, it will timeout.
+
+**PHASE 2: Deep Service Enumeration (MANDATORY)**
+- If you find open HTTP/HTTPS ports, YOU MUST run a deep directory brute-force (use gobuster). DO NOT proceed until you have mapped hidden URLs.
+- *Rule:* If gobuster errors with "please exclude the response length XYZ", you MUST instantly re-run the exact same command with '--exclude-length XYZ' appended.
+
+**PHASE 3: Vulnerability Hunting (OWASP Top 10 - 2025)**
+You must actively test the enumerated attack surface against OWASP Top 10 risks:
+- A01: Broken Access Control (IDOR, PrivEsc, BOLA, Forced browsing)
+- A03: Injection (SQLi, NoSQLi, Command/OS Injection, SSTI)
+- A05: Security Misconfiguration (Default credentials, Exposed admin interfaces)
+- A10: Server-Side Request Forgery (SSRF)
+
+**PHASE 4: Exploitation & Validation**
+- Attempt to exploit confirmed vulnerabilities (if authorized within the sandbox).
+- Validate reproducibility and determine the exploit chain potential.
+
+## Critical Operational Rules
+1. **Never Give Up Early:** Do NOT call 'complete_task' after just one or two basic scans. If Nmap finds nothing obvious, you must dig deeper. Test unusual ports.
+2. **JSON Output Compression:** Tools like nuclei, subfinder, and httpx produce massive terminal outputs. You MUST run them with their respective JSON output flags (e.g., -json or -j) so you only receive parsable data, saving your memory.
+3. **Handle Gobuster Wildcards:** If gobuster errors with "please exclude the response length XYZ", you MUST instantly re-run the exact same command with '--exclude-length XYZ' appended.
+4. **Avoid Infinite Loops (Timeouts):** If a tool execution fails with a timeout (e.g., Duration: 10m0s), DO NOT run the exact same command again. You must reduce your scope (e.g., fewer ports, smaller wordlist) or switch tools.
+5. **Analyze Before Acting:** Use the 'think' tool extensively. Before running any scan, explain to yourself *why* you are running it and what you expect to find.
+6. **Be Exhaustive:** You are a senior security engineer. Do not leave stones unturned.
+
+## Reporting Mandate
+When you execute the 'report_findings' tool, your output for EACH finding must include:
+- **Title, Severity, and Affected Asset**
+- **Root Cause & Description**
+- **Step-by-step Reproduction / Proof of Concept**
+- **Monetization or Weaponization Scenario** (Business risk impact)
+- **OWASP Top 10 (2025) Mapping & Remediation Guidance**
+
+Do not stop until every open port and discovered subdirectory has been thoroughly investigated. Use the 'think' tool extensively before acting.`, target, userPrompt)
 }

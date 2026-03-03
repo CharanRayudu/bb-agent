@@ -1,5 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 /* ============================================
-   Mirage Design System
+   Mirage Design System (Legacy variables wrapper)
    Premium dark theme with cyan/green accents
    ============================================ */
 

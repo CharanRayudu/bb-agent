@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/bb-agent/mirage/internal/docker"
@@ -168,10 +169,37 @@ func (r *Registry) registerBuiltins() {
 			if params.Findings != "" {
 				result += fmt.Sprintf("\n\nFindings: %s", params.Findings)
 			}
-			if params.NextSteps != "" {
-				result += fmt.Sprintf("\n\nNext Steps: %s", params.NextSteps)
-			}
 			return result, nil
+		},
+	})
+}
+
+// AddUpdateMemoryTool registers the memory tool with a callback to the orchestrator's state array
+func (r *Registry) AddUpdateMemoryTool(onMemorySaved func(string)) {
+	r.Register(&Tool{
+		Definition: llm.ToolDefinition{
+			Name:        "update_memory",
+			Description: "Save crucial discoveries (open ports, valid URLs, identified CVEs) to your permanent scratchpad so you don't forget them.",
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"discovery": map[string]interface{}{
+						"type":        "string",
+						"description": "Clear, concise summary of what you discovered (e.g. 'Port 80/443 open, running Nginx 1.18.0')",
+					},
+				},
+				"required": []string{"discovery"},
+			},
+		},
+		Execute: func(ctx context.Context, args json.RawMessage) (string, error) {
+			var params struct {
+				Discovery string `json:"discovery"`
+			}
+			if err := json.Unmarshal(args, &params); err != nil {
+				return "", err
+			}
+			onMemorySaved(params.Discovery)
+			return fmt.Sprintf("[MEMORY SAVED]: %s", params.Discovery), nil
 		},
 	})
 }
@@ -192,6 +220,12 @@ func (r *Registry) executeCommand(ctx context.Context, args json.RawMessage) (st
 		params.Timeout = 600
 	}
 
+	// Intercept and block unauthorized commands
+	lowercaseCmd := strings.ToLower(params.Command)
+	if strings.HasPrefix(lowercaseCmd, "nikto") || strings.Contains(lowercaseCmd, " nikto ") {
+		return "[ERROR]: The 'nikto' scanner is explicitly prohibited by the user. Do not use this tool. Please rely on nuclei or manual enumeration instead.", nil
+	}
+
 	log.Printf("🔧 Executing: %s (timeout: %ds)", params.Command, params.Timeout)
 
 	result, err := r.sandbox.Execute(ctx, params.Command, params.Timeout)
@@ -201,7 +235,7 @@ func (r *Registry) executeCommand(ctx context.Context, args json.RawMessage) (st
 
 	output := result.Stdout
 	if result.Stderr != "" {
-		output += "\n\n[STDERR]:\n" + result.Stderr
+		output += "\n" + result.Stderr
 	}
 	output += fmt.Sprintf("\n\n[Exit Code: %d | Duration: %s]", result.ExitCode, result.Duration.Round(time.Millisecond))
 
