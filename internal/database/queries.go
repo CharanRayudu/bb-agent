@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/bb-agent/mirage/internal/models"
@@ -82,24 +83,56 @@ func (q *Queries) UpdateFlowStatus(id uuid.UUID, status models.FlowStatus) error
 	return err
 }
 
-// GetHistoricalContext retrieves the final summary/result from the most recent completed flow for a given target.
+// GetHistoricalContext retrieves the compiled scratchpad memories and final reports from the most recent completed flow for a given target.
 func (q *Queries) GetHistoricalContext(target string) (string, error) {
-	var result string
+	// First, find the ID of the most recent completed flow for this exact target
+	var lastFlowID uuid.UUID
 	err := q.db.QueryRow(`
-		SELECT t.result 
-		FROM flows f
-		JOIN tasks t ON f.id = t.flow_id
-		WHERE f.target = $1 AND f.status = 'completed' AND t.status = 'done'
-		ORDER BY f.created_at DESC LIMIT 1
-	`, target).Scan(&result)
+		SELECT id FROM flows 
+		WHERE target = $1 
+		ORDER BY created_at DESC 
+		LIMIT 1
+	`, target).Scan(&lastFlowID)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return "", nil // Normal if they've never scanned it before
+			return "", nil // No previous flow exists
 		}
 		return "", err
 	}
-	return result, nil
+
+	// Now fetch all reported findings and recorded memory from that specific flow
+	rows, err := q.db.Query(`
+		SELECT a.input, a.output
+		FROM actions a
+		JOIN subtasks s ON a.subtask_id = s.id
+		JOIN tasks t ON s.task_id = t.id
+		WHERE t.flow_id = $1 AND a.status = 'success' AND (a.type = 'report' OR a.input LIKE '%update_memory%')
+		ORDER BY a.created_at ASC
+	`, lastFlowID)
+
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+
+	var compiledContext strings.Builder
+	compiledContext.WriteString("PREVIOUS SCAN FINDINGS:\n")
+	hasData := false
+
+	for rows.Next() {
+		var input, output string
+		if err := rows.Scan(&input, &output); err == nil {
+			hasData = true
+			compiledContext.WriteString(fmt.Sprintf("- %s\n", output))
+		}
+	}
+
+	if !hasData {
+		return "", nil
+	}
+
+	return compiledContext.String(), nil
 }
 
 // ============ Tasks ============

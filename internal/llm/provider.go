@@ -1,6 +1,8 @@
 package llm
 
 import (
+	"context"
+
 	"github.com/bb-agent/mirage/internal/models"
 )
 
@@ -35,6 +37,6 @@ type TokenUsage struct {
 
 // Provider is the interface for LLM backends
 type Provider interface {
-	Complete(req CompletionRequest) (*CompletionResponse, error)
+	Complete(ctx context.Context, req CompletionRequest) (*CompletionResponse, error)
 	Name() string
 }

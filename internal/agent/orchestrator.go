@@ -156,7 +156,7 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		}
 
 		// Call LLM
-		resp, err := o.llmProvider.Complete(llm.CompletionRequest{
+		resp, err := o.llmProvider.Complete(ctx, llm.CompletionRequest{
 			Messages: messages,
 			Tools:    o.toolRegistry.Definitions(),
 		})
@@ -175,16 +175,18 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 				Content: resp.Content,
 			})
 
-			// Add assistant message
-			messages = append(messages, models.ChatMessage{
-				Role:    "assistant",
-				Content: resp.Content,
-			})
+			// Only add an assistant message if there's actual content to avoid flooding the context with empty turns
+			if resp.Content != "" {
+				messages = append(messages, models.ChatMessage{
+					Role:    "assistant",
+					Content: resp.Content,
+				})
+			}
 
-			// Force it to continue or call complete_task
+			// Force it to continue with a stronger system warning
 			messages = append(messages, models.ChatMessage{
 				Role:    "user",
-				Content: "Please continue your analysis or explicitly use the `complete_task` tool if you are finished.",
+				Content: "SYSTEM WARNING: You returned an empty response or failed to invoke a required tool. You MUST actively use a tool (such as 'think', 'execute_command', 'execute_browser_script', or 'complete_task') to proceed. Continuous empty responses will result in a hard termination.",
 			})
 			continue
 		}
@@ -199,6 +201,12 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 
 		// Execute each tool call
 		for _, tc := range resp.ToolCalls {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+
 			o.emit(flowID.String(), Event{
 				Type:    EventToolCall,
 				FlowID:  flowID.String(),

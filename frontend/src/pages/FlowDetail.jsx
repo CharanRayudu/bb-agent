@@ -11,6 +11,7 @@ function FlowDetail() {
     const [events, setEvents] = useState([])
     const [connected, setConnected] = useState(false)
     const [loading, setLoading] = useState(true)
+    const [stopping, setStopping] = useState(false)
     const eventsEndRef = useRef(null)
     const wsRef = useRef(null)
 
@@ -159,7 +160,23 @@ function FlowDetail() {
         )
     }
 
-    const isActive = flow.status === 'active' || flow.status === 'running'
+    const isActive = flow.status === 'active' || flow.status === 'running' || flow.status === 'pending'
+
+    async function handleStopScan() {
+        if (!confirm('Are you sure you want to stop this scan?')) return;
+        setStopping(true);
+        try {
+            const res = await fetch(`${API_BASE}/flows/${id}/cancel`, { method: 'POST' });
+            if (res.ok) {
+                // Optimistically update
+                setFlow(prev => ({ ...prev, status: 'failed' }));
+            }
+        } catch (err) {
+            console.error('Failed to stop scan:', err);
+        } finally {
+            setStopping(false);
+        }
+    }
 
     return (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="pb-12 max-w-[1600px] mx-auto">
@@ -186,6 +203,17 @@ function FlowDetail() {
                         <span className={`w-2 h-2 rounded-full ${connected ? 'bg-accent-green animate-ping' : 'bg-text-muted'}`}></span>
                         {connected ? 'Uplink Live' : 'Offline'}
                     </span>
+
+                    {isActive && (
+                        <button
+                            onClick={handleStopScan}
+                            disabled={stopping}
+                            className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-mono font-bold tracking-widest uppercase border backdrop-blur-md shadow-sm transition-all
+                                ${stopping ? 'bg-text-muted/10 text-text-muted border-text-muted/30 cursor-not-allowed' : 'bg-accent-red/10 text-accent-red border-accent-red/30 hover:bg-accent-red/20 hover:scale-105'}`}
+                        >
+                            {stopping ? 'Stopping...' : <><XCircle className="w-3 h-3" /> Stop Scan</>}
+                        </button>
+                    )}
                 </div>
             </div>
 

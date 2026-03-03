@@ -3,6 +3,7 @@ package llm
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -82,11 +83,11 @@ func (o *OpenAIProvider) getAuthToken() (string, error) {
 }
 
 // Complete sends a request to the appropriate API endpoint
-func (o *OpenAIProvider) Complete(req CompletionRequest) (*CompletionResponse, error) {
+func (o *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (*CompletionResponse, error) {
 	if o.authMode == AuthModeCodexOAuth {
-		return o.completeViaCodexResponses(req)
+		return o.completeViaCodexResponses(ctx, req)
 	}
-	return o.completeViaChatCompletions(req)
+	return o.completeViaChatCompletions(ctx, req)
 }
 
 // ============================================================
@@ -158,7 +159,7 @@ type responsesError struct {
 	Code    string `json:"code"`
 }
 
-func (o *OpenAIProvider) completeViaCodexResponses(req CompletionRequest) (*CompletionResponse, error) {
+func (o *OpenAIProvider) completeViaCodexResponses(ctx context.Context, req CompletionRequest) (*CompletionResponse, error) {
 	token, err := o.getAuthToken()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get Codex auth token: %w", err)
@@ -236,7 +237,7 @@ func (o *OpenAIProvider) completeViaCodexResponses(req CompletionRequest) (*Comp
 
 	log.Printf("📡 Calling Codex Responses API (%s)...", model)
 
-	httpReq, err := http.NewRequest("POST", codexResponsesURL, bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", codexResponsesURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
 	}
@@ -260,7 +261,7 @@ func (o *OpenAIProvider) completeViaCodexResponses(req CompletionRequest) (*Comp
 			return nil, fmt.Errorf("failed to refresh Codex token: %w\nRun 'codex login' to re-authenticate", err)
 		}
 
-		httpReq, _ = http.NewRequest("POST", codexResponsesURL, bytes.NewReader(body))
+		httpReq, _ = http.NewRequestWithContext(ctx, "POST", codexResponsesURL, bytes.NewReader(body))
 		httpReq.Header.Set("Content-Type", "application/json")
 		httpReq.Header.Set("Authorization", "Bearer "+newToken)
 
@@ -277,7 +278,7 @@ func (o *OpenAIProvider) completeViaCodexResponses(req CompletionRequest) (*Comp
 	}
 
 	// Parse SSE streaming response
-	return o.parseCodexSSEResponse(resp.Body)
+	return o.parseCodexSSEResponse(ctx, resp.Body)
 }
 
 // SSE event for streaming
@@ -303,7 +304,7 @@ type sseEvent struct {
 
 // parseCodexSSEResponse reads SSE streaming data from the Codex Responses API
 // and assembles it into a complete CompletionResponse
-func (o *OpenAIProvider) parseCodexSSEResponse(body io.Reader) (*CompletionResponse, error) {
+func (o *OpenAIProvider) parseCodexSSEResponse(ctx context.Context, body io.Reader) (*CompletionResponse, error) {
 	result := &CompletionResponse{}
 
 	// Track tool calls by their item_id
@@ -315,6 +316,12 @@ func (o *OpenAIProvider) parseCodexSSEResponse(body io.Reader) (*CompletionRespo
 	scanner.Buffer(make([]byte, 0, 256*1024), 1024*1024)
 
 	for scanner.Scan() {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
 		line := scanner.Text()
 
 		// SSE format: "data: {json}" or empty lines
@@ -468,7 +475,7 @@ type openAIError struct {
 	Type    string `json:"type"`
 }
 
-func (o *OpenAIProvider) completeViaChatCompletions(req CompletionRequest) (*CompletionResponse, error) {
+func (o *OpenAIProvider) completeViaChatCompletions(ctx context.Context, req CompletionRequest) (*CompletionResponse, error) {
 	token, err := o.getAuthToken()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get auth token: %w", err)
@@ -531,7 +538,7 @@ func (o *OpenAIProvider) completeViaChatCompletions(req CompletionRequest) (*Com
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequest("POST", openAICompletionsURL, bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", openAICompletionsURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
 	}

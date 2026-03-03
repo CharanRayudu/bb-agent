@@ -142,6 +142,9 @@ func (s *Sandbox) Execute(ctx context.Context, command string, timeoutSec int) (
 			return nil, fmt.Errorf("exec copy/inspect error: %w", res)
 		}
 	case <-execCtx.Done():
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return &ExecResult{
 			Stderr:   "command timed out during execution",
 			ExitCode: -1,

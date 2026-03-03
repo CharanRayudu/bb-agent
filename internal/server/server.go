@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/bb-agent/mirage/internal/agent"
 	"github.com/bb-agent/mirage/internal/config"
@@ -35,6 +36,10 @@ type Server struct {
 
 	// Agent
 	orchestrator *agent.Orchestrator
+
+	// Active scan cancellation tracking
+	activeScans   map[uuid.UUID]context.CancelFunc
+	activeScansMu sync.RWMutex
 }
 
 // New creates a new server instance
@@ -47,7 +52,8 @@ func New(cfg *config.Config, db *sql.DB) *Server {
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
-		clients: make(map[*websocket.Conn]bool),
+		clients:     make(map[*websocket.Conn]bool),
+		activeScans: make(map[uuid.UUID]context.CancelFunc),
 	}
 
 	s.setupRoutes()
@@ -125,16 +131,23 @@ func (s *Server) handleFlow(w http.ResponseWriter, r *http.Request) {
 	// Simple router for /api/flows/{id} vs /api/flows/{id}/events
 	path := r.URL.Path[len("/api/flows/"):]
 
-	// Check if this is the events sub-route
-	if len(path) > 36 && path[36:] == "/events" {
+	// Check if this is the events or cancel sub-route
+	if len(path) > 36 {
 		idStr := path[:36]
+		subRoute := path[36:]
 		id, err := uuid.Parse(idStr)
 		if err != nil {
 			http.Error(w, "Invalid flow ID", http.StatusBadRequest)
 			return
 		}
-		s.handleFlowEvents(w, r, id)
-		return
+
+		if subRoute == "/events" {
+			s.handleFlowEvents(w, r, id)
+			return
+		} else if subRoute == "/cancel" {
+			s.handleCancelFlow(w, r, id)
+			return
+		}
 	}
 
 	// Otherwise, handle regular FlowByID
@@ -144,6 +157,38 @@ func (s *Server) handleFlow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.handleFlowByID(w, r, id)
+}
+
+func (s *Server) handleCancelFlow(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	s.activeScansMu.Lock()
+	cancel, exists := s.activeScans[id]
+	if exists {
+		delete(s.activeScans, id)
+	}
+	s.activeScansMu.Unlock()
+
+	if exists {
+		log.Printf("🛑 User requested cancellation for flow: %s", id.String())
+		cancel() // This triggers <-ctx.Done() inside the orchestrator
+	} else {
+		log.Printf("⚠️  User requested cancellation for non-active flow: %s (force clearing status)", id.String())
+	}
+
+	// ALWAYS update database and broadcast event to ensure orphans are cleared in the UI
+	s.queries.UpdateFlowStatus(id, models.FlowStatusFailed)
+	s.broadcast(agent.Event{
+		Type:      agent.EventError,
+		FlowID:    id.String(),
+		Content:   "Scan cancelled by user.",
+		Timestamp: time.Now(),
+	})
+
+	w.WriteHeader(http.StatusOK)
 }
 
 func (s *Server) handleFlowByID(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
@@ -342,11 +387,31 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string)
 		s.broadcast(event)
 	})
 
+	// Setup cancellable context and track it
+	ctx, cancel := context.WithCancel(context.Background())
+	s.activeScansMu.Lock()
+	s.activeScans[flowID] = cancel
+	s.activeScansMu.Unlock()
+
+	// Ensure cleanup when runAgent completes
+	defer func() {
+		s.activeScansMu.Lock()
+		delete(s.activeScans, flowID)
+		s.activeScansMu.Unlock()
+		cancel()
+	}()
+
 	// Run the flow
-	ctx := context.Background()
 	if err := orchestrator.RunFlow(ctx, flowID, prompt); err != nil {
-		log.Printf("❌ Flow %s failed: %v", flowID, err)
-		s.queries.UpdateFlowStatus(flowID, models.FlowStatusFailed)
+		if ctx.Err() == context.Canceled {
+			log.Printf("🛑 Flow %s was intentionally cancelled", flowID)
+			// Status is already updated by handleCancelFlow
+		} else {
+			log.Printf("❌ Flow %s failed: %v", flowID, err)
+			s.queries.UpdateFlowStatus(flowID, models.FlowStatusFailed)
+		}
+	} else {
+		s.queries.UpdateFlowStatus(flowID, models.FlowStatusCompleted)
 	}
 }
 
