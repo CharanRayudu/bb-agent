@@ -770,6 +770,16 @@ body {
   }
 }
 
+/* ============ Shimmer (for glass skeletons & buttons) ============ */
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
 .loading-container {
   display: flex;
   align-items: center;

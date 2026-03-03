@@ -125,20 +125,27 @@ function NewTask() {
     const selectedModel = models.find((m) => m.id === form.model)
 
     return (
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="pb-12 max-w-6xl mx-auto">
-            <div className="mb-10 text-center">
-                <h1 className="text-4xl font-display font-black text-transparent bg-clip-text bg-gradient-to-r from-text-primary to-text-muted mb-3 tracking-tight">Initiate New Attack</h1>
-                <p className="text-text-muted text-lg">Configure the autonomous agent's parameters and operational scope.</p>
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="relative pb-12 max-w-6xl mx-auto">
+            {/* Focused ambient halo behind form */}
+            <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 -top-6 w-[34rem] h-[34rem] bg-[radial-gradient(circle,_rgba(0,212,255,0.28),transparent_65%)] blur-3xl opacity-80" />
+
+            <div className="mb-10 text-center relative z-10">
+                <div className="inline-block px-8 py-5 rounded-3xl border border-white/12 bg-white/6 backdrop-blur-2xl shadow-[0_18px_80px_rgba(15,23,42,0.9)]">
+                    <h1 className="text-4xl md:text-5xl font-display font-black text-transparent bg-clip-text bg-gradient-to-r from-text-primary to-text-muted mb-3 tracking-tight">
+                        Initiate New Attack
+                    </h1>
+                    <p className="text-text-muted text-lg">Configure the autonomous agent&apos;s parameters and operational scope.</p>
+                </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
+            <div className="grid grid-cols-1 lg:grid-cols-5 gap-8 relative z-10">
                 {/* Form Column */}
                 <div className="lg:col-span-3">
-                    <div className="bg-card-bg/50 backdrop-blur-md border border-border/60 rounded-2xl p-8 shadow-lg relative overflow-hidden">
+                    <div className="relative overflow-hidden rounded-3xl border border-white/12 bg-white/6 backdrop-blur-2xl p-8 shadow-[0_18px_80px_rgba(15,23,42,0.95)]">
                         {/* Glow effect */}
-                        <div className="absolute top-0 right-0 -mr-20 -mt-20 w-64 h-64 bg-accent-cyan/10 rounded-full blur-[80px] pointer-events-none"></div>
+                        <div className="absolute top-0 right-0 -mr-20 -mt-20 w-64 h-64 bg-accent-cyan/16 rounded-full blur-[80px] pointer-events-none" />
 
-                        <h3 className="text-xl font-bold text-text-primary mb-8 flex items-center gap-2">
+                        <h3 className="text-lg md:text-xl font-semibold text-text-primary mb-8 flex items-center gap-2">
                             <span className="w-8 h-8 rounded-lg bg-accent-cyan/10 text-accent-cyan flex items-center justify-center">1</span>
                             Operational Configuration
                         </h3>
@@ -260,8 +267,11 @@ function NewTask() {
                                     animate={{ opacity: 1, scale: 1 }}
                                     transition={{ delay: idx * 0.05 }}
                                     onClick={() => setForm({ ...form, name: preset.name, description: preset.description })}
-                                    className="group cursor-pointer bg-card-bg/40 border border-border rounded-xl p-4 hover:bg-card-hover hover:border-accent-cyan/40 transition-all duration-300 flex flex-col h-full"
+                                    className="group cursor-pointer relative overflow-hidden rounded-2xl border border-white/12 bg-white/5 backdrop-blur-xl p-4 hover:border-accent-cyan/50 hover:bg-white/10 transition-all duration-300 flex flex-col h-full shadow-[0_12px_40px_rgba(15,23,42,0.8)]"
                                 >
+                                    <div className="pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500">
+                                        <div className="absolute -inset-x-10 -top-10 h-20 bg-gradient-to-r from-white/35 via-transparent to-white/35 blur-2xl mix-blend-screen" />
+                                    </div>
                                     <div className="flex items-center gap-3 mb-3 shrink-0">
                                         <div className="p-2.5 rounded-lg bg-[#111827] border border-border group-hover:border-accent-cyan/50 group-hover:text-accent-cyan group-hover:shadow-[0_0_15px_rgba(0,212,255,0.2)] transition-all">
                                             <Icon className="w-5 h-5" />
@@ -274,8 +284,8 @@ function NewTask() {
                         })}
                     </div>
 
-                    <div className="bg-card-bg/20 border border-accent-purple/20 rounded-xl p-5 relative overflow-hidden mt-8">
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-accent-purple/10 rounded-full blur-[40px] pointer-events-none"></div>
+                    <div className="relative overflow-hidden rounded-2xl border border-white/12 bg-white/5 backdrop-blur-xl p-5 mt-8 shadow-[0_12px_40px_rgba(15,23,42,0.8)]">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-accent-purple/20 rounded-full blur-[40px] pointer-events-none" />
                         <div className="flex items-center gap-2 mb-2 relative z-10">
                             <Lightbulb className="w-4 h-4 text-accent-purple" />
                             <span className="font-bold text-sm text-accent-purple uppercase tracking-widest">Pro Tip</span>
