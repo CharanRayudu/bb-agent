@@ -148,7 +148,7 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 
 	o.emit(flowID.String(), Event{Type: EventMessage, FlowID: flowID.String(), TaskID: task.ID.String(), Content: "🚀 Initiating Phase 1: Reconnaissance"})
 
-	reconPrompt := buildPhasePrompt("RECONNAISSANCE", "Map the attack surface. Discover ports/dirs. Use nmap, ffuf. Do NOT exploit.", flow.Target, userPrompt, historicalCtx)
+	reconPrompt := buildPhasePrompt("RECONNAISSANCE", "Analyze the user's request. Prioritize the specific tools and techniques they asked for (e.g. ffuf, nuclei). Do NOT run nmap or full port scans unless port scanning is explicitly requested or necessary. Map the attack surface relevant to the user's objective. Do NOT exploit.", flow.Target, userPrompt, historicalCtx)
 	reconResult := o.runAgentLoop(ctx, flowID, task.ID, reconSubtask.ID, reconPrompt, "Start Recon.", &brain, &brainMu)
 
 	// ==========================================

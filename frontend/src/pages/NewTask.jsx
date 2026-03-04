@@ -130,7 +130,7 @@ function NewTask() {
             <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 -top-6 w-[34rem] h-[34rem] bg-[radial-gradient(circle,_rgba(0,212,255,0.28),transparent_65%)] blur-3xl opacity-80" />
 
             <div className="mb-10 text-center relative z-10">
-                <div className="inline-block px-8 py-5 rounded-3xl border border-white/12 bg-white/6 backdrop-blur-2xl shadow-[0_18px_80px_rgba(15,23,42,0.9)]">
+                <div className="inline-block px-8 py-5 rounded-3xl bg-white/6 backdrop-blur-2xl shadow-[0_18px_80px_rgba(15,23,42,0.9)]">
                     <h1 className="text-4xl md:text-5xl font-display font-black text-transparent bg-clip-text bg-gradient-to-r from-text-primary to-text-muted mb-3 tracking-tight">
                         Initiate New Attack
                     </h1>
