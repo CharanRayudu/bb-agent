@@ -50,7 +50,7 @@ func (r *Registry) registerBuiltins() {
 					},
 					"timeout": map[string]interface{}{
 						"type":        "integer",
-						"description": "Maximum execution time in seconds (default: 300, max: 600)",
+						"description": "Maximum execution time in seconds (default: 300, max: 1800)",
 					},
 				},
 				"required": []string{"command"},
@@ -196,34 +196,67 @@ func (r *Registry) registerBuiltins() {
 		},
 		Execute: r.executeBrowserScript,
 	})
-}
 
-// AddUpdateMemoryTool registers the memory tool with a callback to the orchestrator's state array
-func (r *Registry) AddUpdateMemoryTool(onMemorySaved func(string)) {
+	// analyze_source_code — CodeMapper for finding injection choke points
 	r.Register(&Tool{
 		Definition: llm.ToolDefinition{
-			Name:        "update_memory",
-			Description: "Save crucial discoveries (open ports, valid URLs, identified CVEs) to your permanent scratchpad so you don't forget them.",
+			Name:        "analyze_source_code",
+			Description: "Clone a git repository or download source code and analyze it for security-critical patterns (injection points, unsafe calls, hardcoded secrets, auth bypasses). Uses grep/semgrep patterns to find 'choke points' — code locations most likely to contain vulnerabilities. Returns a structured list of findings with file paths, line numbers, and matched patterns.\n\nUse this BEFORE fuzzing to identify exactly which parameters, endpoints, and functions to target.",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"discovery": map[string]interface{}{
+					"url": map[string]interface{}{
 						"type":        "string",
-						"description": "Clear, concise summary of what you discovered (e.g. 'Port 80/443 open, running Nginx 1.18.0')",
+						"description": "Git repository URL or raw file URL to analyze (e.g., 'https://github.com/org/repo')",
+					},
+					"focus": map[string]interface{}{
+						"type":        "string",
+						"description": "What to look for: 'sqli' (SQL injection), 'xss' (cross-site scripting), 'cmdi' (command injection), 'ssrf' (server-side request forgery), 'auth' (authentication bypass), 'secrets' (hardcoded keys/passwords), or 'all'",
+					},
+					"path_filter": map[string]interface{}{
+						"type":        "string",
+						"description": "Optional: only analyze files matching this glob pattern (e.g., '*.js', 'src/**/*.py')",
 					},
 				},
-				"required": []string{"discovery"},
+				"required": []string{"url", "focus"},
+			},
+		},
+		Execute: r.analyzeSourceCode,
+	})
+}
+
+// AddUpdateBrainTool registers the Mirage 2.0 structured brain tool
+func (r *Registry) AddUpdateBrainTool(onBrainUpdate func(string, string)) {
+	r.Register(&Tool{
+		Definition: llm.ToolDefinition{
+			Name:        "update_brain",
+			Description: "CRITICAL: Save crucial discoveries to your long-term memory. Categorize them accurately to help the Mastermind Orchestrator plan the next steps.",
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"category": map[string]interface{}{
+						"type":        "string",
+						"enum":        []string{"lead", "finding", "exclusion"},
+						"description": "'lead': interesting paths/params; 'finding': confirmed vulnerability; 'exclusion': dead end or blocked path.",
+					},
+					"discovery": map[string]interface{}{
+						"type":        "string",
+						"description": "Clear summary of the discovery (e.g. 'SQLi confirmed on /api/user?id=1' or 'Port 8443 is filtering traffic').",
+					},
+				},
+				"required": []string{"category", "discovery"},
 			},
 		},
 		Execute: func(ctx context.Context, args json.RawMessage) (string, error) {
 			var params struct {
+				Category  string `json:"category"`
 				Discovery string `json:"discovery"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return "", err
 			}
-			onMemorySaved(params.Discovery)
-			return fmt.Sprintf("[MEMORY SAVED]: %s", params.Discovery), nil
+			onBrainUpdate(params.Category, params.Discovery)
+			return fmt.Sprintf("[BRAIN UPDATED (%s)]: %s", params.Category, params.Discovery), nil
 		},
 	})
 }
@@ -240,8 +273,8 @@ func (r *Registry) executeCommand(ctx context.Context, args json.RawMessage) (st
 	if params.Timeout <= 0 {
 		params.Timeout = 300
 	}
-	if params.Timeout > 600 {
-		params.Timeout = 600
+	if params.Timeout > 1800 {
+		params.Timeout = 1800
 	}
 
 	// Intercept and block unauthorized commands
@@ -319,6 +352,70 @@ func (r *Registry) executeBrowserScript(ctx context.Context, args json.RawMessag
 // Register adds a tool to the registry
 func (r *Registry) Register(tool *Tool) {
 	r.tools[tool.Definition.Name] = tool
+}
+
+func (r *Registry) analyzeSourceCode(ctx context.Context, args json.RawMessage) (string, error) {
+	var params struct {
+		URL        string `json:"url"`
+		Focus      string `json:"focus"`
+		PathFilter string `json:"path_filter"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return "", fmt.Errorf("invalid analyze_source_code args: %w", err)
+	}
+
+	log.Printf("🔍 CodeMapper: Analyzing %s (focus: %s)", params.URL, params.Focus)
+
+	// Build the analysis script
+	cloneCmd := fmt.Sprintf("cd /tmp && rm -rf codemapper_repo && git clone --depth=1 %s codemapper_repo 2>&1 && cd codemapper_repo", params.URL)
+
+	// Build grep patterns based on focus area
+	var grepPatterns string
+	switch strings.ToLower(params.Focus) {
+	case "sqli":
+		grepPatterns = `grep -rn --include='*.js' --include='*.py' --include='*.php' --include='*.java' --include='*.go' --include='*.rb' --include='*.ts' -E "(query\(|execute\(|raw\(|exec\(|\.query|sql\.|SELECT.*FROM|INSERT.*INTO|UPDATE.*SET|DELETE.*FROM|WHERE.*=.*\+|db\.|cursor\.|prepare\()" /tmp/codemapper_repo/ 2>/dev/null | head -80`
+	case "xss":
+		grepPatterns = `grep -rn --include='*.js' --include='*.py' --include='*.php' --include='*.html' --include='*.jsx' --include='*.ts' --include='*.tsx' -E "(innerHTML|outerHTML|document\.write|\.html\(|v-html|dangerouslySetInnerHTML|res\.send\(|render\(|\.safe|mark_safe)" /tmp/codemapper_repo/ 2>/dev/null | head -80`
+	case "cmdi":
+		grepPatterns = `grep -rn --include='*.js' --include='*.py' --include='*.php' --include='*.java' --include='*.go' --include='*.rb' -E "(exec\(|system\(|popen\(|spawn\(|execSync|child_process|subprocess|os\.system|os\.popen|Runtime\.getRuntime|ProcessBuilder)" /tmp/codemapper_repo/ 2>/dev/null | head -80`
+	case "ssrf":
+		grepPatterns = `grep -rn --include='*.js' --include='*.py' --include='*.php' --include='*.java' --include='*.go' -E "(fetch\(|axios\.|requests\.(get|post|put)|http\.Get|urllib|curl_exec|file_get_contents|HttpClient|RestTemplate)" /tmp/codemapper_repo/ 2>/dev/null | head -80`
+	case "auth":
+		grepPatterns = `grep -rn --include='*.js' --include='*.py' --include='*.php' --include='*.java' --include='*.go' -E "(password|secret|token|api.?key|jwt|bearer|auth|login|session|cookie|hash|bcrypt|sha256|md5|verify|authenticate|authorize)" /tmp/codemapper_repo/ 2>/dev/null | head -80`
+	case "secrets":
+		grepPatterns = `grep -rn --include='*.js' --include='*.py' --include='*.php' --include='*.java' --include='*.go' --include='*.env' --include='*.yml' --include='*.yaml' --include='*.json' -E "(API_KEY|SECRET_KEY|PRIVATE_KEY|password\s*=|secret\s*=|token\s*=|aws_access)" /tmp/codemapper_repo/ 2>/dev/null | head -80`
+	default: // "all"
+		grepPatterns = `echo "=== SQL Injection ===" && grep -rn --include='*.js' --include='*.py' --include='*.php' --include='*.go' -E "(query\(|execute\(|raw\(|\.query|SELECT.*FROM)" /tmp/codemapper_repo/ 2>/dev/null | head -30 && echo "=== XSS ===" && grep -rn --include='*.js' --include='*.py' --include='*.php' --include='*.html' -E "(innerHTML|document\.write|\.html\(|dangerouslySetInnerHTML)" /tmp/codemapper_repo/ 2>/dev/null | head -30 && echo "=== Command Injection ===" && grep -rn --include='*.js' --include='*.py' --include='*.php' --include='*.go' -E "(exec\(|system\(|popen\(|spawn\(|subprocess)" /tmp/codemapper_repo/ 2>/dev/null | head -30 && echo "=== Secrets ===" && grep -rn -E "(API_KEY|SECRET_KEY|password\s*=|token\s*=)" /tmp/codemapper_repo/ 2>/dev/null | head -20`
+	}
+
+	// Apply path filter if provided
+	if params.PathFilter != "" {
+		grepPatterns = strings.ReplaceAll(grepPatterns, "/tmp/codemapper_repo/", fmt.Sprintf("/tmp/codemapper_repo/%s", params.PathFilter))
+	}
+
+	// Get repo stats
+	statsCmd := `echo "=== Repo Stats ===" && find /tmp/codemapper_repo -type f \( -name '*.js' -o -name '*.py' -o -name '*.php' -o -name '*.go' -o -name '*.java' -o -name '*.rb' -o -name '*.ts' \) 2>/dev/null | wc -l && echo " source files found" && echo "=== Directory Structure ===" && find /tmp/codemapper_repo -type d -maxdepth 3 2>/dev/null | head -30`
+
+	fullCmd := fmt.Sprintf("%s && %s && echo '=== Security Analysis ===' && %s", cloneCmd, statsCmd, grepPatterns)
+
+	result, err := r.sandbox.Execute(ctx, fullCmd, 120)
+	if err != nil {
+		return "", fmt.Errorf("codemapper execution failed: %w", err)
+	}
+
+	output := result.Stdout
+	if result.Stderr != "" {
+		output += "\n" + result.Stderr
+	}
+	output += fmt.Sprintf("\n\n[CodeMapper Exit Code: %d | Duration: %s]", result.ExitCode, result.Duration.Round(time.Millisecond))
+
+	// Truncate if needed
+	const maxOutput = 20000
+	if len(output) > maxOutput {
+		output = output[:maxOutput] + "\n\n... [output truncated, showing first 20000 characters]"
+	}
+
+	return output, nil
 }
 
 // Get returns a tool by name

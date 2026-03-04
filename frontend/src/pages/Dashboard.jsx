@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Search, Zap, Clock, Activity, Target, ArrowRight } from 'lucide-react'
+import { Search, Zap, Clock, Activity, Target, ArrowRight, Trash2 } from 'lucide-react'
 
 const API_BASE = '/api'
 
@@ -15,6 +15,7 @@ function Dashboard() {
     const [findingsLoading, setFindingsLoading] = useState(false)
     const findingsLoadedRef = useRef(false)
     const [statusFilter, setStatusFilter] = useState('all')
+    const [deleteConfirm, setDeleteConfirm] = useState(null)
 
     useEffect(() => {
         fetchFlows()
@@ -84,6 +85,28 @@ function Dashboard() {
             setFindings(allFindings)
         } finally {
             setFindingsLoading(false)
+        }
+    }
+
+    function openDeleteConfirm(flow) {
+        setDeleteConfirm({ id: flow.id, status: flow.status, name: flow.name })
+    }
+
+    async function confirmDeleteFlow(flowId) {
+        if (!flowId) return
+        setDeleteConfirm(null)
+        try {
+            const res = await fetch(`${API_BASE}/flows/${flowId}`, { method: 'DELETE' })
+            if (res.ok) {
+                setFlows((prev) => prev.filter((f) => f.id !== flowId))
+                setFindings((prev) => prev.filter((f) => f.flowId !== flowId))
+            } else {
+                const text = await res.text()
+                window.alert(text || 'Failed to delete flow.')
+            }
+        } catch (err) {
+            console.error('Failed to delete flow:', err)
+            window.alert('Failed to delete flow: ' + (err.message || 'network error'))
         }
     }
 
@@ -180,6 +203,52 @@ function Dashboard() {
 
     return (
         <div className="relative pb-12">
+            {/* Delete confirmation modal — in-app so it can't be closed by navigation */}
+            {deleteConfirm && (
+                <div
+                    className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+                    onClick={() => setDeleteConfirm(null)}
+                    role="dialog"
+                    aria-modal="true"
+                >
+                    <div
+                        className="relative rounded-2xl border border-white/20 bg-[#0f172a] p-6 shadow-2xl max-w-sm w-full"
+                        onClick={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
+                    >
+                        <h3 className="text-lg font-bold text-text-primary mb-2">Delete flow?</h3>
+                        <p className="text-sm text-text-muted mb-4">
+                            {deleteConfirm.status === 'active' || deleteConfirm.status === 'running'
+                                ? 'This flow is still running. It will be stopped, then deleted.'
+                                : 'This cannot be undone.'}
+                        </p>
+                        <p className="text-xs font-mono text-text-muted truncate mb-6" title={deleteConfirm.name}>
+                            {deleteConfirm.name}
+                        </p>
+                        <div className="flex gap-3 justify-end">
+                            <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); setDeleteConfirm(null); }}
+                                className="px-4 py-2 rounded-lg text-sm font-medium text-text-primary bg-white/10 border border-white/20 hover:bg-white/15"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    confirmDeleteFlow(deleteConfirm.id)
+                                }}
+                                className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-red border border-accent-red hover:opacity-90"
+                            >
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Ambient background glow & blobs */}
             <div className="pointer-events-none absolute inset-0 -z-10">
                 <div className="absolute inset-x-0 -top-32 h-64 bg-[radial-gradient(circle_at_top,_rgba(0,212,255,0.18),transparent_65%)] opacity-70" />
@@ -233,9 +302,8 @@ function Dashboard() {
                                 key={key}
                                 type="button"
                                 onClick={() => setStatusFilter(key)}
-                                className={`relative z-10 flex-1 px-3 py-1 rounded-full uppercase tracking-[0.16em] text-center transition-colors duration-200 ${
-                                    statusFilter === key ? 'text-primary-bg' : 'text-text-muted hover:text-text-primary'
-                                }`}
+                                className={`relative z-10 flex-1 px-3 py-1 rounded-full uppercase tracking-[0.16em] text-center transition-colors duration-200 ${statusFilter === key ? 'text-primary-bg' : 'text-text-muted hover:text-text-primary'
+                                    }`}
                             >
                                 {key}{' '}
                                 <span className="ml-1 text-[10px] text-text-muted/80">
@@ -336,16 +404,34 @@ function Dashboard() {
                     className="relative z-10 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 auto-rows-[1fr]"
                 >
                     {filteredFlows.map((flow) => (
-                        <motion.div key={flow.id} variants={itemVariants} className="h-full">
-                            <Link to={`/flow/${flow.id}`} className="block h-full group">
-                                <div className="h-full relative overflow-hidden rounded-3xl border border-white/15 bg-white/8 backdrop-blur-2xl p-6 shadow-[0_18px_80px_rgba(15,23,42,0.95)] transition-all duration-500 transform hover:-translate-y-1 hover:shadow-[0_0_45px_rgba(0,212,255,0.45)] hover:border-accent-cyan/60">
+                        <motion.div key={flow.id} variants={itemVariants} className="h-full relative">
+                            <div className="h-full relative overflow-hidden rounded-3xl border border-white/15 bg-white/8 backdrop-blur-2xl p-6 shadow-[0_18px_80px_rgba(15,23,42,0.95)] transition-all duration-500 group hover:-translate-y-1 hover:shadow-[0_0_45px_rgba(0,212,255,0.45)] hover:border-accent-cyan/60">
+                                {/* Delete button outside Link so click never triggers navigation */}
+                                <button
+                                    type="button"
+                                    title="Delete flow"
+                                    onMouseDown={(e) => {
+                                        e.preventDefault()
+                                        e.stopPropagation()
+                                    }}
+                                    onClick={(e) => {
+                                        e.preventDefault()
+                                        e.stopPropagation()
+                                        openDeleteConfirm(flow)
+                                    }}
+                                    className="absolute top-5 right-5 z-20 inline-flex items-center justify-center w-7 h-7 rounded-full border border-white/15 bg-white/5 text-text-muted hover:text-accent-red hover:border-accent-red/60 hover:bg-accent-red/10 transition-colors"
+                                >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+
+                                <Link to={`/flow/${flow.id}`} className="block h-full group/link">
                                     {/* Glass light streak */}
-                                    <div className="pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500">
+                                    <div className="pointer-events-none absolute inset-0 opacity-0 group-hover/link:opacity-100 transition-opacity duration-500">
                                         <div className="absolute -inset-x-10 -top-10 h-24 bg-gradient-to-br from-white/40 via-white/5 to-transparent blur-2xl mix-blend-screen" />
                                     </div>
 
                                     <div className="relative z-10 flex flex-col h-full">
-                                        <div className="flex justify-between items-start mb-4 gap-4">
+                                        <div className="flex justify-between items-start mb-4 gap-4 pr-10">
                                             <h3 className="text-lg font-bold text-text-primary truncate" title={flow.name}>{flow.name}</h3>
                                             <div className="flex-shrink-0">
                                                 <span className={getStatusBadge(flow.status)}>{flow.status}</span>
@@ -358,7 +444,7 @@ function Dashboard() {
                                             </p>
                                         )}
 
-                                        <div className="flex items-center justify-between text-xs text-text-muted/80 mt-auto pt-4 border-t border-border/50">
+                                        <div className="flex items-center justify-between mt-auto">
                                             <div className="flex items-center gap-4">
                                                 <div className="flex items-center gap-1.5" title="Target">
                                                     <Target className="w-3.5 h-3.5" />
@@ -370,13 +456,13 @@ function Dashboard() {
                                                 </div>
                                             </div>
 
-                                            <div className="w-8 h-8 rounded-full bg-[#111827] border border-border flex items-center justify-center opacity-0 group-hover:opacity-100 transform translate-x-4 group-hover:translate-x-0 transition-all duration-300">
+                                            <div className="w-8 h-8 rounded-full bg-[#111827] border border-border flex items-center justify-center opacity-0 group-hover/link:opacity-100 transform translate-x-4 group-hover/link:translate-x-0 transition-all duration-300">
                                                 <ArrowRight className="w-4 h-4 text-accent-cyan" />
                                             </div>
                                         </div>
                                     </div>
-                                </div>
-                            </Link>
+                                </Link>
+                            </div>
                         </motion.div>
                     ))}
                 </motion.div>

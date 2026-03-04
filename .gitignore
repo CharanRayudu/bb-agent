@@ -40,3 +40,8 @@ docker-compose.override.yml
 *.pem
 *.key
 *.crt
+
+# Project cleanup
+reference_projects/
+tmp_mirage
+*-release.json

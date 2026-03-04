@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { ArrowLeft, Target, Clock, Activity, Cpu, Wrench, MessageSquare, CheckCircle, XCircle, ChevronRight, Terminal } from 'lucide-react'
+import { ArrowLeft, Target, Clock, Activity, Cpu, Wrench, MessageSquare, CheckCircle, XCircle, ChevronRight, Terminal, Trash2 } from 'lucide-react'
 
 const API_BASE = '/api'
 
@@ -37,11 +37,10 @@ function FindingList({ findings, formatTime }) {
                         key={idx}
                         type="button"
                         onClick={() => setExpandedIndex(isExpanded ? null : idx)}
-                        className={`w-full text-left rounded-xl border px-3 py-2 text-xs text-text-primary flex flex-col transition-all ${
-                            isExpanded
-                                ? 'bg-white/10 border-white/20 shadow-[0_12px_40px_rgba(15,23,42,0.9)] scale-[1.01]'
-                                : 'bg-white/4 hover:bg-white/8 border-white/10'
-                        }`}
+                        className={`w-full text-left rounded-xl border px-3 py-2 text-xs text-text-primary flex flex-col transition-all ${isExpanded
+                            ? 'bg-white/10 border-white/20 shadow-[0_12px_40px_rgba(15,23,42,0.9)] scale-[1.01]'
+                            : 'bg-white/4 hover:bg-white/8 border-white/10'
+                            }`}
                     >
                         <div className="flex items-center justify-between gap-3">
                             <div className="flex items-center gap-2 min-w-0">
@@ -70,11 +69,14 @@ function FindingList({ findings, formatTime }) {
 
 function FlowDetail() {
     const { id } = useParams()
+    const navigate = useNavigate()
     const [flow, setFlow] = useState(null)
     const [events, setEvents] = useState([])
     const [connected, setConnected] = useState(false)
     const [loading, setLoading] = useState(true)
     const [stopping, setStopping] = useState(false)
+    const [deleting, setDeleting] = useState(false)
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
     const [eventsError, setEventsError] = useState(null)
     const [activeTab, setActiveTab] = useState('timeline') // 'timeline' | 'findings' | 'raw'
     const eventsEndRef = useRef(null)
@@ -150,12 +152,10 @@ function FlowDetail() {
                 const data = JSON.parse(event.data)
                 if (data.flow_id === id) {
                     setEvents((prev) => {
-                        const alreadyExists = prev.some(e =>
-                            e.timestamp === data.timestamp && e.content === data.content
-                        );
+                        const alreadyExists = prev.some(e => e.id === data.id || (e.timestamp === data.timestamp && e.content === data.content));
                         if (alreadyExists) return prev;
                         return [...prev, data];
-                    })
+                    });
 
                     if (data.type === 'complete' || data.type === 'error') {
                         setTimeout(fetchFlow, 1000)
@@ -286,8 +286,80 @@ function FlowDetail() {
         }
     }
 
+    function openDeleteConfirm() {
+        if (flow) setShowDeleteConfirm(true)
+    }
+
+    async function confirmDeleteFlow(flowId) {
+        if (!flowId) return
+        setShowDeleteConfirm(false)
+        setDeleting(true)
+        try {
+            const res = await fetch(`${API_BASE}/flows/${flowId}`, { method: 'DELETE' })
+            if (res.ok) {
+                navigate('/', { replace: true })
+            } else {
+                const text = await res.text()
+                window.alert(text || 'Failed to delete flow.')
+            }
+        } catch (err) {
+            console.error('Failed to delete flow:', err)
+            window.alert('Failed to delete flow: ' + (err.message || 'network error'))
+        } finally {
+            setDeleting(false)
+        }
+    }
+
     return (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative pb-12 max-w-[1600px] mx-auto">
+            {/* Delete confirmation modal — in-app so it can't be closed by navigation */}
+            {showDeleteConfirm && (
+                <div
+                    className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+                    onClick={() => setShowDeleteConfirm(false)}
+                    role="dialog"
+                    aria-modal="true"
+                >
+                    <div
+                        className="relative rounded-2xl border border-white/20 bg-[#0f172a] p-6 shadow-2xl max-w-sm w-full"
+                        onClick={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
+                    >
+                        <h3 className="text-lg font-bold text-text-primary mb-2">Delete this flow?</h3>
+                        <p className="text-sm text-text-muted mb-4">
+                            {flow && (flow.status === 'active' || flow.status === 'running')
+                                ? 'This flow is still running. It will be stopped, then deleted.'
+                                : 'This cannot be undone.'}
+                        </p>
+                        {flow && (
+                            <p className="text-xs font-mono text-text-muted truncate mb-6" title={flow.name}>
+                                {flow.name}
+                            </p>
+                        )}
+                        <div className="flex gap-3 justify-end">
+                            <button
+                                type="button"
+                                onClick={() => setShowDeleteConfirm(false)}
+                                className="px-4 py-2 rounded-lg text-sm font-medium text-text-primary bg-white/10 border border-white/20 hover:bg-white/15"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    confirmDeleteFlow(id)
+                                }}
+                                className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-accent-red border border-accent-red hover:opacity-90"
+                            >
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Ambient background glow & vertical streaks (tinted by status) */}
             <div className="pointer-events-none absolute inset-0 -z-10">
                 <div className={`absolute inset-x-0 -top-28 h-60 opacity-80 ${glowClass}`} />
@@ -349,22 +421,25 @@ function FlowDetail() {
                     )}
 
                     <button
-                        onClick={async () => {
-                            if (confirm(`Are you sure you want to delete "${flow.name}"? This action is permanent.`)) {
-                                try {
-                                    const res = await fetch(`${API_BASE}/flows/${id}`, { method: 'DELETE' });
-                                    if (res.ok) {
-                                        window.location.href = '/';
-                                    }
-                                } catch (err) {
-                                    console.error('Delete failed:', err);
-                                }
-                            }
+                        type="button"
+                        onMouseDown={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
                         }}
-                        className="flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-mono font-bold tracking-widest uppercase border border-accent-red/20 bg-accent-red/5 text-accent-red/70 hover:bg-accent-red/20 hover:text-accent-red backdrop-blur-md shadow-sm transition-all hover:scale-105"
+                        onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            openDeleteConfirm()
+                        }}
+                        disabled={deleting}
+                        className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-mono font-bold tracking-widest uppercase border backdrop-blur-md shadow-sm transition-all
+                            ${deleting
+                                ? 'bg-text-muted/10 text-text-muted border-text-muted/30 cursor-not-allowed'
+                                : 'bg-text-muted/10 text-text-muted border-text-muted/30 hover:bg-accent-red/15 hover:text-accent-red hover:border-accent-red/40 hover:scale-105'}`}
                     >
-                        <XCircle className="w-3 h-3" /> Delete Trace
+                        {deleting ? 'Deleting...' : <><Trash2 className="w-3 h-3" /> Delete Flow</>}
                     </button>
+
                 </div>
             </div>
 
@@ -435,6 +510,7 @@ function FlowDetail() {
                                             <div className="text-accent-cyan/90 font-bold flex gap-3">
                                                 <span className="text-accent-purple select-none mt-0.5">λ</span>
                                                 <span className="whitespace-pre-wrap flex-1">
+                                                    {meta.subtask_id && <span className="mr-2 inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-mono text-white/70 bg-white/10" title="Agent Thread ID">{meta.subtask_id}</span>}
                                                     {(() => {
                                                         try {
                                                             const args = JSON.parse(meta.args || '{}')
@@ -451,6 +527,7 @@ function FlowDetail() {
                                             <div className="text-text-muted/70 italic flex gap-3 pl-5 border-l-2 border-text-muted/20 my-2.5">
                                                 <Cpu className="w-4 h-4 mt-1 flex-shrink-0 opacity-40 text-accent-purple" />
                                                 <span className="whitespace-pre-wrap flex-1">
+                                                    {meta.subtask_id && <span className="mr-2 inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-mono text-white/50 bg-white/5" title="Agent Thread ID">{meta.subtask_id}</span>}
                                                     {(() => {
                                                         if (event.type === 'tool_call') {
                                                             try {
@@ -531,9 +608,8 @@ function FlowDetail() {
                                     key={tab}
                                     type="button"
                                     onClick={() => setActiveTab(tab)}
-                                    className={`relative z-10 flex-1 px-2.5 py-1 rounded-full text-center transition-colors duration-200 ${
-                                        activeTab === tab ? 'text-primary-bg' : 'text-text-muted hover:text-text-primary'
-                                    }`}
+                                    className={`relative z-10 flex-1 px-2.5 py-1 rounded-full text-center transition-colors duration-200 ${activeTab === tab ? 'text-primary-bg' : 'text-text-muted hover:text-text-primary'
+                                        }`}
                                 >
                                     {tab === 'timeline' && 'Timeline'}
                                     {tab === 'findings' && 'Findings'}

@@ -296,6 +296,9 @@ func (q *Queries) GetActionsByFlow(flowID uuid.UUID) ([]models.Action, error) {
 	var actions []models.Action
 	for rows.Next() {
 		var a models.Action
+		if err := rows.Scan(&a.ID, &a.SubTaskID, &a.Type, &a.Input, &a.Output, &a.Status, &a.CreatedAt); err != nil {
+			return nil, err
+		}
 		actions = append(actions, a)
 	}
 	return actions, nil

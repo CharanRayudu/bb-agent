@@ -17,7 +17,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gobuster \
     dirb \
     wfuzz \
+    ffuf \
     sqlmap \
+    hydra \
     seclists \
     wordlists \
     # Network
@@ -63,6 +65,19 @@ RUN curl -sL https://api.github.com/repos/projectdiscovery/nuclei/releases/lates
 RUN curl -sL https://api.github.com/repos/projectdiscovery/subfinder/releases/latest | grep "browser_download_url.*linux_amd64.zip" | cut -d : -f 2,3 | tr -d \" | xargs curl -sL -o /tmp/subfinder.zip \
     && unzip -o /tmp/subfinder.zip -d /usr/local/bin/ \
     && rm -f /tmp/subfinder.zip
+
+# Install dalfox
+RUN curl -sL https://api.github.com/repos/hahwul/dalfox/releases/latest | grep "browser_download_url.*linux-amd64.tar.gz" | cut -d : -f 2,3 | tr -d \" | xargs curl -sL -o /tmp/dalfox.tar.gz \
+    && tar -xzf /tmp/dalfox.tar.gz -C /usr/local/bin/ \
+    && rm -f /tmp/dalfox.tar.gz
+
+# Install advanced CLI security tools from repositories
+RUN cd /opt && \
+    git clone https://github.com/commixproject/commix.git && ln -s /opt/commix/commix.py /usr/local/bin/commix && \
+    git clone https://github.com/s0md3v/XSStrike.git && cd XSStrike && pip3 install --break-system-packages -r requirements.txt && ln -s /opt/XSStrike/xsstrike.py /usr/local/bin/xsstrike && \
+    cd /opt && git clone https://github.com/s0md3v/Corsy.git && pip3 install --break-system-packages requests && ln -s /opt/Corsy/corsy.py /usr/local/bin/corsy && \
+    cd /opt && git clone https://github.com/epinna/tplmap.git && pip3 install --break-system-packages -r tplmap/requirements.txt || true && ln -s /opt/tplmap/tplmap.py /usr/local/bin/tplmap
+
 
 # Working directory
 WORKDIR /workspace

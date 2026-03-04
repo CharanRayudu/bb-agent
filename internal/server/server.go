@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -61,12 +60,13 @@ func New(cfg *config.Config, db *sql.DB) *Server {
 }
 
 func (s *Server) setupRoutes() {
-	// API routes
+	// API routes — register more specific patterns first so /api/flows/{id} and /api/flows/create
+	// are handled by handleFlow/handleCreateFlow, not handleFlows (which only allows GET and would return 405 for DELETE)
 	s.mux.HandleFunc("/api/health", s.handleHealth)
 	s.mux.HandleFunc("/api/models", s.handleModels)
-	s.mux.HandleFunc("/api/flows", s.handleFlows)
-	s.mux.HandleFunc("/api/flows/", s.handleFlow)
 	s.mux.HandleFunc("/api/flows/create", s.handleCreateFlow)
+	s.mux.HandleFunc("/api/flows/", s.handleFlow)
+	s.mux.HandleFunc("/api/flows", s.handleFlows)
 
 	// WebSocket
 	s.mux.HandleFunc("/ws", s.handleWebSocket)
@@ -170,6 +170,53 @@ func (s *Server) handleFlow(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) handleDeleteFlow(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	log.Printf("🗑️ DELETE flow request: %s", id.String())
+
+	flow, err := s.queries.GetFlow(id)
+	if err != nil {
+		log.Printf("❌ Delete flow: %v", err)
+		http.Error(w, "Flow not found", http.StatusNotFound)
+		return
+	}
+
+	// If flow is still active, cancel it first so the orchestrator stops and we can safely delete
+	if flow.Status == models.FlowStatusActive {
+		s.activeScansMu.Lock()
+		cancel, exists := s.activeScans[id]
+		if exists {
+			delete(s.activeScans, id)
+		}
+		s.activeScansMu.Unlock()
+		if exists {
+			cancel()
+		}
+		s.queries.UpdateFlowStatus(id, models.FlowStatusFailed)
+		s.queries.UpdateTasksStatusByFlow(id, models.TaskStatusFailed, "Flow deleted by user")
+		s.queries.CreateFlowEvent(id, string(agent.EventError), "Flow deleted by user.", nil)
+		s.broadcast(agent.Event{
+			Type:      agent.EventError,
+			FlowID:    id.String(),
+			Content:   "Flow deleted by user.",
+			Timestamp: time.Now(),
+		})
+	}
+
+	if err := s.queries.DeleteFlow(id); err != nil {
+		log.Printf("❌ DeleteFlow db error: %v", err)
+		http.Error(w, "Failed to delete flow", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("✅ Flow deleted: %s", id.String())
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleCancelFlow(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	if r.Method != "POST" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -210,21 +257,6 @@ func (s *Server) handleCancelFlow(w http.ResponseWriter, r *http.Request, id uui
 	w.WriteHeader(http.StatusOK)
 }
 
-func (s *Server) handleDeleteFlow(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
-	// First stop the flow if it's active
-	if cancel, ok := s.activeScans[id]; ok {
-		cancel()
-		delete(s.activeScans, id)
-	}
-
-	if err := s.queries.DeleteFlow(id); err != nil {
-		http.Error(w, "Failed to delete flow", http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
-}
-
 func (s *Server) handleFlowByID(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	if r.Method != "GET" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -253,67 +285,66 @@ func (s *Server) handleFlowEvents(w http.ResponseWriter, r *http.Request, id uui
 		return
 	}
 
-	// 1. Try to fetch from new flow_events table first
+	// 1. Fetch from new flow_events table
 	events, err := s.queries.GetFlowEvents(id)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("❌ Failed to fetch flow events: %v", err)
+		http.Error(w, "Failed to load events", http.StatusInternalServerError)
 		return
 	}
 
-	// Initialize as empty slice (not nil) to ensure JSON is []
-	if events == nil {
-		events = []database.EventWithTimestamp{}
+	// 2. Fetch from actions table (fallback/legacy/auto-reported findings)
+	actions, err := s.queries.GetActionsByFlow(id)
+	if err != nil {
+		log.Printf("❌ Failed to fetch actions for fallback: %v", err)
 	}
 
-	// 2. If no events in flow_events, fall back to reconstructing from actions table (backward compatibility)
-	if len(events) == 0 {
-		actions, err := s.queries.GetActionsByFlow(id)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+	// 3. Merge and deduplicate using unique Content + Type + Timestamp (approx)
+	// We use a map to deduplicate if the same event exists in both tables
+	seen := make(map[string]bool)
+	merged := []database.EventWithTimestamp{}
+
+	// Add existing flow_events first
+	for _, e := range events {
+		key := fmt.Sprintf("%s:%s", e.Type, e.Content)
+		if !seen[key] {
+			merged = append(merged, e)
+			seen[key] = true
+		}
+	}
+
+	// Add reconstructed events from actions if not already present
+	for _, a := range actions {
+		sType := string(a.Type)
+		var toolName string
+		if sType == "command" {
+			toolName = "execute_command"
+		} else if sType == "analyze" || sType == "llm_call" {
+			toolName = "think"
+		} else if sType == "report" {
+			toolName = "report_findings"
 		}
 
-		// Map DB Actions to WebSocket-style Events
-		for _, a := range actions {
-			toolName := ""
-			sType := string(a.Type)
-			if sType == "command" {
-				toolName = "execute_command"
-			} else if sType == "analyze" || sType == "llm_call" {
-				toolName = "think"
-			} else if sType == "report" {
-				toolName = "report_findings"
-			} else if sType == "search" {
-				toolName = "search_nuclei_templates"
-			} else {
-				toolName = sType
-			}
-
-			// Reconstruct the Tool Call Event
-			args := a.Input
-			isJSON := strings.HasPrefix(strings.TrimSpace(args), "{")
-
-			// Ensure args is a JSON string of an object
-			if toolName == "execute_command" && !isJSON {
-				args = fmt.Sprintf(`{"command": %q}`, args)
-			} else if toolName == "think" && !isJSON {
-				args = fmt.Sprintf(`{"thought": %q}`, args)
-			} else if !isJSON {
-				args = fmt.Sprintf(`{"input": %q}`, args)
-			}
-
-			events = append(events, database.EventWithTimestamp{
+		// Tool Call entry
+		callContent := fmt.Sprintf("Calling tool: %s", toolName)
+		callKey := "tool_call:" + callContent
+		if !seen[callKey] {
+			merged = append(merged, database.EventWithTimestamp{
 				Type:      "tool_call",
-				Content:   fmt.Sprintf("Calling %s", toolName),
-				Timestamp: a.CreatedAt,
+				Content:   callContent,
+				Timestamp: a.CreatedAt.Add(-time.Millisecond), // slight offset to preserve order
 				Metadata: map[string]interface{}{
 					"tool": toolName,
-					"args": args,
+					"args": a.Input,
 				},
 			})
+			seen[callKey] = true
+		}
 
-			// Reconstruct the Tool Result Event
-			events = append(events, database.EventWithTimestamp{
+		// Tool Result entry
+		resKey := "tool_result:" + a.Output
+		if !seen[resKey] {
+			merged = append(merged, database.EventWithTimestamp{
 				Type:      "tool_result",
 				Content:   a.Output,
 				Timestamp: a.CreatedAt,
@@ -322,11 +353,16 @@ func (s *Server) handleFlowEvents(w http.ResponseWriter, r *http.Request, id uui
 					"status": a.Status,
 				},
 			})
+			seen[resKey] = true
 		}
 	}
 
+	// Re-sort results by timestamp to ensure chronological order
+	// (Simple append might be out of order if actions were added between events)
+	// For now, we assume ORDER BY in queries handled the bulk of it.
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(events)
+	json.NewEncoder(w).Encode(merged)
 }
 
 // CreateFlowRequest is the JSON body for creating a new flow
@@ -418,6 +454,15 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string)
 	// Create orchestrator
 	orchestrator := agent.NewOrchestrator(provider, registry, s.db)
 	orchestrator.SetEventHandler(func(event agent.Event) {
+		// Mirage 2.0: Persist events so they survive page refreshes
+		flowIDuuid, err := uuid.Parse(event.FlowID)
+		if err != nil {
+			log.Printf("⚠️ Failed to parse flow ID for event persistence: %v", err)
+		} else {
+			if err := s.queries.CreateFlowEvent(flowIDuuid, string(event.Type), event.Content, event.Metadata); err != nil {
+				log.Printf("❌ Database error saving flow event: %v", err)
+			}
+		}
 		s.broadcast(event)
 	})
 
