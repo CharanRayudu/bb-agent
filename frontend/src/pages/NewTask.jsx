@@ -28,8 +28,12 @@ function NewTask() {
             if (res.ok) {
                 const data = await res.json()
                 setModels(data || [])
+                const preferred = data.find((m) => m.id === 'gpt-5.2')
                 const current = data.find((m) => m.current)
-                if (current) {
+
+                if (preferred) {
+                    setForm((prev) => ({ ...prev, model: preferred.id }))
+                } else if (current) {
                     setForm((prev) => ({ ...prev, model: current.id }))
                 } else if (data.length > 0) {
                     setForm((prev) => ({ ...prev, model: data[0].id }))

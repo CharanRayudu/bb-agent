@@ -30,8 +30,9 @@ type Server struct {
 	upgrader websocket.Upgrader
 
 	// WebSocket clients
-	clients   map[*websocket.Conn]bool
-	clientsMu sync.RWMutex
+	clients     map[*websocket.Conn]bool
+	clientsMu   sync.RWMutex
+	broadcastMu sync.Mutex
 
 	// Agent
 	orchestrator *agent.Orchestrator
@@ -64,12 +65,16 @@ func (s *Server) setupRoutes() {
 	// are handled by handleFlow/handleCreateFlow, not handleFlows (which only allows GET and would return 405 for DELETE)
 	s.mux.HandleFunc("/api/health", s.handleHealth)
 	s.mux.HandleFunc("/api/models", s.handleModels)
+	s.mux.HandleFunc("/api/findings", s.handleFindings)
 	s.mux.HandleFunc("/api/flows/create", s.handleCreateFlow)
 	s.mux.HandleFunc("/api/flows/", s.handleFlow)
 	s.mux.HandleFunc("/api/flows", s.handleFlows)
 
 	// WebSocket
 	s.mux.HandleFunc("/ws", s.handleWebSocket)
+
+	// Serve screenshots
+	s.mux.Handle("/screenshots/", http.StripPrefix("/screenshots/", http.FileServer(http.Dir("logs/screenshots"))))
 
 	// Serve frontend static files
 	s.mux.Handle("/", http.FileServer(http.Dir("frontend/dist")))
@@ -125,6 +130,23 @@ func (s *Server) handleFlows(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(flows)
+}
+
+func (s *Server) handleFindings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	findings, err := s.queries.GetAllFindings()
+	if err != nil {
+		log.Printf("Error fetching findings: %v", err)
+		http.Error(w, "Failed to fetch findings", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(findings)
 }
 
 func (s *Server) handleFlow(w http.ResponseWriter, r *http.Request) {
@@ -451,8 +473,15 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string)
 	// Create tool registry
 	registry := tools.NewRegistry(sandbox)
 
+	// Load externalized prompts
+	prompts, err := config.LoadPrompts("prompts.yaml")
+	if err != nil {
+		log.Printf("⚠️ Failed to load prompts.yaml: %v (using defaults)", err)
+		prompts = &config.Prompts{}
+	}
+
 	// Create orchestrator
-	orchestrator := agent.NewOrchestrator(provider, registry, s.db)
+	orchestrator := agent.NewOrchestrator(provider, registry, s.db, prompts)
 	orchestrator.SetEventHandler(func(event agent.Event) {
 		// Mirage 2.0: Persist events so they survive page refreshes
 		flowIDuuid, err := uuid.Parse(event.FlowID)
@@ -464,6 +493,26 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string)
 			}
 		}
 		s.broadcast(event)
+	})
+
+	// Wrap Orchestrator with Conductor
+	conductor := agent.NewConductor(orchestrator, orchestrator.GetEventBus())
+	orchestrator.SetConductor(conductor)
+
+	// Subscribe to internal Conductor metrics and broadcast them
+	orchestrator.GetEventBus().Subscribe("queue_metrics", func(data interface{}) {
+		metrics, ok := data.(map[string]interface{})
+		if !ok {
+			return
+		}
+		s.broadcast(agent.Event{
+			Type:      agent.EventMessage,
+			FlowID:    flowID.String(),
+			TaskID:    "conductor",
+			Content:   "📊 Queue Metrics Update",
+			Metadata:  metrics,
+			Timestamp: time.Now(),
+		})
 	})
 
 	// Setup cancellable context and track it
@@ -480,8 +529,8 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string)
 		cancel()
 	}()
 
-	// Run the flow
-	if err := orchestrator.RunFlow(ctx, flowID, prompt); err != nil {
+	// Run the flow via Conductor
+	if err := conductor.RunFlowWithOversight(ctx, flowID, prompt); err != nil {
 		if ctx.Err() == context.Canceled {
 			log.Printf("🛑 Flow %s was intentionally cancelled", flowID)
 			// Status is already updated by handleCancelFlow
@@ -534,12 +583,16 @@ func (s *Server) broadcast(event agent.Event) {
 		return
 	}
 
+	s.broadcastMu.Lock()
+	defer s.broadcastMu.Unlock()
+
 	s.clientsMu.RLock()
 	defer s.clientsMu.RUnlock()
 
 	for conn := range s.clients {
 		if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
-			log.Printf("WebSocket write error: %v", err)
+			log.Printf("WebSocket broadcast error: %v", err)
+			conn.Close()
 		}
 	}
 }

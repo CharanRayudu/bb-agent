@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Search, Zap, Clock, Activity, Target, ArrowRight, Trash2 } from 'lucide-react'
+import { Search, Zap, Clock, Activity, Target, ArrowRight, Trash2, X, ExternalLink } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 const API_BASE = '/api'
 
@@ -13,9 +15,11 @@ function Dashboard() {
     const [error, setError] = useState(null)
     const [findings, setFindings] = useState([])
     const [findingsLoading, setFindingsLoading] = useState(false)
-    const findingsLoadedRef = useRef(false)
     const [statusFilter, setStatusFilter] = useState('all')
+    const [findingsFilter, setFindingsFilter] = useState('all')
+    const [activeTab, setActiveTab] = useState('scans') // 'scans' or 'findings'
     const [deleteConfirm, setDeleteConfirm] = useState(null)
+    const [selectedFinding, setSelectedFinding] = useState(null)
 
     useEffect(() => {
         fetchFlows()
@@ -42,47 +46,21 @@ function Dashboard() {
     }
 
     useEffect(() => {
-        if (!loading && flows.length > 0 && !findingsLoadedRef.current) {
-            findingsLoadedRef.current = true
-            fetchFindingsForFlows(flows.slice(0, 6))
+        if (activeTab === 'findings') {
+            fetchGlobalFindings()
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [loading, flows])
+    }, [activeTab])
 
-    async function fetchFindingsForFlows(selectedFlows) {
+    async function fetchGlobalFindings() {
         try {
             setFindingsLoading(true)
-            const allFindings = []
-            await Promise.all(
-                selectedFlows.map(async (flow) => {
-                    try {
-                        const res = await fetch(`${API_BASE}/flows/${flow.id}/events`)
-                        if (!res.ok) return
-                        const events = await res.json()
-                        if (!Array.isArray(events)) return
-                        events
-                            .filter((event) => event.type === 'tool_result' && event.metadata && event.metadata.tool === 'report_findings')
-                            .forEach((event) => {
-                                const content = event.content || ''
-                                const severityMatch = content.match(/\*\*Severity\*\*:\s*(\w+)/i)
-                                const severity = (severityMatch ? severityMatch[1] : 'info').toLowerCase()
-                                const titleLine = content.split('\n').find((line) => line.trim().startsWith('## ')) || ''
-                                const title = titleLine.replace(/^##\s*/, '') || 'Finding'
-                                allFindings.push({
-                                    id: `${flow.id}-${event.timestamp}`,
-                                    flowId: flow.id,
-                                    flowName: flow.name,
-                                    severity,
-                                    title,
-                                    content,
-                                })
-                            })
-                    } catch {
-                        // ignore per-flow errors
-                    }
-                })
-            )
-            setFindings(allFindings)
+            const res = await fetch(`${API_BASE}/findings`)
+            if (res.ok) {
+                const data = await res.json()
+                setFindings(data || [])
+            }
+        } catch (err) {
+            console.error('Failed to fetch findings:', err)
         } finally {
             setFindingsLoading(false)
         }
@@ -151,6 +129,12 @@ function Dashboard() {
     const filteredFlows = statusFilter === 'all'
         ? flows
         : flows.filter((flow) => (flow.status || '').toLowerCase() === statusFilter)
+
+    const severities = ['all', 'critical', 'high', 'medium', 'low', 'info']
+
+    const filteredFindings = findingsFilter === 'all'
+        ? findings
+        : findings.filter((f) => f.severity === findingsFilter)
 
     if (loading) {
         return (
@@ -265,11 +249,11 @@ function Dashboard() {
                     <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                         <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}>
                             <h1 className="text-4xl md:text-5xl font-display font-black text-transparent bg-clip-text bg-gradient-to-r from-text-primary to-text-muted mb-3 tracking-tight">
-                                Active Scans
+                                {activeTab === 'scans' ? 'Active Scans' : 'Global Findings'}
                             </h1>
                             <p className="text-sm md:text-base text-text-muted flex items-center gap-2">
                                 <Activity className="w-4 h-4 text-accent-cyan" />
-                                Monitoring {flows.length} autonomous penetration tests
+                                {activeTab === 'scans' ? `Monitoring ${flows.length} autonomous penetration tests` : `Tracking ${findings.length} total discovered vulnerabilities`}
                             </p>
                         </motion.div>
                         <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}>
@@ -286,9 +270,36 @@ function Dashboard() {
                 </div>
             </div>
 
-            {/* Status Filter Bar with sliding pill */}
-            {flows.length > 0 && (
-                <div className="mb-8 relative z-10 flex items-center justify-between">
+            {/* Top Level Tabs */}
+            <div className="mb-8 relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <div className="flex bg-white/5 backdrop-blur-md rounded-2xl p-1 border border-white/10 mt-1">
+                    <button
+                        onClick={() => setActiveTab('scans')}
+                        className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all duration-300 ${activeTab === 'scans'
+                            ? 'bg-accent-cyan/20 text-accent-cyan shadow-[0_0_20px_rgba(0,212,255,0.2)]'
+                            : 'text-text-muted hover:text-text-primary hover:bg-white/5'
+                            }`}
+                    >
+                        Active Scans
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('findings')}
+                        className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all duration-300 ${activeTab === 'findings'
+                            ? 'bg-accent-purple/20 text-accent-purple shadow-[0_0_20px_rgba(168,85,247,0.2)]'
+                            : 'text-text-muted hover:text-text-primary hover:bg-white/5'
+                            }`}
+                    >
+                        Global Findings
+                        {findings.length > 0 && (
+                            <span className="ml-2 inline-flex items-center justify-center px-1.5 py-0.5 rounded-full bg-accent-purple/30 text-[10px] text-accent-purple">
+                                {findings.length}
+                            </span>
+                        )}
+                    </button>
+                </div>
+
+                {/* Status Filter Bar for Scans */}
+                {activeTab === 'scans' && flows.length > 0 && (
                     <div className="relative inline-flex items-center rounded-full bg-white/5 border border-white/10 p-0.5 text-[11px] font-mono overflow-hidden min-w-[260px]">
                         <div
                             className="absolute inset-y-0 left-0 rounded-full bg-accent-cyan shadow-[0_0_12px_rgba(0,212,255,0.6)] transition-transform duration-500 ease-out"
@@ -312,160 +323,279 @@ function Dashboard() {
                             </button>
                         ))}
                     </div>
-                </div>
-            )}
+                )}
 
-            {/* Findings Overview */}
-            {(findingsLoading || findings.length > 0) && (
-                <div className="mb-8 relative z-10">
-                    <div className="flex items-center justify-between mb-3">
-                        <h2 className="text-xs font-mono font-bold tracking-widest uppercase text-text-muted flex items-center gap-2">
-                            <span className="inline-block h-2 w-2 rounded-full bg-accent-cyan" />
-                            Recent Findings
-                        </h2>
-                    </div>
-                    {findingsLoading && findings.length === 0 ? (
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            {Array.from({ length: 3 }).map((_, idx) => (
-                                <div
-                                    key={idx}
-                                    className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 shadow-[0_14px_50px_rgba(15,23,42,0.9)]"
+                {/* Status Filter Bar for Findings */}
+                {activeTab === 'findings' && findings.length > 0 && (
+                    <div className="relative inline-flex flex-wrap items-center rounded-2xl bg-white/5 border border-white/10 p-1 text-[11px] font-mono">
+                        {severities.map((key) => {
+                            const count = key === 'all' ? findings.length : findings.filter(f => f.severity === key).length;
+                            return (
+                                <button
+                                    key={key}
+                                    type="button"
+                                    onClick={() => setFindingsFilter(key)}
+                                    className={`relative z-10 px-3 py-1.5 rounded-xl uppercase tracking-[0.1em] text-center transition-colors duration-200 ${findingsFilter === key ? 'bg-white/10 text-white' : 'text-text-muted hover:text-text-primary hover:bg-white/5'
+                                        }`}
                                 >
+                                    {key} <span className="opacity-50 ml-1">({count})</span>
+                                </button>
+                            )
+                        })}
+                    </div>
+                )}
+            </div>
+
+            {activeTab === 'findings' ? (
+                // Findings View
+                <div className="relative z-10">
+                    {findingsLoading ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {Array.from({ length: 9 }).map((_, idx) => (
+                                <div key={idx} className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-5 shadow-[0_14px_50px_rgba(15,23,42,0.9)]">
                                     <div className="absolute inset-0 bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.25),transparent)] bg-[length:200%_100%] animate-[shimmer_2.5s_linear_infinite] opacity-40" />
-                                    <div className="relative space-y-3">
-                                        <div className="h-4 w-24 bg-white/12 rounded-full" />
-                                        <div className="h-3 w-40 bg-white/8 rounded-full" />
-                                        <div className="h-3 w-28 bg-white/6 rounded-full" />
+                                    <div className="h-4 w-24 bg-white/12 rounded-full mb-4" />
+                                    <div className="space-y-3">
+                                        <div className="h-4 w-3/4 bg-white/8 rounded-full" />
+                                        <div className="h-3 w-full bg-white/6 rounded-full" />
+                                        <div className="h-3 w-5/6 bg-white/6 rounded-full" />
                                     </div>
                                 </div>
                             ))}
                         </div>
-                    ) : findings.length === 0 ? (
-                        <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/4 backdrop-blur-xl p-4 text-xs text-text-muted flex items-center justify-between shadow-[0_10px_40px_rgba(15,23,42,0.9)]">
-                            <span>No structured findings reported yet. Run or complete a scan to see highlights here.</span>
-                        </div>
+                    ) : filteredFindings.length === 0 ? (
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center justify-center min-h-[40vh] p-12 text-center border border-border/50 rounded-2xl bg-card-bg/30 backdrop-blur-sm">
+                            <div className="w-20 h-20 bg-[#111827] rounded-full flex items-center justify-center mb-6 shadow-[inset_0_2px_10px_rgba(0,0,0,0.5)] border border-border">
+                                <Activity className="w-8 h-8 text-text-muted" />
+                            </div>
+                            <h2 className="text-2xl font-bold text-text-primary mb-3">No findings matching your criteria</h2>
+                            <p className="text-text-muted max-w-md mb-8">Try adjusting your filters or initiate a new scan to discover vulnerabilities.</p>
+                        </motion.div>
                     ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            {findings.slice(0, 6).map((finding) => {
+                        <motion.div variants={containerVariants} initial="hidden" animate="visible" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 auto-rows-[1fr]">
+                            {filteredFindings.map((finding) => {
                                 const { severity } = finding
                                 const severityClasses =
-                                    severity === 'critical'
-                                        ? 'bg-accent-red/15 text-accent-red border-accent-red/40'
-                                        : severity === 'high'
-                                            ? 'bg-accent-orange/15 text-accent-orange border-accent-orange/40'
-                                            : severity === 'medium'
-                                                ? 'bg-accent-yellow/15 text-accent-yellow border-accent-yellow/40'
-                                                : severity === 'low'
-                                                    ? 'bg-accent-green/15 text-accent-green border-accent-green/40'
-                                                    : 'bg-accent-cyan/15 text-accent-cyan border-accent-cyan/40'
+                                    severity === 'critical' ? 'bg-[#ff4757]/15 text-[#ff4757] border-[#ff4757]/40 shadow-[0_0_15px_rgba(255,71,87,0.15)]'
+                                        : severity === 'high' ? 'bg-[#ff7f50]/15 text-[#ff7f50] border-[#ff7f50]/40 shadow-[0_0_15px_rgba(255,127,80,0.15)]'
+                                            : severity === 'medium' ? 'bg-[#eccc68]/15 text-[#eccc68] border-[#eccc68]/40 shadow-[0_0_15px_rgba(236,204,104,0.15)]'
+                                                : severity === 'low' ? 'bg-[#2ed573]/15 text-[#2ed573] border-[#2ed573]/40 shadow-[0_0_15px_rgba(46,213,115,0.15)]'
+                                                    : 'bg-accent-cyan/15 text-accent-cyan border-accent-cyan/40 shadow-[0_0_15px_rgba(0,212,255,0.15)]'
 
                                 return (
-                                    <Link
-                                        key={finding.id}
-                                        to={`/flow/${finding.flowId}`}
-                                        className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4 shadow-[0_14px_50px_rgba(15,23,42,0.9)] hover:border-accent-cyan/50 hover:shadow-[0_0_30px_rgba(0,212,255,0.4)] transition-all"
-                                    >
-                                        <div className="flex items-center justify-between mb-2 gap-2">
-                                            <span
-                                                className={`${CHIP_BASE} ${severityClasses}`}
-                                            >
-                                                {severity}
-                                            </span>
-                                            <span className="text-[10px] font-mono text-text-muted truncate max-w-[120px]">
-                                                {finding.flowName}
-                                            </span>
+                                    <motion.div key={finding.id} variants={itemVariants}>
+                                        <div
+                                            onClick={() => setSelectedFinding(finding)}
+                                            className="block h-full relative cursor-pointer overflow-hidden rounded-3xl border border-white/10 bg-white/5 backdrop-blur-xl p-6 shadow-[0_14px_50px_rgba(15,23,42,0.9)] hover:border-accent-purple/50 hover:shadow-[0_0_40px_rgba(168,85,247,0.25)] transition-all group"
+                                        >
+                                            <div className="flex items-center justify-between mb-4 gap-2">
+                                                <span className={`${CHIP_BASE} ${severityClasses} px-3 py-1 text-xs`}>
+                                                    {severity}
+                                                </span>
+                                                <div className="flex items-center gap-1.5 text-text-muted bg-white/5 rounded-full px-2.5 py-1 text-xs" title="Target">
+                                                    <Target className="w-3 h-3" />
+                                                    <span className="truncate max-w-[150px] font-mono">{finding.target || finding.flowName}</span>
+                                                </div>
+                                            </div>
+                                            <h3 className="text-lg font-bold text-text-primary mb-3 line-clamp-2">{finding.title}</h3>
+                                            <div className="text-sm font-mono text-text-muted/80 line-clamp-4 leading-relaxed whitespace-pre-wrap">
+                                                {finding.content.replace(/\*\*Severity\*\*:[^\n]+/i, '').trim()}
+                                            </div>
+                                            <div className="flex items-center justify-between mt-6 pt-4 border-t border-white/5 text-xs text-text-muted">
+                                                <div className="flex items-center gap-1.5" title="Discovered At">
+                                                    <Clock className="w-3.5 h-3.5" />
+                                                    <span>{formatDate(finding.timestamp)}</span>
+                                                </div>
+                                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity text-accent-purple">
+                                                    <span>Read Report</span>
+                                                    <ArrowRight className="w-3 h-3" />
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div className="text-sm font-semibold text-text-primary mb-1 truncate">{finding.title}</div>
-                                        <div className="text-[11px] text-text-muted/80 line-clamp-2">
-                                            {finding.content.replace(/\*\*Severity\*\*:[^\n]+/i, '').trim()}
-                                        </div>
-                                    </Link>
+                                    </motion.div>
                                 )
                             })}
-                        </div>
+                        </motion.div>
                     )}
                 </div>
+
+            ) : (
+                // Scans View
+                <>
+                    {flows.length === 0 ? (
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center justify-center min-h-[40vh] p-12 text-center border border-border/50 rounded-2xl bg-card-bg/30 backdrop-blur-sm">
+                            <div className="w-20 h-20 bg-[#111827] rounded-full flex items-center justify-center mb-6 shadow-[inset_0_2px_10px_rgba(0,0,0,0.5)] border border-border">
+                                <Search className="w-8 h-8 text-text-muted" />
+                            </div>
+                            <h2 className="text-2xl font-bold text-text-primary mb-3">No active traces detected</h2>
+                            <p className="text-text-muted max-w-md mb-8">Deploy your first autonomous agent. Let Mirage handle the complex enumeration, exploitation, and reporting automatically.</p>
+                        </motion.div>
+                    ) : (
+                        <motion.div
+                            variants={containerVariants}
+                            initial="hidden"
+                            animate="visible"
+                            className="relative z-10 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 auto-rows-[1fr]"
+                        >
+                            {filteredFlows.map((flow) => (
+                                <motion.div key={flow.id} variants={itemVariants} className="h-full relative">
+                                    <div className="h-full relative overflow-hidden rounded-3xl border border-white/15 bg-white/8 backdrop-blur-2xl p-6 shadow-[0_18px_80px_rgba(15,23,42,0.95)] transition-all duration-500 group hover:-translate-y-1 hover:shadow-[0_0_45px_rgba(0,212,255,0.45)] hover:border-accent-cyan/60">
+                                        {/* Delete button outside Link so click never triggers navigation */}
+                                        <button
+                                            type="button"
+                                            title="Delete flow"
+                                            onMouseDown={(e) => {
+                                                e.preventDefault()
+                                                e.stopPropagation()
+                                            }}
+                                            onClick={(e) => {
+                                                e.preventDefault()
+                                                e.stopPropagation()
+                                                openDeleteConfirm(flow)
+                                            }}
+                                            className="absolute top-5 right-5 z-20 inline-flex items-center justify-center w-7 h-7 rounded-full border border-white/15 bg-white/5 text-text-muted hover:text-accent-red hover:border-accent-red/60 hover:bg-accent-red/10 transition-colors"
+                                        >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+
+                                        <Link to={`/flow/${flow.id}`} className="block h-full group/link">
+                                            {/* Glass light streak */}
+                                            <div className="pointer-events-none absolute inset-0 opacity-0 group-hover/link:opacity-100 transition-opacity duration-500">
+                                                <div className="absolute -inset-x-10 -top-10 h-24 bg-gradient-to-br from-white/40 via-white/5 to-transparent blur-2xl mix-blend-screen" />
+                                            </div>
+
+                                            <div className="relative z-10 flex flex-col h-full">
+                                                <div className="flex justify-between items-start mb-4 gap-4 pr-10">
+                                                    <h3 className="text-lg font-bold text-text-primary truncate" title={flow.name}>{flow.name}</h3>
+                                                    <div className="flex-shrink-0">
+                                                        <span className={getStatusBadge(flow.status)}>{flow.status}</span>
+                                                    </div>
+                                                </div>
+
+                                                {flow.description && (
+                                                    <p className="text-sm text-text-muted line-clamp-2 mb-6 flex-grow leading-relaxed">
+                                                        {flow.description}
+                                                    </p>
+                                                )}
+
+                                                <div className="flex items-center justify-between mt-auto">
+                                                    <div className="flex items-center gap-4">
+                                                        <div className="flex items-center gap-1.5" title="Target">
+                                                            <Target className="w-3.5 h-3.5" />
+                                                            <span className="truncate max-w-[100px]">{flow.target}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-1.5" title="Initiated">
+                                                            <Clock className="w-3.5 h-3.5" />
+                                                            <span>{formatDate(flow.created_at)}</span>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="w-8 h-8 rounded-full bg-[#111827] border border-border flex items-center justify-center opacity-0 group-hover/link:opacity-100 transform translate-x-4 group-hover/link:translate-x-0 transition-all duration-300">
+                                                        <ArrowRight className="w-4 h-4 text-accent-cyan" />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </Link>
+                                    </div>
+                                </motion.div>
+                            ))}
+                        </motion.div>
+                    )}
+                </>
             )}
 
-            {/* Grid Area */}
-            {flows.length === 0 ? (
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center justify-center min-h-[40vh] p-12 text-center border border-border/50 rounded-2xl bg-card-bg/30 backdrop-blur-sm">
-                    <div className="w-20 h-20 bg-[#111827] rounded-full flex items-center justify-center mb-6 shadow-[inset_0_2px_10px_rgba(0,0,0,0.5)] border border-border">
-                        <Search className="w-8 h-8 text-text-muted" />
-                    </div>
-                    <h2 className="text-2xl font-bold text-text-primary mb-3">No active traces detected</h2>
-                    <p className="text-text-muted max-w-md mb-8">Deploy your first autonomous agent. Let Mirage handle the complex enumeration, exploitation, and reporting automatically.</p>
-                </motion.div>
-            ) : (
-                <motion.div
-                    variants={containerVariants}
-                    initial="hidden"
-                    animate="visible"
-                    className="relative z-10 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 auto-rows-[1fr]"
-                >
-                    {filteredFlows.map((flow) => (
-                        <motion.div key={flow.id} variants={itemVariants} className="h-full relative">
-                            <div className="h-full relative overflow-hidden rounded-3xl border border-white/15 bg-white/8 backdrop-blur-2xl p-6 shadow-[0_18px_80px_rgba(15,23,42,0.95)] transition-all duration-500 group hover:-translate-y-1 hover:shadow-[0_0_45px_rgba(0,212,255,0.45)] hover:border-accent-cyan/60">
-                                {/* Delete button outside Link so click never triggers navigation */}
-                                <button
-                                    type="button"
-                                    title="Delete flow"
-                                    onMouseDown={(e) => {
-                                        e.preventDefault()
-                                        e.stopPropagation()
-                                    }}
-                                    onClick={(e) => {
-                                        e.preventDefault()
-                                        e.stopPropagation()
-                                        openDeleteConfirm(flow)
-                                    }}
-                                    className="absolute top-5 right-5 z-20 inline-flex items-center justify-center w-7 h-7 rounded-full border border-white/15 bg-white/5 text-text-muted hover:text-accent-red hover:border-accent-red/60 hover:bg-accent-red/10 transition-colors"
-                                >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                </button>
+            {/* Finding Detail Modal */}
+            {selectedFinding && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 overflow-hidden">
+                    <div
+                        className="absolute inset-0 bg-[#0f172a]/80 backdrop-blur-sm"
+                        onClick={() => setSelectedFinding(null)}
+                    />
+                    <div
+                        className="relative w-full max-w-4xl max-h-[90vh] flex flex-col rounded-3xl border border-white/15 bg-[#0b1121] shadow-[0_20px_80px_rgba(0,0,0,0.8)] overflow-hidden"
+                    >
+                        {/* Header */}
+                        <div className="flex-shrink-0 flex items-start justify-between p-6 border-b border-white/10 bg-white/5 relative">
+                            {/* Glow behind title */}
+                            <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(ellipse_at_top_left,_rgba(168,85,247,0.15),transparent_50%)] pointer-events-none" />
 
-                                <Link to={`/flow/${flow.id}`} className="block h-full group/link">
-                                    {/* Glass light streak */}
-                                    <div className="pointer-events-none absolute inset-0 opacity-0 group-hover/link:opacity-100 transition-opacity duration-500">
-                                        <div className="absolute -inset-x-10 -top-10 h-24 bg-gradient-to-br from-white/40 via-white/5 to-transparent blur-2xl mix-blend-screen" />
+                            <div className="relative pr-8">
+                                <div className="flex items-center gap-3 mb-3">
+                                    <span className={`${CHIP_BASE} ${selectedFinding.severity === 'critical' ? 'bg-[#ff4757]/15 text-[#ff4757] border-[#ff4757]/40'
+                                        : selectedFinding.severity === 'high' ? 'bg-[#ff7f50]/15 text-[#ff7f50] border-[#ff7f50]/40'
+                                            : selectedFinding.severity === 'medium' ? 'bg-[#eccc68]/15 text-[#eccc68] border-[#eccc68]/40'
+                                                : selectedFinding.severity === 'low' ? 'bg-[#2ed573]/15 text-[#2ed573] border-[#2ed573]/40'
+                                                    : 'bg-accent-cyan/15 text-accent-cyan border-accent-cyan/40'
+                                        } px-3 py-1 text-xs shadow-sm`}>
+                                        {selectedFinding.severity}
+                                    </span>
+                                    <div className="flex items-center gap-1.5 text-text-muted bg-white/5 rounded-full px-3 py-1 text-xs border border-white/5">
+                                        <Target className="w-3.5 h-3.5" />
+                                        <span className="font-mono">{selectedFinding.target || selectedFinding.flowName}</span>
                                     </div>
-
-                                    <div className="relative z-10 flex flex-col h-full">
-                                        <div className="flex justify-between items-start mb-4 gap-4 pr-10">
-                                            <h3 className="text-lg font-bold text-text-primary truncate" title={flow.name}>{flow.name}</h3>
-                                            <div className="flex-shrink-0">
-                                                <span className={getStatusBadge(flow.status)}>{flow.status}</span>
-                                            </div>
-                                        </div>
-
-                                        {flow.description && (
-                                            <p className="text-sm text-text-muted line-clamp-2 mb-6 flex-grow leading-relaxed">
-                                                {flow.description}
-                                            </p>
-                                        )}
-
-                                        <div className="flex items-center justify-between mt-auto">
-                                            <div className="flex items-center gap-4">
-                                                <div className="flex items-center gap-1.5" title="Target">
-                                                    <Target className="w-3.5 h-3.5" />
-                                                    <span className="truncate max-w-[100px]">{flow.target}</span>
-                                                </div>
-                                                <div className="flex items-center gap-1.5" title="Initiated">
-                                                    <Clock className="w-3.5 h-3.5" />
-                                                    <span>{formatDate(flow.created_at)}</span>
-                                                </div>
-                                            </div>
-
-                                            <div className="w-8 h-8 rounded-full bg-[#111827] border border-border flex items-center justify-center opacity-0 group-hover/link:opacity-100 transform translate-x-4 group-hover/link:translate-x-0 transition-all duration-300">
-                                                <ArrowRight className="w-4 h-4 text-accent-cyan" />
-                                            </div>
-                                        </div>
+                                    <div className="flex items-center gap-1.5 text-text-muted bg-white/5 rounded-full px-3 py-1 text-xs border border-white/5">
+                                        <Clock className="w-3.5 h-3.5" />
+                                        <span>{formatDate(selectedFinding.timestamp)}</span>
                                     </div>
-                                </Link>
+                                </div>
+                                <h2 className="text-2xl font-bold text-text-primary leading-tight">
+                                    {selectedFinding.title}
+                                </h2>
                             </div>
-                        </motion.div>
-                    ))}
-                </motion.div>
+
+                            <button
+                                onClick={() => setSelectedFinding(null)}
+                                className="absolute top-6 right-6 p-2 rounded-full hover:bg-white/10 text-text-muted hover:text-white transition-colors"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        {/* Body - Scrollable Markdown */}
+                        <div className="flex-grow overflow-y-auto p-6 md:p-8 custom-scrollbar relative bg-[#0f172a]/50">
+                            <div className="prose prose-invert prose-sm md:prose-base max-w-none text-text-muted leading-relaxed">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                    {selectedFinding.content.replace(/\*\*Severity\*\*:[^\n]+/i, '').trim()}
+                                </ReactMarkdown>
+
+                                {selectedFinding.metadata?.screenshot && (
+                                    <div className="mt-8 rounded-2xl overflow-hidden border border-white/10 shadow-2xl">
+                                        <div className="bg-white/5 px-4 py-2 text-[10px] uppercase tracking-widest font-bold border-b border-white/10 flex items-center justify-between">
+                                            <span className="flex items-center gap-2">
+                                                <Activity className="w-3.5 h-3.5 text-accent-green" />
+                                                Visual Evidence (Chromedp Captured)
+                                            </span>
+                                            <span className="text-accent-cyan tracking-[0.2em] animate-pulse">PHOENIX VALIDATED</span>
+                                        </div>
+                                        <img
+                                            src={`/screenshots/${selectedFinding.metadata.screenshot}`}
+                                            alt="Finding Screenshot"
+                                            className="w-full h-auto cursor-zoom-in hover:scale-[1.01] transition-transform duration-500"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                window.open(`/screenshots/${selectedFinding.metadata.screenshot}`, '_blank');
+                                            }}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Footer */}
+                        <div className="flex-shrink-0 p-5 border-t border-white/10 bg-white/5 flex items-center justify-between">
+                            <span className="text-xs text-text-muted">
+                                Originated from scan flow: <span className="font-mono text-white/70">{selectedFinding.flowId.split('-')[0]}...</span>
+                            </span>
+                            <Link
+                                to={`/flow/${selectedFinding.flowId}`}
+                                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-accent-purple text-white text-sm font-semibold hover:bg-accent-purple/90 transition-colors shadow-[0_0_20px_rgba(168,85,247,0.4)]"
+                            >
+                                View Context inside Flow
+                                <ExternalLink className="w-4 h-4" />
+                            </Link>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     )

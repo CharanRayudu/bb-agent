@@ -236,8 +236,8 @@ func (r *Registry) AddUpdateBrainTool(onBrainUpdate func(string, string)) {
 				"properties": map[string]interface{}{
 					"category": map[string]interface{}{
 						"type":        "string",
-						"enum":        []string{"lead", "finding", "exclusion"},
-						"description": "'lead': interesting paths/params; 'finding': confirmed vulnerability; 'exclusion': dead end or blocked path.",
+						"enum":        []string{"lead", "finding", "exclusion", "credentials", "pivot", "tech"},
+						"description": "'lead': interesting paths/params to investigate; 'finding': confirmed vulnerability; 'exclusion': dead end or blocked path; 'credentials': discovered valid credentials, session cookies, or JWT tokens; 'pivot': ANY discovery that unlocks a new attack surface; 'tech': discovered technology stack (e.g., 'PHP 8.1, MySQL, Cloudflare').",
 					},
 					"discovery": map[string]interface{}{
 						"type":        "string",
@@ -257,6 +257,35 @@ func (r *Registry) AddUpdateBrainTool(onBrainUpdate func(string, string)) {
 			}
 			onBrainUpdate(params.Category, params.Discovery)
 			return fmt.Sprintf("[BRAIN UPDATED (%s)]: %s", params.Category, params.Discovery), nil
+		},
+	})
+}
+
+// AddVisualCrawlTool registers the headless browser discovery tool
+func (r *Registry) AddVisualCrawlTool(onCrawl func(context.Context, string) (string, error)) {
+	r.Register(&Tool{
+		Definition: llm.ToolDefinition{
+			Name:        "visual_crawl",
+			Description: "CRITICAL for SPAs: Use a headless browser to discover dynamic links and inputs that static crawlers miss. Use this if the target uses a modern JS framework (React, Vue, Angular) or has a hash-based router (/#/).",
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"url": map[string]interface{}{
+						"type":        "string",
+						"description": "The URL to crawl (must be the entry point of the SPA)",
+					},
+				},
+				"required": []string{"url"},
+			},
+		},
+		Execute: func(ctx context.Context, args json.RawMessage) (string, error) {
+			var params struct {
+				URL string `json:"url"`
+			}
+			if err := json.Unmarshal(args, &params); err != nil {
+				return "", err
+			}
+			return onCrawl(ctx, params.URL)
 		},
 	})
 }

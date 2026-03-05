@@ -71,13 +71,35 @@ RUN curl -sL https://api.github.com/repos/hahwul/dalfox/releases/latest | grep "
     && tar -xzf /tmp/dalfox.tar.gz -C /usr/local/bin/ \
     && rm -f /tmp/dalfox.tar.gz
 
-# Install advanced CLI security tools from repositories
+# Install advanced CLI security tools (separate steps to avoid cascade failures)
 RUN cd /opt && \
-    git clone https://github.com/commixproject/commix.git && ln -s /opt/commix/commix.py /usr/local/bin/commix && \
-    git clone https://github.com/s0md3v/XSStrike.git && cd XSStrike && pip3 install --break-system-packages -r requirements.txt && ln -s /opt/XSStrike/xsstrike.py /usr/local/bin/xsstrike && \
-    cd /opt && git clone https://github.com/s0md3v/Corsy.git && pip3 install --break-system-packages requests && ln -s /opt/Corsy/corsy.py /usr/local/bin/corsy && \
-    cd /opt && git clone https://github.com/epinna/tplmap.git && pip3 install --break-system-packages -r tplmap/requirements.txt || true && ln -s /opt/tplmap/tplmap.py /usr/local/bin/tplmap
+    git clone --depth 1 https://github.com/commixproject/commix.git && \
+    ln -sf /opt/commix/commix.py /usr/local/bin/commix
 
+RUN cd /opt && \
+    git clone --depth 1 https://github.com/s0md3v/XSStrike.git && \
+    cd XSStrike && pip3 install --break-system-packages -r requirements.txt && \
+    ln -sf /opt/XSStrike/xsstrike.py /usr/local/bin/xsstrike && \
+    chmod +x /opt/XSStrike/xsstrike.py
+
+RUN cd /opt && \
+    git clone --depth 1 https://github.com/s0md3v/Corsy.git && \
+    pip3 install --break-system-packages requests && \
+    ln -sf /opt/Corsy/corsy.py /usr/local/bin/corsy
+
+RUN cd /opt && \
+    git clone --depth 1 https://github.com/epinna/tplmap.git && \
+    pip3 install --break-system-packages -r /opt/tplmap/requirements.txt && \
+    ln -sf /opt/tplmap/tplmap.py /usr/local/bin/tplmap || true
+
+# Verify critical tools are installed
+RUN echo "=== Tool Verification ===" && \
+    which nmap && which ffuf && which gobuster && which sqlmap && \
+    which nuclei && which subfinder && which dalfox && \
+    which curl && which python3 && \
+    (which xsstrike || echo "WARNING: xsstrike not found") && \
+    (which commix || echo "WARNING: commix not found") && \
+    echo "=== All critical tools OK ==="
 
 # Working directory
 WORKDIR /workspace

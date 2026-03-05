@@ -7,30 +7,38 @@ Write-Host "  MIRAGE - Starting Services" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Step 1: Build the sandbox tools image
-Write-Host "[1/4] Building mirage-tools image..." -ForegroundColor Yellow
-$buildOut = docker build -t mirage-tools:latest -f build/tools/Dockerfile . 2>&1
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "  FAILED to build mirage-tools" -ForegroundColor Red
-    Write-Host $buildOut -ForegroundColor DarkGray
-    Write-Host ""
-    Write-Host "  Tip: If the error is about 'fetch oauth token' or 'connection closed'," -ForegroundColor Yellow
-    Write-Host "  Docker cannot reach Docker Hub (network/firewall/VPN). Try:" -ForegroundColor Yellow
-    Write-Host "  - Retry in a few minutes" -ForegroundColor White
-    Write-Host "  - Disable VPN or check firewall" -ForegroundColor White
-    Write-Host "  - docker pull kalilinux/kali-rolling (to test connectivity)" -ForegroundColor White
-    exit 1
+# Step 1: Build the sandbox tools image (skip if already exists)
+Write-Host "[1/4] Checking mirage-tools image..." -ForegroundColor Yellow
+$imageExists = docker image inspect mirage-tools:latest 2>$null
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "  Image already exists, skipping build" -ForegroundColor Green
 }
-Write-Host "  OK" -ForegroundColor Green
+else {
+    Write-Host "  Building mirage-tools image (first time)..." -ForegroundColor Yellow
+    $buildOut = docker build -t mirage-tools:latest -f build/tools/Dockerfile . 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  FAILED to build mirage-tools" -ForegroundColor Red
+        Write-Host $buildOut -ForegroundColor DarkGray
+        Write-Host ""
+        Write-Host "  Tip: If the error is about 'fetch oauth token' or 'connection closed'," -ForegroundColor Yellow
+        Write-Host "  Docker cannot reach Docker Hub (network/firewall/VPN). Try:" -ForegroundColor Yellow
+        Write-Host "  - Retry in a few minutes" -ForegroundColor White
+        Write-Host "  - Disable VPN or check firewall" -ForegroundColor White
+        Write-Host "  - docker pull kalilinux/kali-rolling (to test connectivity)" -ForegroundColor White
+        exit 1
+    }
+    Write-Host "  OK" -ForegroundColor Green
+}
 
 # Step 2: Start Docker containers (db, backend, sandbox)
 Write-Host "[2/4] Starting Docker containers..." -ForegroundColor Yellow
-$env:DOCKER_BUILDKIT = 0
-docker compose up -d --build 2>&1 | Out-Null
+docker compose up -d 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
     Write-Host "  FAILED to start containers" -ForegroundColor Red
     exit 1
 }
+# Auto-clean dangling images left over from previous builds
+docker image prune -f 2>$null | Out-Null
 Write-Host "  OK" -ForegroundColor Green
 
 # Step 3: Wait for backend health

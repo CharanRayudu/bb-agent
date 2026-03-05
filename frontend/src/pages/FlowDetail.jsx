@@ -56,8 +56,27 @@ function FindingList({ findings, formatTime }) {
                             </span>
                         </div>
                         {isExpanded && (
-                            <div className="mt-2 pt-2 border-t border-border/40 text-[11px] text-text-muted whitespace-pre-wrap">
-                                {content.replace(/\*\*Severity\*\*:[^\n]+/i, '').trim()}
+                            <div className="mt-2 pt-2 border-t border-border/40 text-[11px] text-text-muted">
+                                <div className="whitespace-pre-wrap mb-3">
+                                    {content.replace(/\*\*Severity\*\*:[^\n]+/i, '').trim()}
+                                </div>
+                                {event.metadata?.screenshot && (
+                                    <div className="mt-4 rounded-lg overflow-hidden border border-white/10 shadow-lg">
+                                        <div className="bg-white/5 px-2 py-1 text-[9px] uppercase tracking-wider font-bold border-b border-white/10 flex items-center justify-between">
+                                            <span>Visual Confirmation (Browser Screenshot)</span>
+                                            <span className="text-accent-green">PHOENIX EDITION</span>
+                                        </div>
+                                        <img
+                                            src={`/screenshots/${event.metadata.screenshot}`}
+                                            alt="Finding Screenshot"
+                                            className="w-full h-auto cursor-zoom-in hover:scale-[1.02] transition-transform"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                window.open(`/screenshots/${event.metadata.screenshot}`, '_blank');
+                                            }}
+                                        />
+                                    </div>
+                                )}
                             </div>
                         )}
                     </button>

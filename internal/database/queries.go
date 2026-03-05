@@ -349,3 +349,81 @@ type EventWithTimestamp struct {
 	Metadata  interface{} `json:"metadata"`
 	Timestamp time.Time   `json:"timestamp"`
 }
+
+type GlobalFinding struct {
+	ID        string    `json:"id"`
+	FlowID    uuid.UUID `json:"flowId"`
+	FlowName  string    `json:"flowName"`
+	Target    string    `json:"target"`
+	Severity  string    `json:"severity"`
+	Title     string    `json:"title"`
+	Content   string    `json:"content"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+func (q *Queries) GetAllFindings() ([]GlobalFinding, error) {
+	rows, err := q.db.Query(
+		`SELECT 
+			f.id, f.name, f.target, 
+			fe.content, fe.timestamp
+		 FROM flow_events fe
+		 JOIN flows f ON fe.flow_id = f.id
+		 WHERE fe.type = 'tool_result' AND fe.metadata->>'tool' = 'report_findings'
+		 ORDER BY fe.timestamp DESC`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var findings []GlobalFinding
+	for rows.Next() {
+		var flowID uuid.UUID
+		var flowName, target, content string
+		var timestamp time.Time
+
+		if err := rows.Scan(&flowID, &flowName, &target, &content, &timestamp); err != nil {
+			return nil, err
+		}
+
+		// Since our frontend already has logic to parse severity and title from
+		// the markdown content, we'll do the same extraction here for the DB query
+		// to serve a clean JSON object to the frontend.
+
+		severity := "info"
+		if strings.Contains(strings.ToLower(content), "**severity**: critical") {
+			severity = "critical"
+		} else if strings.Contains(strings.ToLower(content), "**severity**: high") {
+			severity = "high"
+		} else if strings.Contains(strings.ToLower(content), "**severity**: medium") {
+			severity = "medium"
+		} else if strings.Contains(strings.ToLower(content), "**severity**: low") {
+			severity = "low"
+		}
+
+		title := "Finding"
+		lines := strings.Split(content, "\n")
+		for _, line := range lines {
+			if strings.HasPrefix(strings.TrimSpace(line), "## ") {
+				title = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "## "))
+				break
+			}
+		}
+
+		findings = append(findings, GlobalFinding{
+			ID:        fmt.Sprintf("%s-%d", flowID.String(), timestamp.UnixNano()),
+			FlowID:    flowID,
+			FlowName:  flowName,
+			Target:    target,
+			Severity:  severity,
+			Title:     title,
+			Content:   content,
+			Timestamp: timestamp,
+		})
+	}
+	// Return empty array instead of null for JSON serialization
+	if findings == nil {
+		findings = []GlobalFinding{}
+	}
+	return findings, nil
+}
