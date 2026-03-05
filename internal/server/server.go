@@ -389,10 +389,12 @@ func (s *Server) handleFlowEvents(w http.ResponseWriter, r *http.Request, id uui
 
 // CreateFlowRequest is the JSON body for creating a new flow
 type CreateFlowRequest struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Target      string `json:"target"`
-	Model       string `json:"model"`
+	Name         string `json:"name"`
+	Description  string `json:"description"`
+	Target       string `json:"target"`
+	Model        string `json:"model"`
+	Timeout      int    `json:"timeout"`       // Total scan timeout in minutes
+	AgentTimeout int    `json:"agent_timeout"` // Per-agent timeout in minutes
 }
 
 func (s *Server) handleCreateFlow(w http.ResponseWriter, r *http.Request) {
@@ -419,14 +421,14 @@ func (s *Server) handleCreateFlow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Initialize the agent and run the flow asynchronously
-	go s.runAgent(flow.ID, req.Description, req.Model)
+	go s.runAgent(flow.ID, req.Description, req.Model, req.Timeout, req.AgentTimeout)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(flow)
 }
 
-func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string) {
+func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string, timeout int, agentTimeout int) {
 	// Create Docker sandbox
 	sandbox, err := docker.NewSandbox(s.cfg.DockerHost, s.cfg.SandboxImage)
 	if err != nil {
@@ -467,8 +469,10 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string)
 			FlowID:  flowID.String(),
 			Content: errMsg,
 		})
-		return
 	}
+
+	// Wrap with ResilientProvider to handle transient connection errors (Brain-Hardening)
+	provider = llm.NewResilientProvider(provider)
 
 	// Create tool registry
 	registry := tools.NewRegistry(sandbox)
@@ -497,6 +501,12 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string)
 
 	// Wrap Orchestrator with Conductor
 	conductor := agent.NewConductor(orchestrator, orchestrator.GetEventBus())
+	if timeout != 0 {
+		conductor.SetScanTimeout(time.Duration(timeout) * time.Minute)
+	}
+	if agentTimeout != 0 {
+		conductor.SetAgentTimeout(time.Duration(agentTimeout) * time.Minute)
+	}
 	orchestrator.SetConductor(conductor)
 
 	// Subscribe to internal Conductor metrics and broadcast them

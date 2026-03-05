@@ -6,19 +6,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/bb-agent/mirage/internal/agent/schema"
+
 	"github.com/bb-agent/mirage/internal/agent/base"
-	"github.com/bb-agent/mirage/internal/agents/idor"
-	"github.com/bb-agent/mirage/internal/agents/lfi"
 	"github.com/bb-agent/mirage/internal/agents/postexploit"
-	"github.com/bb-agent/mirage/internal/agents/rce"
-	"github.com/bb-agent/mirage/internal/agents/sqli"
-	"github.com/bb-agent/mirage/internal/agents/ssrf"
-	"github.com/bb-agent/mirage/internal/agents/xss"
 	"github.com/bb-agent/mirage/internal/config"
 	"github.com/bb-agent/mirage/internal/database"
 	"github.com/bb-agent/mirage/internal/llm"
@@ -35,12 +30,15 @@ const maxIterations = 20
 type EventType string
 
 const (
-	EventThinking   EventType = "thinking"
-	EventToolCall   EventType = "tool_call"
-	EventToolResult EventType = "tool_result"
-	EventMessage    EventType = "message"
-	EventComplete   EventType = "complete"
-	EventError      EventType = "error"
+	EventThinking            EventType = "thinking"
+	EventToolCall            EventType = "tool_call"
+	EventToolResult          EventType = "tool_result"
+	EventMessage             EventType = "message"
+	EventComplete            EventType = "complete"
+	EventError               EventType = "error"
+	EventCausalNodeAddedWS   EventType = "causal_node_added"
+	EventCausalNodeUpdatedWS EventType = "causal_node_updated"
+	EventCausalEdgeAddedWS   EventType = "causal_edge_added"
 )
 
 // Event is a real-time update sent to the frontend
@@ -57,13 +55,24 @@ type Event struct {
 // EventHandler is called for each agent event (for WebSocket streaming)
 type EventHandler func(Event)
 
+// AuthState holds authentication context discovered during scanning
+type AuthState struct {
+	Cookies     map[string]string `json:"cookies,omitempty"`     // Session cookies (e.g. PHPSESSID)
+	Credentials map[string]string `json:"credentials,omitempty"` // user:pass pairs
+	LoginURL    string            `json:"loginURL,omitempty"`    // Detected login page URL
+	AuthMethod  string            `json:"authMethod,omitempty"`  // "cookie", "basic", "bearer"
+	Headers     map[string]string `json:"headers,omitempty"`     // Extra auth headers to inject
+}
+
 // Structured Brain for Mirage 2.0
 type Brain struct {
-	Leads        []string   `json:"leads"`        // Unconfirmed interests
-	Findings     []*Finding `json:"findings"`     // Confirmed bugs
-	Exclusions   []string   `json:"exclusions"`   // Dead ends
-	PivotContext string     `json:"pivotContext"` // Discovered context that unlocks new attack surface
-	Tech         *TechStack `json:"tech"`         // Inferred technology stack
+	Leads        []string            `json:"leads"`                 // Unconfirmed interests
+	Findings     []*Finding          `json:"findings"`              // Confirmed bugs
+	Exclusions   []string            `json:"exclusions"`            // Dead ends
+	PivotContext string              `json:"pivotContext"`          // Discovered context that unlocks new attack surface
+	Tech         *TechStack          `json:"tech"`                  // Inferred technology stack
+	Auth         *AuthState          `json:"auth,omitempty"`        // Authentication context for auth-aware scanning
+	CausalGraph  *models.CausalGraph `json:"causalGraph,omitempty"` // DAG for non-monotonic evidence reasoning
 }
 
 // SwarmAgentSpec is a richer agent dispatch format from the Planner
@@ -147,7 +156,6 @@ func NewOrchestrator(provider llm.Provider, registry *tools.Registry, db *sql.DB
 	o := &Orchestrator{
 		llmProvider:  provider,
 		toolRegistry: registry,
-		queries:      database.NewQueries(db),
 		onEvent:      func(e Event) {}, // no-op default
 		prompts:      prompts,
 		bus:          NewEventBus(),
@@ -159,6 +167,10 @@ func NewOrchestrator(provider llm.Provider, registry *tools.Registry, db *sql.DB
 		validator:    base.NewVisualValidator(),
 		strategist:   NewWAFStrategist(),
 		workers:      make(map[string]*Worker),
+	}
+
+	if db != nil {
+		o.queries = database.NewQueries(db)
 	}
 
 	// Register brain-integrated tools
@@ -179,6 +191,41 @@ func NewOrchestrator(provider llm.Provider, registry *tools.Registry, db *sql.DB
 
 		return fmt.Sprintf("Visual crawl complete. Discovered %d links and %d unique inputs/buttons.", len(res.Links), len(res.Inputs)), nil
 	})
+
+	// Register Standard Brain Tool (Event-Driven)
+	o.toolRegistry.AddUpdateBrainTool(func(category, note string) {
+		o.bus.Emit(EventBrainUpdate, map[string]string{
+			"category": category,
+			"note":     note,
+		})
+	})
+
+	// Register Causal Graph tools for non-monotonic evidence reasoning
+	o.toolRegistry.AddCausalGraphTools(
+		func(id, nodeType, description string) {
+			o.bus.Emit(EventCausalNodeAdded, &models.CausalNode{
+				ID:          id,
+				NodeType:    nodeType,
+				Description: description,
+				Status:      "PENDING",
+				Confidence:  0.5, // Default confidence
+			})
+		},
+		func(id, status string, confidence float64) {
+			o.bus.Emit(EventCausalNodeUpdated, map[string]interface{}{
+				"id":         id,
+				"status":     status,
+				"confidence": confidence,
+			})
+		},
+		func(sourceID, targetID, label string) {
+			o.bus.Emit(EventCausalEdgeAdded, &models.CausalEdge{
+				SourceID: sourceID,
+				TargetID: targetID,
+				Label:    label,
+			})
+		},
+	)
 
 	// Register OOB tools for blind vulnerability detection
 	o.toolRegistry.AddOOBTools(o.oobManager)
@@ -235,6 +282,9 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		return fmt.Errorf("failed to get flow: %w", err)
 	}
 
+	// Reset internal event bus for this flow to clear old subscribers
+	o.bus.Reset()
+
 	// Initialize pipeline state machine for this scan
 	o.pipeline = pipeline.NewState(flowID.String())
 
@@ -265,33 +315,223 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 	}
 
 	// ==========================================
-	// ITERATIVE FEEDBACK LOOP (Max 3 Loops)
+	// EVENT SUBSCRIPTIONS (Flow-Scoped)
 	// ==========================================
-	const maxLoops = 3
-	for loopCount := 1; loopCount <= maxLoops; loopCount++ {
 
-		// Listen for loop reset signals (credentials, new subdomains, SSRF endpoints, API keys, etc.)
-		loopTriggered := false
-		var resetMu sync.Mutex
+	// Subscribe to pivot discoveries that warrant a pipeline restart
+	o.bus.Subscribe(EventPivotDiscovered, func(data interface{}) {
+		note := data.(string)
+		brainMu.Lock()
+		brain.PivotContext += "\n- " + note
+		brainMu.Unlock()
 
-		// Subscribe to pivot discoveries that warrant a pipeline restart
-		o.bus.Subscribe(EventPivotDiscovered, func(data interface{}) {
-			note := data.(string)
+		o.emit(flowID.String(), Event{
+			Type:    EventMessage,
+			FlowID:  flowID.String(),
+			TaskID:  task.ID.String(),
+			Content: fmt.Sprintf("🔄 [PIVOT DETECTED] New attack surface unlocked: %s. Initiating Iterative Feedback Loop...", note[:min(80, len(note))]),
+		})
+
+		// Reset pipeline to RECON to explore the newly discovered surface
+		if o.pipeline != nil {
+			o.pipeline.ResetToRecon(fmt.Sprintf("Pivot triggered by: %s", note))
+		}
+	})
+
+	// Subscribe to brain updates via the update_brain tool
+	o.bus.Subscribe(EventBrainUpdate, func(data interface{}) {
+		params := data.(map[string]string)
+		category := params["category"]
+		note := params["note"]
+
+		switch category {
+		case "lead":
+			o.bus.Emit(EventLeadDiscovered, note)
+		case "finding":
+			// Try to parse note as a structured Finding JSON
+			var f Finding
+			if err := json.Unmarshal([]byte(note), &f); err == nil {
+				brainMu.Lock()
+				brain.Findings = append(brain.Findings, &f)
+				brainMu.Unlock()
+				o.bus.Emit(EventFindingDiscovered, f.Type)
+			} else {
+				// Fallback: create a generic finding if it's just a string
+				genF := &Finding{Type: "Finding", URL: flow.Target, Evidence: map[string]interface{}{"note": note}}
+				brainMu.Lock()
+				brain.Findings = append(brain.Findings, genF)
+				brainMu.Unlock()
+				o.bus.Emit(EventFindingDiscovered, note)
+			}
+		case "exclusion":
+			o.bus.Emit(EventExclusionDiscovered, note)
+		case "credentials", "pivot":
+			o.bus.Emit(EventPivotDiscovered, note)
+		case "tech":
 			brainMu.Lock()
-			brain.PivotContext = note
+			if brain.Tech == nil {
+				brain.Tech = DefaultTechStack()
+			}
+			o.updateTechStackFromNote(brain.Tech, note)
 			brainMu.Unlock()
-
-			resetMu.Lock()
-			loopTriggered = true
-			resetMu.Unlock()
-
 			o.emit(flowID.String(), Event{
 				Type:    EventMessage,
 				FlowID:  flowID.String(),
 				TaskID:  task.ID.String(),
-				Content: fmt.Sprintf("🔄 [PIVOT DETECTED] New attack surface unlocked: %s. Initiating Iterative Feedback Loop...", note[:min(80, len(note))]),
+				Content: fmt.Sprintf("🛡️ Technology Stack Identified: %s", note),
+				Metadata: map[string]interface{}{
+					"tech_stack": brain.Tech,
+				},
 			})
+			o.bus.Emit("EventTechStackDiscovered", brain.Tech)
+		default:
+			o.bus.Emit(EventLeadDiscovered, note)
+		}
+	})
+
+	o.bus.Subscribe(EventLeadDiscovered, func(data interface{}) {
+		note := data.(string)
+		brainMu.Lock()
+		brain.Leads = append(brain.Leads, note)
+		brainMu.Unlock()
+		o.emit(flowID.String(), Event{
+			Type:    EventMessage,
+			FlowID:  flowID.String(),
+			TaskID:  task.ID.String(),
+			Content: fmt.Sprintf("🧠 Brain Synapse [lead]: %s", note),
 		})
+	})
+
+	o.bus.Subscribe(EventFindingDiscovered, func(data interface{}) {
+		note := data.(string)
+		// Findings are already appended in the EventBrainUpdate handler for consistency
+		o.emit(flowID.String(), Event{
+			Type:    EventToolResult,
+			FlowID:  flowID.String(),
+			TaskID:  task.ID.String(),
+			Content: fmt.Sprintf("## Discovery: %s\n**Severity**: High\n\nAutomatically promoted from Brain Lead.", note),
+			Metadata: map[string]interface{}{
+				"tool": "report_findings",
+			},
+		})
+
+		o.emit(flowID.String(), Event{
+			Type:    EventMessage,
+			FlowID:  flowID.String(),
+			TaskID:  task.ID.String(),
+			Content: fmt.Sprintf("🧠 Brain Synapse [finding]: %s", note),
+		})
+	})
+
+	o.bus.Subscribe(EventExclusionDiscovered, func(data interface{}) {
+		note := data.(string)
+		brainMu.Lock()
+		brain.Exclusions = append(brain.Exclusions, note)
+		brainMu.Unlock()
+		o.emit(flowID.String(), Event{
+			Type:    EventMessage,
+			FlowID:  flowID.String(),
+			TaskID:  task.ID.String(),
+			Content: fmt.Sprintf("🧠 Brain Synapse [exclusion]: %s", note),
+		})
+	})
+
+	o.bus.Subscribe(EventCausalNodeAdded, func(data interface{}) {
+		node := data.(*models.CausalNode)
+		brainMu.Lock()
+		if brain.CausalGraph == nil {
+			brain.CausalGraph = &models.CausalGraph{
+				Nodes: make(map[string]*models.CausalNode),
+			}
+		}
+		brain.CausalGraph.Nodes[node.ID] = node
+		brainMu.Unlock()
+		o.emit(flowID.String(), Event{
+			Type:    EventCausalNodeAddedWS,
+			FlowID:  flowID.String(),
+			TaskID:  task.ID.String(),
+			Content: fmt.Sprintf("🧬 Causal Graph: Added node [%s] %s", node.NodeType, node.ID),
+			Metadata: map[string]interface{}{
+				"id":          node.ID,
+				"node_type":   node.NodeType,
+				"description": node.Description,
+				"status":      node.Status,
+				"confidence":  node.Confidence,
+			},
+		})
+	})
+
+	o.bus.Subscribe(EventCausalNodeUpdated, func(data interface{}) {
+		params := data.(map[string]interface{})
+		id := params["id"].(string)
+		status := params["status"].(string)
+		confidence := params["confidence"].(float64)
+
+		brainMu.Lock()
+		if brain.CausalGraph != nil {
+			if node, ok := brain.CausalGraph.Nodes[id]; ok {
+				if status != "" {
+					node.Status = status
+				}
+				node.Confidence = confidence
+			}
+		}
+		brainMu.Unlock()
+		o.emit(flowID.String(), Event{
+			Type:    EventCausalNodeUpdatedWS,
+			FlowID:  flowID.String(),
+			TaskID:  task.ID.String(),
+			Content: fmt.Sprintf("🧬 Causal Graph: Updated node %s (Status: %s, Confidence: %.2f)", id, status, confidence),
+			Metadata: map[string]interface{}{
+				"id":         id,
+				"status":     status,
+				"confidence": confidence,
+			},
+		})
+	})
+
+	o.bus.Subscribe(EventCausalEdgeAdded, func(data interface{}) {
+		edge := data.(*models.CausalEdge)
+		brainMu.Lock()
+		if brain.CausalGraph == nil {
+			brain.CausalGraph = &models.CausalGraph{
+				Nodes: make(map[string]*models.CausalNode),
+			}
+		}
+		brain.CausalGraph.Edges = append(brain.CausalGraph.Edges, *edge)
+		brainMu.Unlock()
+		o.emit(flowID.String(), Event{
+			Type:    EventCausalEdgeAddedWS,
+			FlowID:  flowID.String(),
+			TaskID:  task.ID.String(),
+			Content: fmt.Sprintf("🧬 Causal Graph: Added relationship %s --[%s]--> %s", edge.SourceID, edge.Label, edge.TargetID),
+			Metadata: map[string]interface{}{
+				"source_id": edge.SourceID,
+				"target_id": edge.TargetID,
+				"label":     edge.Label,
+			},
+		})
+	})
+
+	// ==========================================
+	// ITERATIVE FEEDBACK LOOP (Max 3 Loops)
+	// ==========================================
+	const maxLoops = 3
+	loopTriggered := false
+	var resetMu sync.Mutex
+
+	// Update pivot discovery to also trigger loop reset
+	o.bus.Subscribe(EventPivotDiscovered, func(data interface{}) {
+		resetMu.Lock()
+		loopTriggered = true
+		resetMu.Unlock()
+	})
+
+	for loopCount := 1; loopCount <= maxLoops; loopCount++ {
+		// Reset trigger for each loop iteration until it's set again
+		resetMu.Lock()
+		loopTriggered = false
+		resetMu.Unlock()
 
 		// ==========================================
 		// PIPELINE: Start/Reset → RECONNAISSANCE
@@ -312,128 +552,6 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		if err != nil {
 			return err
 		}
-
-		// Register EventBus subscribers for brain updates
-		o.bus.Subscribe(EventLeadDiscovered, func(data interface{}) {
-			note := data.(string)
-			brainMu.Lock()
-			brain.Leads = append(brain.Leads, note)
-			brainMu.Unlock()
-			o.emit(flowID.String(), Event{
-				Type:    EventMessage,
-				FlowID:  flowID.String(),
-				TaskID:  task.ID.String(),
-				Content: fmt.Sprintf("🧠 Brain Synapse [lead]: %s", note),
-			})
-		})
-
-		o.bus.Subscribe(EventFindingDiscovered, func(data interface{}) {
-			note := data.(string)
-			brainMu.Lock()
-			f := &Finding{Type: "Finding", URL: flow.Target, Severity: "high", Evidence: map[string]interface{}{"note": note}}
-			brain.Findings = append(brain.Findings, f)
-			brainMu.Unlock()
-
-			// Mirage 2.0: Save to Actions table for permanent record
-			o.queries.CreateAction(reconSubtask.ID, models.ActionTypeReport, "promoted_lead", note, "success")
-
-			// Mirage 2.0: Auto-report to Findings Tab (Live Stream)
-			o.emit(flowID.String(), Event{
-				Type:    EventToolResult,
-				FlowID:  flowID.String(),
-				TaskID:  task.ID.String(),
-				Content: fmt.Sprintf("## Discovery: %s\n**Severity**: High\n\nAutomatically promoted from Brain Lead.", note),
-				Metadata: map[string]interface{}{
-					"tool": "report_findings",
-				},
-			})
-
-			o.emit(flowID.String(), Event{
-				Type:    EventMessage,
-				FlowID:  flowID.String(),
-				TaskID:  task.ID.String(),
-				Content: fmt.Sprintf("🧠 Brain Synapse [finding]: %s", note),
-			})
-		})
-
-		o.bus.Subscribe(EventExclusionDiscovered, func(data interface{}) {
-			note := data.(string)
-			brainMu.Lock()
-			brain.Exclusions = append(brain.Exclusions, note)
-			brainMu.Unlock()
-			o.emit(flowID.String(), Event{
-				Type:    EventMessage,
-				FlowID:  flowID.String(),
-				TaskID:  task.ID.String(),
-				Content: fmt.Sprintf("🧠 Brain Synapse [exclusion]: %s", note),
-			})
-		})
-
-		o.bus.Subscribe(EventPivotDiscovered, func(data interface{}) {
-			pivotNote := data.(string)
-			o.emit(flowID.String(), Event{
-				Type:    EventMessage,
-				FlowID:  flowID.String(),
-				TaskID:  task.ID.String(),
-				Content: fmt.Sprintf("🔄 [PHOENIX PIVOT] New context discovered: %s. Resetting pipeline for deeper exploration...", pivotNote),
-			})
-
-			brainMu.Lock()
-			brain.PivotContext += "\n- " + pivotNote
-			brainMu.Unlock()
-
-			// Reset pipeline to RECON to explore the newly discovered surface
-			if o.pipeline != nil {
-				o.pipeline.ResetToRecon(fmt.Sprintf("Pivot triggered by: %s", pivotNote))
-			}
-		})
-
-		o.toolRegistry.AddUpdateBrainTool(func(category, note string) {
-			switch category {
-			case "lead":
-				o.bus.Emit(EventLeadDiscovered, note)
-			case "finding":
-				// Try to parse note as a structured Finding JSON
-				var f Finding
-				if err := json.Unmarshal([]byte(note), &f); err == nil {
-					brainMu.Lock()
-					brain.Findings = append(brain.Findings, &f)
-					brainMu.Unlock()
-					o.bus.Emit(EventFindingDiscovered, f.Type)
-				} else {
-					// Fallback: create a generic finding if it's just a string
-					genF := &Finding{Type: "Finding", URL: flow.Target, Evidence: map[string]interface{}{"note": note}}
-					brainMu.Lock()
-					brain.Findings = append(brain.Findings, genF)
-					brainMu.Unlock()
-					o.bus.Emit(EventFindingDiscovered, note)
-				}
-			case "exclusion":
-				o.bus.Emit(EventExclusionDiscovered, note)
-			case "credentials", "pivot":
-				o.bus.Emit(EventPivotDiscovered, note)
-			case "tech":
-				brainMu.Lock()
-				if brain.Tech == nil {
-					brain.Tech = DefaultTechStack()
-				}
-				o.updateTechStackFromNote(brain.Tech, note)
-				brainMu.Unlock()
-				o.emit(flowID.String(), Event{
-					Type:    EventMessage,
-					FlowID:  flowID.String(),
-					TaskID:  task.ID.String(),
-					Content: fmt.Sprintf("🛡️ Technology Stack Identified: %s", note),
-					Metadata: map[string]interface{}{
-						"tech_stack": brain.Tech,
-					},
-				})
-				// Trigger specific tech stack discovery event for frontend dashboard
-				o.bus.Emit("EventTechStackDiscovered", brain.Tech)
-			default:
-				o.bus.Emit(EventLeadDiscovered, note)
-			}
-		})
 
 		o.emit(flowID.String(), Event{Type: EventMessage, FlowID: flowID.String(), TaskID: task.ID.String(), Content: "🚀 Initiating Phase 1: Reconnaissance"})
 
@@ -524,51 +642,32 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 
 		plannerResult := o.runAgentLoop(plannerCtx, flowID, task.ID, plannerSubtask.ID, plannerPrompt, "Consolidate these leads and dispatch specialists:\n"+plannerInput, &brain, &brainMu)
 
-		// Parse SwarmAgentSpec array using regex to extract the first JSON array
-		re := regexp.MustCompile(`\[\s*\{.*?\}\s*\]`)
-		match := re.FindString(plannerResult)
-		var jsonStr string
-		if match != "" {
-			jsonStr = match
-		} else {
-			jsonStr = plannerResult
-		}
-
+		// Schema Validation: Parse planner output with structured validation
 		var agentSpecs []SwarmAgentSpec
-		err = json.Unmarshal([]byte(jsonStr), &agentSpecs)
-		if err != nil {
-			// Sometimes the LLM returns the JSON inside a string (e.g., "\"[{...}]\"") instead of a raw JSON structure
-			var unescapedStr string
-			if unmarshalErr := json.Unmarshal([]byte(jsonStr), &unescapedStr); unmarshalErr == nil {
-				err = json.Unmarshal([]byte(unescapedStr), &agentSpecs)
+		plannerOutput, parseErr := schema.Parse[schema.PlannerOutput](plannerResult)
+		if parseErr != nil {
+			// Schema validation failed — log the error and fall back to defaults
+			log.Printf("[schema] Planner output validation failed: %v", parseErr)
+			o.emit(flowID.String(), Event{
+				Type:    EventMessage,
+				FlowID:  flowID.String(),
+				TaskID:  task.ID.String(),
+				Content: fmt.Sprintf("⚠️ Planner output failed schema validation: %v. Using default specialist dispatch.", parseErr),
+			})
+			agentSpecs = []SwarmAgentSpec{
+				{Type: "XSS", Priority: "high"},
+				{Type: "SQLi", Priority: "high"},
+				{Type: "SSRF", Priority: "medium"},
 			}
-		}
-
-		if err != nil {
-			// Fallback: try parsing as plain string array
-			var vulnTypes []string
-			if err2 := json.Unmarshal([]byte(jsonStr), &vulnTypes); err2 != nil {
-				var unescapedStr string
-				if unmarshalErr := json.Unmarshal([]byte(jsonStr), &unescapedStr); unmarshalErr == nil {
-					if err3 := json.Unmarshal([]byte(unescapedStr), &vulnTypes); err3 != nil {
-						vulnTypes = []string{"XSS", "SQLi", "SSRF"}
-					}
-				} else {
-					vulnTypes = []string{"XSS", "SQLi", "SSRF"}
-				}
-			}
-			for _, vt := range vulnTypes {
-				// Ensure we don't duplicate specs if the fallback was triggered
-				exists := false
-				for _, spec := range agentSpecs {
-					if spec.Type == vt {
-						exists = true
-						break
-					}
-				}
-				if !exists {
-					agentSpecs = append(agentSpecs, SwarmAgentSpec{Type: vt, Priority: "medium"})
-				}
+		} else {
+			// Convert schema specs to orchestrator specs
+			for _, spec := range plannerOutput.Specs {
+				agentSpecs = append(agentSpecs, SwarmAgentSpec{
+					Type:     spec.Type,
+					Target:   spec.Target,
+					Context:  spec.Context,
+					Priority: spec.Priority,
+				})
 			}
 		}
 
@@ -618,10 +717,37 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		}()
 
 		// Enqueue tasks for workers
+		ragClient := NewRAGClient("")
 		for _, spec := range agentSpecs {
+			// Query RAG Knowledge Base for context
+			ragQuery := fmt.Sprintf("Best payloads and bypass techniques for %s testing on %s", spec.Type, spec.Target)
+			if brain.Tech != nil {
+				if brain.Tech.Lang != "" {
+					ragQuery += fmt.Sprintf(" backend:%s", brain.Tech.Lang)
+				}
+				if brain.Tech.DB != "" {
+					ragQuery += fmt.Sprintf(" database:%s", brain.Tech.DB)
+				}
+			}
+
+			ragCtx, cancelRag := context.WithTimeout(ctx, 10*time.Second)
+			ragContext, err := ragClient.RetrieveKnowledge(ragCtx, ragQuery, 3)
+			cancelRag()
+
+			enhancedContext := spec.Context
+			if err == nil && ragContext != "" {
+				enhancedContext += "\n\n" + ragContext
+				o.emit(flowID.String(), Event{
+					Type:    EventMessage,
+					FlowID:  flowID.String(),
+					TaskID:  task.ID.String(),
+					Content: fmt.Sprintf("📚 Enhancing %s agent with payloads from RAG Knowledge Base.", spec.Type),
+				})
+			}
+
 			o.queueMgr.Route(spec.Type, map[string]interface{}{
 				"target":   spec.Target,
-				"context":  spec.Context,
+				"context":  enhancedContext,
 				"priority": spec.Priority,
 			}, flowID.String())
 		}
@@ -870,11 +996,21 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 }
 
 func (o *Orchestrator) runAgentLoop(ctx context.Context, flowID uuid.UUID, taskID uuid.UUID, subtaskID uuid.UUID, systemPrompt string, userPrompt string, brain *Brain, brainMu *sync.Mutex) string {
-	o.queries.UpdateSubTaskStatus(subtaskID, models.SubTaskStatusRunning)
+	if o.queries != nil {
+		o.queries.UpdateSubTaskStatus(subtaskID, models.SubTaskStatusRunning)
+	}
 
 	successCount := 0
 	var chatMsgs []models.ChatMessage
 	chatMsgs = append(chatMsgs, models.ChatMessage{Role: "user", Content: userPrompt})
+
+	// Feature: Redirect Tracking (302 Intelligence)
+	redirectTracker := NewRedirectTracker()
+
+	// Feature: Forced Reflection on Repeated Failure
+	consecutiveFailures := 0
+	const failureReflectionThreshold = 3
+	const failureTerminateThreshold = 5
 
 	var lastResult string
 	for i := 0; i < maxIterations; i++ {
@@ -911,7 +1047,43 @@ func (o *Orchestrator) runAgentLoop(ctx context.Context, flowID uuid.UUID, taskI
 			}
 			effectiveSystemPrompt = techCtx + "\n\n" + systemPrompt
 		}
+
+		// Feature: Inject Auth Context if credentials/cookies are available
+		if brain.Auth != nil {
+			var authDirective strings.Builder
+			authDirective.WriteString("\n\n🔑 AUTHENTICATION CONTEXT (use these in all requests):\n")
+			if len(brain.Auth.Cookies) > 0 {
+				authDirective.WriteString("Session Cookies: ")
+				for k, v := range brain.Auth.Cookies {
+					authDirective.WriteString(fmt.Sprintf("%s=%s; ", k, v))
+				}
+				authDirective.WriteString("\nAlways include these cookies with -b or --cookie flags in curl commands.\n")
+			}
+			if len(brain.Auth.Credentials) > 0 {
+				authDirective.WriteString("Discovered Credentials:\n")
+				for user, pass := range brain.Auth.Credentials {
+					authDirective.WriteString(fmt.Sprintf("  - %s : %s\n", user, pass))
+				}
+				authDirective.WriteString("Use these to authenticate if you encounter login pages.\n")
+			}
+			if brain.Auth.LoginURL != "" {
+				authDirective.WriteString(fmt.Sprintf("Login Page: %s\n", brain.Auth.LoginURL))
+			}
+			effectiveSystemPrompt += authDirective.String()
+		}
 		brainMu.Unlock()
+
+		// Feature: Context Compression — summarize old messages to prevent token overflow
+		if shouldCompress(chatMsgs) {
+			log.Printf("[compress] Triggering conversation compression (%d messages, ~%d tokens)", len(chatMsgs), estimateTokens(chatMsgs))
+			o.emit(flowID.String(), Event{
+				Type:    EventMessage,
+				FlowID:  flowID.String(),
+				TaskID:  taskID.String(),
+				Content: fmt.Sprintf("📊 Compressing conversation history (%d messages → summary + %d recent)", len(chatMsgs), CompressKeepRecent),
+			})
+			chatMsgs = o.compressConversation(ctx, chatMsgs, CompressKeepRecent)
+		}
 
 		currentMsgs := append([]models.ChatMessage{
 			{Role: "system", Content: effectiveSystemPrompt},
@@ -964,7 +1136,13 @@ func (o *Orchestrator) runAgentLoop(ctx context.Context, flowID uuid.UUID, taskI
 					res = "Tool not found: " + tc.Name
 				} else {
 					// 1. Scope Check
-					if inScope, reason := o.scope.IsCommandInScope(tc.Arguments); !inScope {
+					inScope := true
+					reason := ""
+					if o.scope != nil {
+						inScope, reason = o.scope.IsCommandInScope(tc.Arguments)
+					}
+
+					if !inScope {
 						res = reason
 					} else {
 						// 2. Execute with Self-Healing Resilience
@@ -1015,7 +1193,9 @@ func (o *Orchestrator) runAgentLoop(ctx context.Context, flowID uuid.UUID, taskI
 				}
 
 				// Restore Action Persistence
-				o.queries.CreateAction(subtaskID, models.ActionTypeCommand, tc.Arguments, res, "success")
+				if o.queries != nil {
+					o.queries.CreateAction(subtaskID, models.ActionTypeCommand, tc.Arguments, res, "success")
+				}
 
 				o.emit(flowID.String(), Event{
 					Type:    EventToolResult,
@@ -1029,7 +1209,140 @@ func (o *Orchestrator) runAgentLoop(ctx context.Context, flowID uuid.UUID, taskI
 				})
 				chatMsgs = append(chatMsgs, models.ChatMessage{Role: "tool", Content: res, ToolCallID: tc.ID})
 
+				// ============================================
+				// Feature: Redirect Tracking (302 Intelligence)
+				// ============================================
+				if tc.Name == "execute_command" {
+					if insight := redirectTracker.Analyze(res); insight != nil && insight.ShouldPivot {
+						// Inject auth wall alert into the conversation
+						chatMsgs = append(chatMsgs, models.ChatMessage{
+							Role:    "user",
+							Content: insight.Message,
+						})
+						o.emit(flowID.String(), Event{
+							Type:    EventMessage,
+							FlowID:  flowID.String(),
+							TaskID:  taskID.String(),
+							Content: fmt.Sprintf("🔒 [AUTH WALL] %d redirects to %s detected. Pivoting strategy.", insight.RedirectCount, insight.LoginURL),
+						})
+
+						// Map login page as high-priority target in Brain
+						brainMu.Lock()
+						brain.Leads = append(brain.Leads, fmt.Sprintf("[AUTH-TARGET] Login page at %s — try auth bypass, default credentials, or credential stuffing", insight.LoginURL))
+						if brain.Auth == nil {
+							brain.Auth = &AuthState{}
+						}
+						if brain.Auth.LoginURL == "" {
+							brain.Auth.LoginURL = insight.LoginURL
+						}
+						brainMu.Unlock()
+					}
+
+					// Detect credentials in tool output (backup configs, env files, etc.)
+					lowerOutput := strings.ToLower(res)
+					hasCredentialSignals := strings.Contains(lowerOutput, "password") ||
+						strings.Contains(lowerOutput, "db_password") ||
+						strings.Contains(lowerOutput, "api_key") ||
+						strings.Contains(lowerOutput, "secret_key") ||
+						strings.Contains(lowerOutput, "phpsessid") ||
+						strings.Contains(lowerOutput, "set-cookie")
+					if hasCredentialSignals {
+						brainMu.Lock()
+						if brain.Auth == nil {
+							brain.Auth = &AuthState{
+								Cookies:     make(map[string]string),
+								Credentials: make(map[string]string),
+							}
+						}
+						// Emit credential discovery pivot
+						o.bus.Emit(EventPivotDiscovered, fmt.Sprintf("Potential credentials detected in tool output for %s", tc.Name))
+						brainMu.Unlock()
+					}
+				}
+
+				// ============================================
+				// Feature: Forced Reflection on Repeated Failure
+				// ============================================
+				isFailure := isToolOutputFailure(res)
+				if isFailure {
+					consecutiveFailures++
+
+					if consecutiveFailures >= failureTerminateThreshold {
+						// Hard stop — too many failures, agent is stalled
+						o.emit(flowID.String(), Event{
+							Type:    EventMessage,
+							FlowID:  flowID.String(),
+							TaskID:  taskID.String(),
+							Content: fmt.Sprintf("🛑 [STALLED] %d consecutive failures — terminating this agent to save resources.", consecutiveFailures),
+						})
+						lastResult = fmt.Sprintf("Terminated: %d consecutive failures detected. Agent is stalled on an unproductive approach.", consecutiveFailures)
+						goto done
+					}
+
+					if consecutiveFailures >= failureReflectionThreshold {
+						reflectionMsg := fmt.Sprintf(
+							"⚠️ FORCED REFLECTION: You've had %d consecutive failures. "+
+								"STOP your current approach immediately.\n\n"+
+								"REQUIRED ACTIONS:\n"+
+								"1. Analyze WHY your last %d attempts failed\n"+
+								"2. Identify the ROOT CAUSE (wrong endpoint? auth required? wrong parameter?)\n"+
+								"3. Choose a FUNDAMENTALLY DIFFERENT strategy\n"+
+								"4. Do NOT retry the same approach\n\n"+
+								"If you're hitting 302 redirects, the target requires authentication. "+
+								"Try: default credentials, auth bypass, or explore unauthenticated endpoints instead.",
+							consecutiveFailures, consecutiveFailures,
+						)
+						chatMsgs = append(chatMsgs, models.ChatMessage{
+							Role:    "user",
+							Content: reflectionMsg,
+						})
+						o.emit(flowID.String(), Event{
+							Type:    EventMessage,
+							FlowID:  flowID.String(),
+							TaskID:  taskID.String(),
+							Content: fmt.Sprintf("🔄 [FORCED REFLECTION] %d consecutive failures — injecting strategy pivot.", consecutiveFailures),
+						})
+					}
+				} else {
+					// Reset on success
+					consecutiveFailures = 0
+				}
+
 				if tc.Name == "complete_task" {
+					// FEATURE: Reflector Agent Validation (VETO Power)
+					// Before unconditionally accepting success, have the Reflector analyze the logs to verify proof.
+					reflector := NewReflector(o.llmProvider)
+					SystemPromptForReflector := fmt.Sprintf("Goal: %s\nTarget: %s", userPrompt, brain.Tech)
+					isValid, vetoReason := reflector.ValidateFinding(ctx, SystemPromptForReflector, chatMsgs, res)
+
+					if !isValid {
+						// The Reflector VETOED the finding. Do not terminate.
+						vetoMsg := fmt.Sprintf("🚨 REFLECTOR VETO: Your reported finding was REJECTED by the auditor.\nREASON: %s\n\nYou MUST continue working to find actual proof, or try a different approach. Do not call complete_task until you have concrete proof in the logs.", vetoReason)
+
+						chatMsgs = append(chatMsgs, models.ChatMessage{
+							Role:    "user",
+							Content: vetoMsg,
+						})
+
+						o.emit(flowID.String(), Event{
+							Type:    EventMessage,
+							FlowID:  flowID.String(),
+							TaskID:  taskID.String(),
+							Content: "🚨 [REFLECTOR VETO] Finding rejected. " + vetoReason,
+						})
+
+						// Continue the loop, forcing the agent to try again
+						continue
+					}
+
+					// Reflector approved, or it was a valid finding.
+					o.emit(flowID.String(), Event{
+						Type:    EventMessage,
+						FlowID:  flowID.String(),
+						TaskID:  taskID.String(),
+						Content: "✅ [REFLECTOR APPROVED] Finding validated against execution logs.",
+					})
+
 					lastResult = res
 					goto done
 				}
@@ -1061,7 +1374,9 @@ func (o *Orchestrator) runAgentLoop(ctx context.Context, flowID uuid.UUID, taskI
 	lastResult = "Max iterations reached"
 
 done:
-	o.queries.UpdateSubTaskStatus(subtaskID, models.SubTaskStatusCompleted)
+	if o.queries != nil {
+		o.queries.UpdateSubTaskStatus(subtaskID, models.SubTaskStatusCompleted)
+	}
 	return lastResult
 }
 
@@ -1133,24 +1448,6 @@ func (o *Orchestrator) isWAFBlocked(output string) bool {
 	return false
 }
 
-func findJSONStart(s string) int {
-	for i, c := range s {
-		if c == '[' || c == '{' {
-			return i
-		}
-	}
-	return -1
-}
-
-func findJSONEnd(s string) int {
-	for i := len(s) - 1; i >= 0; i-- {
-		if s[i] == ']' || s[i] == '}' {
-			return i
-		}
-	}
-	return -1
-}
-
 // emitPipelineEvent sends the current pipeline state to the frontend
 func (o *Orchestrator) emitPipelineEvent(flowID, taskID string) {
 	if o.pipeline == nil {
@@ -1165,25 +1462,6 @@ func (o *Orchestrator) emitPipelineEvent(flowID, taskID string) {
 	})
 	// Also emit on internal bus for Conductor/WebSocket
 	o.bus.Emit(EventTypeInternal("pipeline_phase_change"), o.pipeline.ToMap())
-}
-
-// getSpecialist returns an instance of a specialist agent by ID
-func (o *Orchestrator) getSpecialist(id string) base.Specialist {
-	switch id {
-	case "xss":
-		return xss.New()
-	case "sqli":
-		return sqli.New()
-	case "ssrf":
-		return ssrf.New()
-	case "rce":
-		return rce.New()
-	case "lfi":
-		return lfi.New()
-	case "idor":
-		return idor.New()
-	}
-	return nil
 }
 
 // emitQueueStats sends current queue statistics to the frontend
@@ -1286,4 +1564,95 @@ func normalizeSpecialistName(name string) string {
 		return q
 	}
 	return "xss" // Fallback
+}
+
+// isToolOutputFailure detects failure patterns in tool execution output.
+// Returns true if the output indicates a failed/unproductive command execution.
+func isToolOutputFailure(output string) bool {
+	if output == "" || output == "null" || output == "{}" {
+		return true
+	}
+
+	lower := strings.ToLower(output)
+
+	// 302/301 redirects to login pages (auth wall)
+	if (strings.Contains(lower, "302") || strings.Contains(lower, "301")) &&
+		(strings.Contains(lower, "login") || strings.Contains(lower, "signin") ||
+			strings.Contains(lower, "auth") || strings.Contains(lower, "session")) {
+		return true
+	}
+
+	// HTTP error codes
+	for _, code := range []string{"403 forbidden", "404 not found", "500 internal server error",
+		"502 bad gateway", "503 service unavailable"} {
+		if strings.Contains(lower, code) {
+			return true
+		}
+	}
+
+	// Bash/shell syntax errors
+	bashErrors := []string{
+		"unexpected eof",
+		"syntax error",
+		"command not found",
+		"no such file or directory",
+		"permission denied",
+	}
+	for _, pattern := range bashErrors {
+		if strings.Contains(lower, pattern) {
+			return true
+		}
+	}
+
+	// Timeout indicators
+	if strings.Contains(lower, "timed out") || strings.Contains(lower, "timeout") {
+		return true
+	}
+
+	// Tool errors
+	if strings.HasPrefix(output, "Error:") || strings.HasPrefix(output, "Tool not found:") {
+		return true
+	}
+
+	return false
+}
+
+// ---------------------------------------------------------------------------
+// Causal Evidence Graph Helpers
+// ---------------------------------------------------------------------------
+
+// AddCausalNode safely adds a new node to the Brain's CausalGraph
+func (o *Orchestrator) AddCausalNode(brain *Brain, brainMu *sync.Mutex, node models.CausalNode) {
+	brainMu.Lock()
+	defer brainMu.Unlock()
+
+	if brain.CausalGraph == nil {
+		brain.CausalGraph = &models.CausalGraph{
+			Nodes: make(map[string]*models.CausalNode),
+			Edges: []models.CausalEdge{},
+		}
+	}
+
+	// Create a copy to store in the map
+	n := node
+	brain.CausalGraph.Nodes[node.ID] = &n
+}
+
+// AddCausalEdge safely links two nodes in the Brain's CausalGraph
+func (o *Orchestrator) AddCausalEdge(brain *Brain, brainMu *sync.Mutex, sourceID, targetID, label string) {
+	brainMu.Lock()
+	defer brainMu.Unlock()
+
+	if brain.CausalGraph == nil {
+		brain.CausalGraph = &models.CausalGraph{
+			Nodes: make(map[string]*models.CausalNode),
+			Edges: []models.CausalEdge{},
+		}
+	}
+
+	brain.CausalGraph.Edges = append(brain.CausalGraph.Edges, models.CausalEdge{
+		SourceID: sourceID,
+		TargetID: targetID,
+		Label:    label,
+	})
 }

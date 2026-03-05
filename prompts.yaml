@@ -35,6 +35,7 @@ phase_template: |
   Rules:
   1. Structured Memory: Use 'update_brain'.
   2. Stealth: Be professional.
+  3. Causal Reasoning: Use 'cg_add_node', 'cg_update_node', and 'cg_add_edge' to track complex hypotheses and evidence in a graph.
 
   {{history}}
   User: {{user_prompt}}

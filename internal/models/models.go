@@ -149,3 +149,25 @@ type ToolResult struct {
 	ToolCallID string `json:"tool_call_id"`
 	Content    string `json:"content"`
 }
+
+// CausalNode represents a typed node in the Causal Evidence Graph
+type CausalNode struct {
+	ID          string  `json:"id"`
+	NodeType    string  `json:"nodeType"` // e.g. "Evidence", "Hypothesis", "Vulnerability"
+	Description string  `json:"description"`
+	Confidence  float64 `json:"confidence,omitempty"`
+	Status      string  `json:"status,omitempty"` // e.g. "PENDING", "CONFIRMED", "FALSIFIED"
+}
+
+// CausalEdge represents the relationship between two CausalNodes
+type CausalEdge struct {
+	SourceID string `json:"sourceId"`
+	TargetID string `json:"targetId"`
+	Label    string `json:"label"` // e.g. "SUPPORTS", "CONTRADICTS", "REVEALS"
+}
+
+// CausalGraph is a DAG representing non-monotonic reasoning
+type CausalGraph struct {
+	Nodes map[string]*CausalNode `json:"nodes"`
+	Edges []CausalEdge           `json:"edges"`
+}

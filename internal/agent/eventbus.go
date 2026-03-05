@@ -18,6 +18,14 @@ const (
 	// a new attack surface, warranting a pipeline restart. Examples: credentials,
 	// new subdomains, SSRF-accessible internal endpoints, API keys, JWT secrets, etc.
 	EventPivotDiscovered EventTypeInternal = "pivot_discovered"
+
+	// Causal Graph Events
+	EventCausalNodeAdded   EventTypeInternal = "causal_node_added"
+	EventCausalNodeUpdated EventTypeInternal = "causal_node_updated"
+	EventCausalEdgeAdded   EventTypeInternal = "causal_edge_added"
+
+	// EventBrainUpdate is emitted when the brain needs a structured update
+	EventBrainUpdate EventTypeInternal = "brain_update"
 )
 
 // EventBus handles internal communication between agents
@@ -54,4 +62,11 @@ func (eb *EventBus) Emit(eventType EventTypeInternal, data interface{}) {
 		// Run handlers in a goroutine to avoid blocking the emitter
 		go handler(data)
 	}
+}
+
+// Reset removes all subscribers from the event bus
+func (eb *EventBus) Reset() {
+	eb.mu.Lock()
+	defer eb.mu.Unlock()
+	eb.subscribers = make(map[EventTypeInternal][]func(data interface{}))
 }

@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { ArrowLeft, Target, Clock, Activity, Cpu, Wrench, MessageSquare, CheckCircle, XCircle, ChevronRight, Terminal, Trash2 } from 'lucide-react'
+import { ArrowLeft, Target, Clock, Activity, Cpu, Wrench, MessageSquare, CheckCircle, XCircle, ChevronRight, Terminal, Trash2, AlertTriangle, Shield, Zap, Bug, Eye, FileText, Search, Crosshair, Wifi } from 'lucide-react'
 
 const API_BASE = '/api'
 
@@ -86,6 +86,386 @@ function FindingList({ findings, formatTime }) {
     )
 }
 
+// ============================================================================
+// PIPELINE TRACKER — Animated phase stepper
+// ============================================================================
+
+const PIPELINE_PHASES = [
+    { key: 'reconnaissance', label: 'Recon', icon: Search, color: 'accent-cyan' },
+    { key: 'discovery', label: 'Discovery', icon: Eye, color: 'accent-purple' },
+    { key: 'strategy', label: 'Strategy', icon: Crosshair, color: 'accent-yellow' },
+    { key: 'exploitation', label: 'Exploit', icon: Zap, color: 'accent-orange' },
+    { key: 'validation', label: 'Validate', icon: Shield, color: 'accent-green' },
+    { key: 'reporting', label: 'Report', icon: FileText, color: 'accent-pink' },
+    { key: 'complete', label: 'Complete', icon: CheckCircle, color: 'accent-green' },
+]
+
+function PipelineTracker({ currentPhase }) {
+    const currentIndex = PIPELINE_PHASES.findIndex(p => p.key === currentPhase)
+
+    return (
+        <div className="relative mb-8">
+            {/* Glass container */}
+            <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-2xl p-5 shadow-[0_14px_50px_rgba(15,23,42,0.9)]">
+                {/* Ambient glow behind active phase */}
+                {currentIndex >= 0 && (
+                    <motion.div
+                        className="absolute top-0 h-full w-32 rounded-full blur-[60px] opacity-30"
+                        animate={{
+                            left: `${(currentIndex / (PIPELINE_PHASES.length - 1)) * 100}%`,
+                            background: [
+                                'radial-gradient(circle, rgba(0,212,255,0.4), transparent)',
+                                'radial-gradient(circle, rgba(168,85,247,0.4), transparent)',
+                                'radial-gradient(circle, rgba(0,212,255,0.4), transparent)'
+                            ],
+                        }}
+                        style={{ transform: 'translateX(-50%)' }}
+                        transition={{ left: { duration: 0.8, ease: 'easeOut' }, background: { duration: 3, repeat: Infinity } }}
+                    />
+                )}
+
+                {/* Header */}
+                <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                        <div className="p-1.5 rounded-lg bg-accent-cyan/10 border border-accent-cyan/20">
+                            <Activity className="w-3.5 h-3.5 text-accent-cyan" />
+                        </div>
+                        <span className="text-[10px] font-mono font-bold uppercase tracking-[0.2em] text-text-muted">Pipeline Phase</span>
+                    </div>
+                    {currentIndex >= 0 && (
+                        <motion.span
+                            key={currentPhase}
+                            initial={{ opacity: 0, y: -8 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="text-[10px] font-mono font-bold uppercase tracking-[0.16em] text-accent-cyan bg-accent-cyan/10 border border-accent-cyan/20 rounded-full px-2.5 py-0.5"
+                        >
+                            {PIPELINE_PHASES[currentIndex]?.label || currentPhase}
+                        </motion.span>
+                    )}
+                </div>
+
+                {/* Phase Steps */}
+                <div className="relative flex items-center justify-between">
+                    {/* Background connector line */}
+                    <div className="absolute top-4 left-4 right-4 h-[2px] bg-white/8 rounded-full" />
+
+                    {/* Animated progress line */}
+                    <motion.div
+                        className="absolute top-4 left-4 h-[2px] rounded-full bg-gradient-to-r from-accent-cyan via-accent-purple to-accent-green"
+                        initial={{ width: '0%' }}
+                        animate={{
+                            width: currentIndex >= 0
+                                ? `${Math.min((currentIndex / (PIPELINE_PHASES.length - 1)) * 100, 100)}%`
+                                : '0%'
+                        }}
+                        transition={{ duration: 1, ease: 'easeOut' }}
+                        style={{ boxShadow: '0 0 12px rgba(0,212,255,0.5), 0 0 30px rgba(0,212,255,0.2)' }}
+                    />
+
+                    {PIPELINE_PHASES.map((phase, idx) => {
+                        const isComplete = idx < currentIndex
+                        const isCurrent = idx === currentIndex
+                        const isFuture = idx > currentIndex || currentIndex < 0
+                        const Icon = phase.icon
+
+                        return (
+                            <div key={phase.key} className="relative flex flex-col items-center z-10 flex-1">
+                                {/* Phase dot / icon */}
+                                <motion.div
+                                    className={`relative w-8 h-8 rounded-full flex items-center justify-center border-2 transition-all duration-500 ${isComplete
+                                        ? 'bg-accent-green/20 border-accent-green/60'
+                                        : isCurrent
+                                            ? 'bg-accent-cyan/20 border-accent-cyan/60'
+                                            : 'bg-white/5 border-white/15'
+                                        }`}
+                                    animate={isCurrent ? {
+                                        boxShadow: [
+                                            '0 0 0px rgba(0,212,255,0)',
+                                            '0 0 20px rgba(0,212,255,0.4)',
+                                            '0 0 0px rgba(0,212,255,0)',
+                                        ]
+                                    } : {}}
+                                    transition={isCurrent ? { duration: 2, repeat: Infinity, ease: 'easeInOut' } : {}}
+                                >
+                                    {isComplete ? (
+                                        <motion.div
+                                            initial={{ scale: 0 }}
+                                            animate={{ scale: 1 }}
+                                            transition={{ type: 'spring', stiffness: 400, damping: 15 }}
+                                        >
+                                            <CheckCircle className="w-4 h-4 text-accent-green" />
+                                        </motion.div>
+                                    ) : (
+                                        <Icon className={`w-3.5 h-3.5 ${isCurrent ? 'text-accent-cyan' : 'text-text-muted/40'
+                                            }`} />
+                                    )}
+
+                                    {/* Active phase ping ring */}
+                                    {isCurrent && (
+                                        <motion.div
+                                            className="absolute inset-0 rounded-full border border-accent-cyan/40"
+                                            animate={{ scale: [1, 1.6], opacity: [0.6, 0] }}
+                                            transition={{ duration: 1.5, repeat: Infinity, ease: 'easeOut' }}
+                                        />
+                                    )}
+                                </motion.div>
+
+                                {/* Phase label */}
+                                <span className={`mt-2 text-[9px] font-mono font-bold uppercase tracking-[0.14em] transition-colors duration-500 ${isComplete ? 'text-accent-green/80'
+                                    : isCurrent ? 'text-text-primary'
+                                        : 'text-text-muted/40'
+                                    }`}>
+                                    {phase.label}
+                                </span>
+                            </div>
+                        )
+                    })}
+                </div>
+            </div>
+        </div>
+    )
+}
+
+// ============================================================================
+// SPECIALIST DISPATCH — Animated badge grid
+// ============================================================================
+
+const SPECIALIST_COLORS = {
+    'XSS': { bg: 'bg-accent-red/15', text: 'text-accent-red', border: 'border-accent-red/30', icon: Bug },
+    'SQLi': { bg: 'bg-accent-purple/15', text: 'text-accent-purple', border: 'border-accent-purple/30', icon: Bug },
+    'SSRF': { bg: 'bg-accent-cyan/15', text: 'text-accent-cyan', border: 'border-accent-cyan/30', icon: Wifi },
+    'RCE': { bg: 'bg-accent-orange/15', text: 'text-accent-orange', border: 'border-accent-orange/30', icon: Zap },
+    'LFI': { bg: 'bg-accent-yellow/15', text: 'text-accent-yellow', border: 'border-accent-yellow/30', icon: FileText },
+    'IDOR': { bg: 'bg-accent-pink/15', text: 'text-accent-pink', border: 'border-accent-pink/30', icon: Eye },
+    'CSTI': { bg: 'bg-accent-amber/15', text: 'text-accent-amber', border: 'border-accent-amber/30', icon: Zap },
+    'XXE': { bg: 'bg-accent-red/15', text: 'text-accent-red', border: 'border-accent-red/30', icon: FileText },
+}
+
+function getSpecialistStyle(type) {
+    const upper = (type || '').toUpperCase()
+    return SPECIALIST_COLORS[upper] || {
+        bg: 'bg-white/10', text: 'text-text-primary', border: 'border-white/20', icon: Shield
+    }
+}
+
+function SpecialistDispatchCard({ event }) {
+    const agents = event.metadata?.agents || []
+    const count = agents.length || parseInt((event.content.match(/(\d+)\s*specialized/) || [])[1]) || 0
+
+    return (
+        <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="relative overflow-hidden rounded-xl border border-accent-cyan/20 bg-gradient-to-br from-accent-cyan/[0.06] to-accent-purple/[0.04] p-4 my-3 shadow-[0_8px_30px_rgba(0,212,255,0.08)]"
+        >
+            {/* Header */}
+            <div className="flex items-center gap-2 mb-3">
+                <div className="p-1.5 rounded-lg bg-accent-cyan/15 border border-accent-cyan/25">
+                    <Crosshair className="w-4 h-4 text-accent-cyan" />
+                </div>
+                <span className="text-xs font-bold text-text-primary">Specialist Swarm Deployed</span>
+                <span className="ml-auto text-[10px] font-mono font-bold text-accent-cyan bg-accent-cyan/10 border border-accent-cyan/20 rounded-full px-2 py-0.5">
+                    {count} agents
+                </span>
+            </div>
+
+            {/* Agent badges */}
+            <div className="flex flex-wrap gap-2">
+                {agents.length > 0 ? agents.map((agent, idx) => {
+                    const style = getSpecialistStyle(agent.type || agent)
+                    const Icon = style.icon
+                    const label = typeof agent === 'string' ? agent : agent.type
+                    const priority = typeof agent === 'object' ? agent.priority : null
+
+                    return (
+                        <motion.div
+                            key={idx}
+                            initial={{ scale: 0, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            transition={{ delay: idx * 0.08, type: 'spring', stiffness: 500, damping: 20 }}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border ${style.bg} ${style.border} ${style.text} text-[10px] font-mono font-bold uppercase tracking-wider backdrop-blur-sm`}
+                            title={priority ? `Priority: ${priority}` : undefined}
+                        >
+                            <Icon className="w-3 h-3" />
+                            {label}
+                            {priority && (
+                                <span className={`ml-1 w-1.5 h-1.5 rounded-full ${priority === 'critical' ? 'bg-accent-red' :
+                                    priority === 'high' ? 'bg-accent-orange' :
+                                        priority === 'medium' ? 'bg-accent-yellow' : 'bg-text-muted'
+                                    }`} />
+                            )}
+                        </motion.div>
+                    )
+                }) : (
+                    <span className="text-[10px] text-text-muted italic">Dispatching...</span>
+                )}
+            </div>
+        </motion.div>
+    )
+}
+
+// ============================================================================
+// SCHEMA WARNING — Orange validation alert
+// ============================================================================
+
+function SchemaWarningCard({ event }) {
+    return (
+        <motion.div
+            initial={{ opacity: 0, x: -12 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+            className="relative overflow-hidden rounded-xl border border-accent-orange/25 bg-gradient-to-r from-accent-orange/[0.08] to-accent-amber/[0.04] px-4 py-3 my-3 shadow-[0_8px_30px_rgba(255,145,0,0.06)]"
+        >
+            {/* Animated warning stripe */}
+            <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-accent-orange via-accent-amber to-accent-orange" />
+
+            <div className="flex gap-3 pl-2">
+                <div className="flex-shrink-0 mt-0.5">
+                    <motion.div
+                        animate={{ rotate: [0, -8, 8, -4, 0] }}
+                        transition={{ duration: 0.5, delay: 0.2 }}
+                    >
+                        <AlertTriangle className="w-4 h-4 text-accent-orange" />
+                    </motion.div>
+                </div>
+                <div className="flex-1">
+                    <div className="text-[10px] font-mono font-bold uppercase tracking-[0.18em] text-accent-orange mb-1">
+                        Schema Validation Recovery
+                    </div>
+                    <div className="text-xs text-accent-orange/80 whitespace-pre-wrap leading-relaxed">
+                        {event.content.replace(/^⚠️\s*/, '')}
+                    </div>
+                </div>
+            </div>
+        </motion.div>
+    )
+}
+
+// ============================================================================
+// EVENT CLASSIFIERS
+// ============================================================================
+
+function isSchemaWarning(event) {
+    return event.type === 'message' &&
+        (event.content?.includes('schema validation') || event.content?.startsWith('⚠️'))
+}
+
+function isSpecialistDispatch(event) {
+    return event.type === 'message' &&
+        event.content?.includes('Planner dispatching')
+}
+
+function isPipelinePhaseEvent(event) {
+    return event.type === 'message' &&
+        event.content?.includes('Pipeline Phase:')
+}
+
+function extractPipelinePhase(content) {
+    const match = content.match(/Pipeline Phase:\s*(\w+)/i)
+    return match ? match[1].toLowerCase() : null
+}
+
+// ============================================================================
+// CAUSAL GRAPH — Evidence relationships
+// ============================================================================
+
+function CausalGraph({ nodes, edges }) {
+    const nodeArray = Object.values(nodes)
+
+    if (nodeArray.length === 0) {
+        return (
+            <div className="flex-1 flex flex-col items-center justify-center text-text-muted/50 p-12 text-center">
+                <Shield className="w-12 h-12 mb-4 opacity-10" />
+                <p className="text-sm font-mono uppercase tracking-widest">No causal data points localized</p>
+                <p className="text-[10px] mt-2 max-w-xs opacity-60">
+                    The agent generates reasoning nodes as it validates hypotheses.
+                </p>
+            </div>
+        )
+    }
+
+    const typeColors = {
+        'Evidence': 'text-accent-cyan border-accent-cyan/40 bg-accent-cyan/10',
+        'Hypothesis': 'text-accent-purple border-accent-purple/40 bg-accent-purple/10',
+        'Vulnerability': 'text-accent-red border-accent-red/40 bg-accent-red/10',
+        'Fact': 'text-accent-green border-accent-green/40 bg-accent-green/10',
+    }
+
+    const statusColors = {
+        'PENDING': 'border-white/20 text-white/60',
+        'CONFIRMED': 'border-accent-green/60 text-accent-green shadow-[0_0_10px_rgba(0,230,118,0.2)]',
+        'FALSIFIED': 'border-accent-red/60 text-accent-red line-through opacity-50',
+        'DEPRECATED': 'border-white/10 text-white/30 italic grayscale',
+    }
+
+    return (
+        <div className="flex-1 min-h-0 flex flex-col p-4 relative overflow-hidden">
+            {/* Legend */}
+            <div className="flex gap-4 mb-6 relative z-10">
+                {Object.entries(typeColors).map(([type, color]) => (
+                    <div key={type} className="flex items-center gap-1.5">
+                        <div className={`w-2 h-2 rounded-full ${color.split(' ')[0]}`} />
+                        <span className="text-[9px] font-mono uppercase tracking-wider text-text-muted">{type}</span>
+                    </div>
+                ))}
+            </div>
+
+            <div className="flex-1 overflow-auto relative grid grid-cols-1 md:grid-cols-3 gap-8 p-4">
+                {/* Levels: Left (Evidence/Fact), Middle (Hypothesis), Right (Vulnerability) */}
+                <div className="space-y-4">
+                    <h4 className="text-[10px] uppercase tracking-widest text-text-muted mb-4 border-b border-white/5 pb-1">Foundations</h4>
+                    {nodeArray.filter(n => n.node_type === 'Evidence' || n.node_type === 'Fact').map(node => (
+                        <CausalNode key={node.id} node={node} typeColor={typeColors[node.node_type]} statusColor={statusColors[node.status]} />
+                    ))}
+                </div>
+                <div className="space-y-4">
+                    <h4 className="text-[10px] uppercase tracking-widest text-text-muted mb-4 border-b border-white/5 pb-1">Hypotheses</h4>
+                    {nodeArray.filter(n => n.node_type === 'Hypothesis').map(node => (
+                        <CausalNode key={node.id} node={node} typeColor={typeColors[node.node_type]} statusColor={statusColors[node.status]} />
+                    ))}
+                </div>
+                <div className="space-y-4">
+                    <h4 className="text-[10px] uppercase tracking-widest text-text-muted mb-4 border-b border-white/5 pb-1">Impact</h4>
+                    {nodeArray.filter(n => n.node_type === 'Vulnerability').map(node => (
+                        <CausalNode key={node.id} node={node} typeColor={typeColors[node.node_type]} statusColor={statusColors[node.status]} />
+                    ))}
+                </div>
+            </div>
+
+            {/* Relationship Count Overlay */}
+            {edges.length > 0 && (
+                <div className="absolute bottom-4 right-4 px-3 py-1 bg-white/5 border border-white/10 rounded-full text-[9px] font-mono text-text-muted uppercase tracking-widest backdrop-blur-md">
+                    {edges.length} Active Causal Edges
+                </div>
+            )}
+        </div>
+    )
+}
+
+function CausalNode({ node, typeColor, statusColor }) {
+    return (
+        <motion.div
+            layout
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className={`p-3 rounded-xl border backdrop-blur-md transition-all ${typeColor} ${statusColor} shadow-lg`}
+        >
+            <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] font-bold tracking-tighter truncate max-w-[120px]">{node.id}</span>
+                <span className="text-[9px] font-mono px-1.5 rounded-full bg-black/20 border border-white/5">
+                    {Math.round((node.confidence || 0) * 100)}%
+                </span>
+            </div>
+            <p className="text-[11px] leading-tight text-text-primary/90">{node.description}</p>
+            {node.status !== 'PENDING' && (
+                <div className="mt-2 text-[9px] font-mono font-bold uppercase tracking-wider text-right opacity-80">
+                    {node.status}
+                </div>
+            )}
+        </motion.div>
+    )
+}
+
 function FlowDetail() {
     const { id } = useParams()
     const navigate = useNavigate()
@@ -97,9 +477,24 @@ function FlowDetail() {
     const [deleting, setDeleting] = useState(false)
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
     const [eventsError, setEventsError] = useState(null)
-    const [activeTab, setActiveTab] = useState('timeline') // 'timeline' | 'findings' | 'raw'
+    const [activeTab, setActiveTab] = useState('timeline') // 'timeline' | 'findings' | 'graph' | 'raw'
+    const [causalNodes, setCausalNodes] = useState({})
+    const [causalEdges, setCausalEdges] = useState([])
     const eventsEndRef = useRef(null)
     const wsRef = useRef(null)
+
+    // Pipeline phase tracking — derive from events
+    const currentPhase = useMemo(() => {
+        for (let i = events.length - 1; i >= 0; i--) {
+            if (isPipelinePhaseEvent(events[i])) {
+                return extractPipelinePhase(events[i].content)
+            }
+        }
+        // If flow is complete/failed, show that
+        if (flow?.status === 'completed') return 'complete'
+        if (flow?.status === 'failed') return null
+        return null
+    }, [events, flow?.status])
 
     useEffect(() => {
         fetchFlow()
@@ -141,6 +536,28 @@ function FlowDetail() {
                 const data = await res.json()
                 if (data && Array.isArray(data)) {
                     setEvents(data)
+
+                    // Reconstruct causal graph from history
+                    const nodes = {}
+                    const edges = []
+                    data.forEach(event => {
+                        if (event.type === 'causal_node_added') {
+                            nodes[event.metadata.id] = event.metadata
+                        } else if (event.type === 'causal_node_updated') {
+                            const update = event.metadata
+                            if (nodes[update.id]) {
+                                nodes[update.id] = {
+                                    ...nodes[update.id],
+                                    status: update.status || nodes[update.id].status,
+                                    confidence: update.confidence
+                                }
+                            }
+                        } else if (event.type === 'causal_edge_added') {
+                            edges.push(event.metadata)
+                        }
+                    })
+                    setCausalNodes(nodes)
+                    setCausalEdges(edges)
                 }
                 setEventsError(null)
             } else {
@@ -170,11 +587,34 @@ function FlowDetail() {
             try {
                 const data = JSON.parse(event.data)
                 if (data.flow_id === id) {
+                    let isNewEvent = false
                     setEvents((prev) => {
                         const alreadyExists = prev.some(e => e.id === data.id || (e.timestamp === data.timestamp && e.content === data.content));
                         if (alreadyExists) return prev;
+                        isNewEvent = true
                         return [...prev, data];
                     });
+
+                    if (isNewEvent) {
+                        if (data.type === 'causal_node_added') {
+                            const node = data.metadata
+                            setCausalNodes(prev => ({ ...prev, [node.id]: node }))
+                        } else if (data.type === 'causal_node_updated') {
+                            const update = data.metadata
+                            setCausalNodes(prev => {
+                                const node = prev[update.id]
+                                if (!node) return prev
+                                return { ...prev, [update.id]: { ...node, ...update } }
+                            })
+                        } else if (data.type === 'causal_edge_added') {
+                            const edge = data.metadata
+                            setCausalEdges(prev => {
+                                const exists = prev.some(e => e.source_id === edge.source_id && e.target_id === edge.target_id && e.label === edge.label)
+                                if (exists) return prev
+                                return [...prev, edge]
+                            })
+                        }
+                    }
 
                     if (data.type === 'complete' || data.type === 'error') {
                         setTimeout(fetchFlow, 1000)
@@ -462,6 +902,11 @@ function FlowDetail() {
                 </div>
             </div>
 
+            {/* Pipeline Tracker */}
+            <div className="relative z-10">
+                <PipelineTracker currentPhase={currentPhase} />
+            </div>
+
             {/* Info Metrics Grid */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8 relative z-10">
                 <div className="relative overflow-hidden rounded-2xl border border-white/14 bg-white/5 backdrop-blur-xl p-5 hover:border-accent-cyan/50 transition-colors group shadow-[0_14px_50px_rgba(15,23,42,0.9)]">
@@ -567,8 +1012,16 @@ function FlowDetail() {
                                                 {event.content}
                                             </div>
                                         )}
-                                        {/* Agent Message / System Info */}
-                                        {(event.type === 'message' || (event.type === 'tool_result' && meta.tool !== 'execute_command')) && (
+                                        {/* Schema Validation Warning */}
+                                        {isSchemaWarning(event) && (
+                                            <SchemaWarningCard event={event} />
+                                        )}
+                                        {/* Specialist Dispatch */}
+                                        {isSpecialistDispatch(event) && (
+                                            <SpecialistDispatchCard event={event} />
+                                        )}
+                                        {/* Agent Message / System Info (exclude schema warnings & dispatch which have their own rendering) */}
+                                        {(event.type === 'message' || (event.type === 'tool_result' && meta.tool !== 'execute_command')) && !isSchemaWarning(event) && !isSpecialistDispatch(event) && (
                                             <div className="text-accent-yellow/90 bg-accent-yellow/5 px-4 py-3 rounded-lg border border-accent-yellow/10 my-3 whitespace-pre-wrap flex gap-3">
                                                 <MessageSquare className="w-4 h-4 flex-shrink-0 mt-0.5" />
                                                 <span className="flex-1">{event.content}</span>
@@ -613,16 +1066,18 @@ function FlowDetail() {
                             <div
                                 className="absolute inset-y-0 left-0 rounded-full bg-accent-cyan shadow-[0_0_10px_rgba(0,212,255,0.4)] transition-transform duration-500 ease-out"
                                 style={{
-                                    width: `${100 / 3}%`,
+                                    width: `${100 / 4}%`,
                                     transform:
                                         activeTab === 'timeline'
                                             ? 'translateX(0%)'
                                             : activeTab === 'findings'
                                                 ? 'translateX(100%)'
-                                                : 'translateX(200%)',
+                                                : activeTab === 'graph'
+                                                    ? 'translateX(200%)'
+                                                    : 'translateX(300%)',
                                 }}
                             />
-                            {['timeline', 'findings', 'raw'].map((tab) => (
+                            {['timeline', 'findings', 'graph', 'raw'].map((tab) => (
                                 <button
                                     key={tab}
                                     type="button"
@@ -632,6 +1087,7 @@ function FlowDetail() {
                                 >
                                     {tab === 'timeline' && 'Timeline'}
                                     {tab === 'findings' && 'Findings'}
+                                    {tab === 'graph' && 'Evidence Graph'}
                                     {tab === 'raw' && 'Raw Logs'}
                                 </button>
                             ))}
@@ -702,6 +1158,11 @@ function FlowDetail() {
                                             <FindingList findings={findings} formatTime={formatTime} />
                                         )}
                                     </>
+                                )}
+                                {activeTab === 'graph' && (
+                                    <div className="h-full flex flex-col">
+                                        <CausalGraph nodes={causalNodes} edges={causalEdges} />
+                                    </div>
                                 )}
                                 {activeTab === 'raw' && (
                                     <pre className="text-[11px] font-mono text-text-muted whitespace-pre-wrap">

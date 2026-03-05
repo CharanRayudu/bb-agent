@@ -51,15 +51,32 @@ func NewConductor(orch *Orchestrator, bus *EventBus) *Conductor {
 		orchestrator: orch,
 		bus:          bus,
 		activeAgents: make(map[uuid.UUID]*ActiveAgent),
-		scanTimeout:  1 * time.Hour,    // Max time for an entire scan
-		agentTimeout: 10 * time.Minute, // Max time for a single specialist
+		scanTimeout:  4 * time.Hour,    // Max time for an entire scan (increased from 1h)
+		agentTimeout: 30 * time.Minute, // Max time for a single specialist (increased from 10m)
 	}
+}
+
+// SetScanTimeout sets the total duration a scan is allowed to run
+func (c *Conductor) SetScanTimeout(d time.Duration) {
+	c.scanTimeout = d
+}
+
+// SetAgentTimeout sets the duration a single specialist is allowed to run
+func (c *Conductor) SetAgentTimeout(d time.Duration) {
+	c.agentTimeout = d
 }
 
 // RunFlowWithOversight executes a scan with Conductor oversight
 func (c *Conductor) RunFlowWithOversight(ctx context.Context, flowID uuid.UUID, userPrompt string) error {
-	// Create a scan-level context with timeout
-	scanCtx, cancelScan := context.WithTimeout(ctx, c.scanTimeout)
+	// Create a scan-level context with optional timeout
+	var scanCtx context.Context
+	var cancelScan context.CancelFunc
+
+	if c.scanTimeout > 0 {
+		scanCtx, cancelScan = context.WithTimeout(ctx, c.scanTimeout)
+	} else {
+		scanCtx, cancelScan = context.WithCancel(ctx)
+	}
 	defer cancelScan()
 
 	// Wrap the orchestrator's RunFlow
@@ -123,7 +140,8 @@ func (c *Conductor) monitorHealth(ctx context.Context, flowID uuid.UUID) {
 			// Find lagging agents
 			var toKill []uuid.UUID
 			for id, agent := range c.activeAgents {
-				if now.Sub(agent.StartTime) > c.agentTimeout {
+				// If agentTimeout is 0 or negative, it means "no timeout"
+				if c.agentTimeout > 0 && now.Sub(agent.StartTime) > c.agentTimeout {
 					log.Printf("⚠️ Conductor: Agent %s (%s) exceeded timeout (%v). Terminating.", agent.ID, agent.Type, c.agentTimeout)
 					toKill = append(toKill, id)
 				}
