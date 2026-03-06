@@ -22,70 +22,34 @@ func GetAvailableModels(codexHome string) []CodexModel {
 
 	models := []CodexModel{
 		{
-			ID:          "gpt-5.3-codex",
-			Name:        "GPT-5.3 Codex",
-			Description: "Most capable agentic coding model — strong reasoning + professional knowledge",
+			ID:          "gpt-5.4",
+			Name:        "gpt-5.4",
+			Description: "Latest frontier agentic coding model.",
 			Category:    "Recommended",
 		},
 		{
-			ID:          "gpt-5.3-codex-spark",
-			Name:        "GPT-5.3 Codex Spark",
-			Description: "Near-instant real-time coding iterations (Pro only)",
-			Category:    "Recommended",
+			ID:          "gpt-5.3-codex",
+			Name:        "gpt-5.3-codex",
+			Description: "Latest frontier agentic coding model.",
+			Category:    "Coding",
 		},
 		{
 			ID:          "gpt-5.2-codex",
-			Name:        "GPT-5.2 Codex",
-			Description: "Advanced coding model for real-world engineering tasks",
+			Name:        "gpt-5.2-codex",
+			Description: "Frontier agentic coding model.",
 			Category:    "Coding",
 		},
 		{
 			ID:          "gpt-5.1-codex-max",
-			Name:        "GPT-5.1 Codex Max",
-			Description: "Optimized for long-running, project-scale work",
-			Category:    "Coding",
-		},
-		{
-			ID:          "gpt-5.1-codex-mini",
-			Name:        "GPT-5.1 Codex Mini",
-			Description: "Fast and cost-effective for simpler tasks",
+			Name:        "gpt-5.1-codex-max",
+			Description: "Codex-optimized flagship for deep and fast reasoning.",
 			Category:    "Coding",
 		},
 		{
 			ID:          "gpt-5.2",
-			Name:        "GPT-5.2",
-			Description: "General-purpose agentic reasoning model",
+			Name:        "gpt-5.2",
+			Description: "Latest frontier model with improvements across knowledge, reasoning and coding",
 			Category:    "General",
-		},
-		{
-			ID:          "gpt-5.1",
-			Name:        "GPT-5.1",
-			Description: "General-purpose reasoning model",
-			Category:    "General",
-		},
-		{
-			ID:          "gpt-5",
-			Name:        "GPT-5",
-			Description: "Base reasoning model",
-			Category:    "General",
-		},
-		{
-			ID:          "gpt-4o",
-			Name:        "GPT-4o",
-			Description: "Multimodal flagship model — fast and versatile",
-			Category:    "Legacy",
-		},
-		{
-			ID:          "o3",
-			Name:        "o3",
-			Description: "Advanced reasoning model with chain-of-thought",
-			Category:    "Reasoning",
-		},
-		{
-			ID:          "o4-mini",
-			Name:        "o4-mini",
-			Description: "Fast reasoning model — great balance of speed and capability",
-			Category:    "Reasoning",
 		},
 	}
 

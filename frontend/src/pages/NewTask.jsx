@@ -28,7 +28,7 @@ function NewTask() {
             if (res.ok) {
                 const data = await res.json()
                 setModels(data || [])
-                const preferred = data.find((m) => m.id === 'gpt-5.2')
+                const preferred = data.find((m) => m.id === 'gpt-5.4')
                 const current = data.find((m) => m.current)
 
                 if (preferred) {
