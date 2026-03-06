@@ -1,6 +1,7 @@
 package schema
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -38,6 +39,54 @@ func (p *PlannerOutput) Validate() error {
 		}
 	}
 	return nil
+}
+
+// ParsePlannerOutput accepts both the canonical object form and a bare array of AgentSpec values.
+func ParsePlannerOutput(raw string) (PlannerOutput, error) {
+	result, err := Parse[PlannerOutput](raw)
+	if err == nil {
+		return result, nil
+	}
+
+	jsonStr := ExtractJSON(raw)
+	if jsonStr == "" {
+		return PlannerOutput{}, err
+	}
+
+	var specs []AgentSpec
+	if arrayErr := json.Unmarshal([]byte(jsonStr), &specs); arrayErr == nil {
+		repaired := PlannerOutput{Specs: specs}
+		if validateErr := repaired.Validate(); validateErr != nil {
+			return PlannerOutput{}, fmt.Errorf("schema validation failed: %s. Fix the issue and return corrected JSON", validateErr.Error())
+		}
+		return repaired, nil
+	}
+
+	var alt struct {
+		Specs       []AgentSpec `json:"specs"`
+		Agents      []AgentSpec `json:"agents"`
+		Specialists []AgentSpec `json:"specialists"`
+		Dispatch    []AgentSpec `json:"dispatch"`
+	}
+	if altErr := json.Unmarshal([]byte(jsonStr), &alt); altErr == nil {
+		switch {
+		case len(alt.Agents) > 0:
+			alt.Specs = alt.Agents
+		case len(alt.Specialists) > 0:
+			alt.Specs = alt.Specialists
+		case len(alt.Dispatch) > 0:
+			alt.Specs = alt.Dispatch
+		}
+		if len(alt.Specs) > 0 {
+			repaired := PlannerOutput{Specs: alt.Specs}
+			if validateErr := repaired.Validate(); validateErr != nil {
+				return PlannerOutput{}, fmt.Errorf("schema validation failed: %s. Fix the issue and return corrected JSON", validateErr.Error())
+			}
+			return repaired, nil
+		}
+	}
+
+	return PlannerOutput{}, err
 }
 
 // ---------------------------------------------------------------------------

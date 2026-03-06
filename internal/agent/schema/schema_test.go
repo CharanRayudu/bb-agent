@@ -125,6 +125,31 @@ func TestParse_PlannerOutput_InCodeFence(t *testing.T) {
 	}
 }
 
+func TestParsePlannerOutput_RepairsBareArray(t *testing.T) {
+	input := `[{"type":"XSS","priority":"high"},{"type":"SQLi","target":"https://example.com/login"}]`
+	result, err := ParsePlannerOutput(input)
+	if err != nil {
+		t.Fatalf("expected repairable planner array to parse, got: %v", err)
+	}
+	if len(result.Specs) != 2 {
+		t.Fatalf("expected 2 specs, got %d", len(result.Specs))
+	}
+	if result.Specs[1].Priority != "medium" {
+		t.Fatalf("expected default priority to be applied, got %s", result.Specs[1].Priority)
+	}
+}
+
+func TestParsePlannerOutput_RepairsAgentsWrapper(t *testing.T) {
+	input := `{"agents":[{"type":"SSRF","priority":"critical"}]}`
+	result, err := ParsePlannerOutput(input)
+	if err != nil {
+		t.Fatalf("expected agents wrapper to parse, got: %v", err)
+	}
+	if len(result.Specs) != 1 || result.Specs[0].Type != "SSRF" {
+		t.Fatalf("unexpected repaired planner output: %+v", result.Specs)
+	}
+}
+
 func TestParse_PlannerOutput_NoJSON(t *testing.T) {
 	input := "I think we should test for XSS and SQLi vulnerabilities."
 	_, err := Parse[PlannerOutput](input)

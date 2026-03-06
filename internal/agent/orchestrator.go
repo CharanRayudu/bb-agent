@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -13,7 +14,38 @@ import (
 	"github.com/bb-agent/mirage/internal/agent/schema"
 
 	"github.com/bb-agent/mirage/internal/agent/base"
+	"github.com/bb-agent/mirage/internal/agents/apisecurity"
+	"github.com/bb-agent/mirage/internal/agents/assetdiscovery"
+	"github.com/bb-agent/mirage/internal/agents/authdiscovery"
+	"github.com/bb-agent/mirage/internal/agents/businesslogic"
+	"github.com/bb-agent/mirage/internal/agents/chaindiscovery"
+	"github.com/bb-agent/mirage/internal/agents/cloudhunter"
+	"github.com/bb-agent/mirage/internal/agents/consolidation"
+	"github.com/bb-agent/mirage/internal/agents/csti"
+	"github.com/bb-agent/mirage/internal/agents/dastysast"
+	"github.com/bb-agent/mirage/internal/agents/fileupload"
+	"github.com/bb-agent/mirage/internal/agents/gospider"
+	"github.com/bb-agent/mirage/internal/agents/headerinjection"
+	"github.com/bb-agent/mirage/internal/agents/idor"
+	"github.com/bb-agent/mirage/internal/agents/jwt"
+	"github.com/bb-agent/mirage/internal/agents/lfi"
+	"github.com/bb-agent/mirage/internal/agents/massassignment"
+	"github.com/bb-agent/mirage/internal/agents/nuclei"
+	"github.com/bb-agent/mirage/internal/agents/openredirect"
 	"github.com/bb-agent/mirage/internal/agents/postexploit"
+	"github.com/bb-agent/mirage/internal/agents/protopollution"
+	"github.com/bb-agent/mirage/internal/agents/rce"
+	reportingagent "github.com/bb-agent/mirage/internal/agents/reporting"
+	"github.com/bb-agent/mirage/internal/agents/resourcehunter"
+	"github.com/bb-agent/mirage/internal/agents/sqli"
+	"github.com/bb-agent/mirage/internal/agents/sqlmap"
+	"github.com/bb-agent/mirage/internal/agents/ssrf"
+	"github.com/bb-agent/mirage/internal/agents/urlmaster"
+	"github.com/bb-agent/mirage/internal/agents/validation"
+	"github.com/bb-agent/mirage/internal/agents/visualcrawler"
+	"github.com/bb-agent/mirage/internal/agents/wafevasion"
+	"github.com/bb-agent/mirage/internal/agents/xss"
+	"github.com/bb-agent/mirage/internal/agents/xxe"
 	"github.com/bb-agent/mirage/internal/config"
 	"github.com/bb-agent/mirage/internal/database"
 	"github.com/bb-agent/mirage/internal/llm"
@@ -112,6 +144,160 @@ type Orchestrator struct {
 
 	// Phase 15: The Mirage Singularity (Performance & Precision)
 	workers map[string]*Worker
+}
+
+func buildSpecialists() map[string]Specialist {
+	return map[string]Specialist{
+		"apisecurity":      apisecurity.New(),
+		"assetdiscovery":   assetdiscovery.New(),
+		"authdiscovery":    authdiscovery.New(),
+		"businesslogic":    businesslogic.New(),
+		"chaindiscovery":   chaindiscovery.New(),
+		"cloudhunter":      cloudhunter.New(),
+		"consolidation":    consolidation.New(),
+		"csti":             csti.New(),
+		"dastysast":        dastysast.New(),
+		"fileupload":       fileupload.New(),
+		"gospider":         gospider.New(),
+		"header_injection": headerinjection.New(),
+		"idor":             idor.New(),
+		"jwt":              jwt.New(),
+		"lfi":              lfi.New(),
+		"massassignment":   massassignment.New(),
+		"nuclei":           nuclei.New(),
+		"openredirect":     openredirect.New(),
+		"protopollution":   protopollution.New(),
+		"rce":              rce.New(),
+		"reporting":        reportingagent.New(),
+		"resourcehunter":   resourcehunter.New(),
+		"sqli":             sqli.New(),
+		"sqlmap":           sqlmap.New(),
+		"ssrf":             ssrf.New(),
+		"urlmaster":        urlmaster.New(),
+		"validation":       validation.New(),
+		"visualcrawler":    visualcrawler.New(),
+		"wafevasion":       wafevasion.New(),
+		"xss":              xss.New(),
+		"xxe":              xxe.New(),
+	}
+}
+
+func normalizePriority(priority string) string {
+	switch strings.ToLower(strings.TrimSpace(priority)) {
+	case "critical", "high", "medium", "low":
+		return strings.ToLower(strings.TrimSpace(priority))
+	default:
+		return "medium"
+	}
+}
+
+func parseBaseTarget(target string) *url.URL {
+	trimmed := strings.TrimSpace(target)
+	if trimmed == "" {
+		return nil
+	}
+	if !strings.Contains(trimmed, "://") {
+		trimmed = "http://" + trimmed
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return nil
+	}
+	return parsed
+}
+
+func resolveDispatchTarget(baseTarget, candidate string) string {
+	candidate = strings.Trim(strings.TrimSpace(candidate), `"'`)
+	if candidate == "" {
+		if base := parseBaseTarget(baseTarget); base != nil {
+			return base.String()
+		}
+		return strings.TrimSpace(baseTarget)
+	}
+
+	if strings.HasPrefix(candidate, "http://") || strings.HasPrefix(candidate, "https://") {
+		return candidate
+	}
+
+	base := parseBaseTarget(baseTarget)
+	if base == nil {
+		return candidate
+	}
+
+	if strings.HasPrefix(candidate, "/") {
+		if ref, err := url.Parse(candidate); err == nil {
+			return base.ResolveReference(ref).String()
+		}
+	}
+
+	if !strings.Contains(candidate, " ") && (strings.ContainsAny(candidate, "/?#=&") || strings.Contains(candidate, ".")) {
+		if ref, err := url.Parse(candidate); err == nil && ref.Scheme == "" && ref.Host == "" {
+			return base.ResolveReference(ref).String()
+		}
+	}
+
+	return base.String()
+}
+
+func extractTargetHint(context string) string {
+	for _, token := range strings.Fields(context) {
+		cleaned := strings.Trim(token, "\"'()[]{}<>,")
+		if strings.HasPrefix(cleaned, "http://") || strings.HasPrefix(cleaned, "https://") || strings.HasPrefix(cleaned, "/") {
+			return cleaned
+		}
+	}
+	return ""
+}
+
+func detectDispatchMethod(context string) string {
+	lower := strings.ToLower(context)
+	switch {
+	case strings.Contains(lower, " put "):
+		return "PUT"
+	case strings.Contains(lower, " patch "):
+		return "PATCH"
+	case strings.Contains(lower, " delete "):
+		return "DELETE"
+	case strings.Contains(lower, " post "):
+		return "POST"
+	default:
+		return "GET"
+	}
+}
+
+func buildWorkerPayload(baseTarget string, spec SwarmAgentSpec, contextOverride string) map[string]interface{} {
+	queueName := normalizeSpecialistName(spec.Type)
+	effectiveContext := strings.TrimSpace(contextOverride)
+	if effectiveContext == "" {
+		effectiveContext = strings.TrimSpace(spec.Context)
+	}
+
+	targetHint := strings.TrimSpace(spec.Target)
+	if targetHint == "" {
+		targetHint = extractTargetHint(effectiveContext)
+	}
+	targetURL := resolveDispatchTarget(baseTarget, targetHint)
+
+	payload := map[string]interface{}{
+		"type":       spec.Type,
+		"target":     targetURL,
+		"target_url": targetURL,
+		"url":        targetURL,
+		"context":    effectiveContext,
+		"priority":   normalizePriority(spec.Priority),
+		"method":     detectDispatchMethod(" " + effectiveContext + " "),
+	}
+
+	switch queueName {
+	case "cloudhunter":
+		payload["infrastructure"] = effectiveContext
+	case "wafevasion":
+		payload["blocked_payload"] = ""
+		payload["vuln_type"] = spec.Type
+		payload["waf"] = ""
+	}
+
+	return payload
 }
 
 // NewOrchestrator creates the main agent
@@ -230,20 +416,19 @@ func NewOrchestrator(provider llm.Provider, registry *tools.Registry, db *sql.DB
 	// Register OOB tools for blind vulnerability detection
 	o.toolRegistry.AddOOBTools(o.oobManager)
 
-	// Phase 15: Initialize Specialist Workers for all registered specialist types
-	// These are the "Continuous Hunters" that consume from queues
-	specialistTypes := []string{"xss", "sqli", "ssrf", "rce", "lfi", "idor"}
-	for _, st := range specialistTypes {
-		q := o.queueMgr.Get(st)
+	// Initialize workers only for specialist implementations that exist today.
+	for specialistID, specialist := range buildSpecialists() {
+		q := o.queueMgr.Get(specialistID)
 		if q == nil {
-			q = o.queueMgr.Register(st, 1000, 10.0)
+			continue
 		}
 
-		// In a real implementation, we'd have a map of constructors
-		// For now, we'll use the worker with the appropriate queue
-		// The workers will be started in RunFlow
-		o.workers[st] = NewWorker(nil, q, 5, func(f *Finding) {
-			o.bus.Emit(EventFindingDiscovered, f.Evidence["note"])
+		o.workers[specialistID] = NewWorker(specialist, q, 5, func(f *Finding) {
+			content := fmt.Sprintf("%s finding on %s", f.Type, f.URL)
+			if note, ok := f.Evidence["note"].(string); ok && note != "" {
+				content = note
+			}
+			o.bus.Emit(EventFindingDiscovered, content)
 		}, o)
 	}
 
@@ -527,6 +712,15 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		resetMu.Unlock()
 	})
 
+	for _, w := range o.workers {
+		go w.Start(ctx)
+	}
+	defer func() {
+		for _, w := range o.workers {
+			w.Stop()
+		}
+	}()
+
 	for loopCount := 1; loopCount <= maxLoops; loopCount++ {
 		// Reset trigger for each loop iteration until it's set again
 		resetMu.Lock()
@@ -644,7 +838,7 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 
 		// Schema Validation: Parse planner output with structured validation
 		var agentSpecs []SwarmAgentSpec
-		plannerOutput, parseErr := schema.Parse[schema.PlannerOutput](plannerResult)
+		plannerOutput, parseErr := schema.ParsePlannerOutput(plannerResult)
 		if parseErr != nil {
 			// Schema validation failed — log the error and fall back to defaults
 			log.Printf("[schema] Planner output validation failed: %v", parseErr)
@@ -689,33 +883,6 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		}
 		o.emitPipelineEvent(flowID.String(), task.ID.String())
 
-		// Route items into specialist queues (for future Worker consumption)
-		for _, spec := range agentSpecs {
-			queueName := normalizeSpecialistName(spec.Type)
-			payload := map[string]interface{}{
-				"type":     spec.Type,
-				"target":   spec.Target,
-				"context":  spec.Context,
-				"priority": spec.Priority,
-			}
-			if err := o.queueMgr.Route(queueName, payload, flowID.String()); err != nil {
-				log.Printf("[queue] Route to %s failed (no queue registered), using direct execution: %v", queueName, err)
-			}
-		}
-
-		// Emit queue metrics to frontend
-		o.emitQueueStats(flowID.String(), task.ID.String())
-
-		// Start background specialists for this flow
-		for _, w := range o.workers {
-			w.Start(ctx)
-		}
-		defer func() {
-			for _, w := range o.workers {
-				w.Stop()
-			}
-		}()
-
 		// Enqueue tasks for workers
 		ragClient := NewRAGClient("")
 		for _, spec := range agentSpecs {
@@ -745,12 +912,15 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 				})
 			}
 
-			o.queueMgr.Route(spec.Type, map[string]interface{}{
-				"target":   spec.Target,
-				"context":  enhancedContext,
-				"priority": spec.Priority,
-			}, flowID.String())
+			queueName := normalizeSpecialistName(spec.Type)
+			payload := buildWorkerPayload(flow.Target, spec, enhancedContext)
+			if err := o.queueMgr.Route(queueName, payload, flowID.String()); err != nil {
+				log.Printf("[queue] Route to %s failed: %v", queueName, err)
+			}
 		}
+
+		// Emit queue metrics to frontend after dispatch
+		o.emitQueueStats(flowID.String(), task.ID.String())
 
 		// Wait for queues to drain or flow timeout
 		o.queueMgr.DrainAll(30 * time.Minute)
@@ -1139,7 +1309,7 @@ func (o *Orchestrator) runAgentLoop(ctx context.Context, flowID uuid.UUID, taskI
 					inScope := true
 					reason := ""
 					if o.scope != nil {
-						inScope, reason = o.scope.IsCommandInScope(tc.Arguments)
+						inScope, reason = o.scope.ValidateToolArgs(tc.Name, json.RawMessage(tc.Arguments))
 					}
 
 					if !inScope {
