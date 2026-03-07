@@ -13,34 +13,43 @@ Based on the `README.md` and codebase exploration, **Mirage** is an autonomous L
 9.  **Configurable Prompts:** YAML-based configuration for tuning agent behavior.
 
 ## What Neo Has (That Mirage Lacks)
-Based on public information and recent releases from ProjectDiscovery, **Neo** is described as an "AI Security Engineer" designed to fit directly into day-to-day security engineering workflows, not just penetration testing. Here are the key features Neo has that Mirage is currently missing:
+Based on public information, official documentation snippets, and recent releases from ProjectDiscovery, **Neo** is described as a cloud-based "AI Security Engineer" designed to fit directly into day-to-day security engineering workflows, not just penetration testing. Neo replaces the patchwork of scanners and manual pentests with a single system that handles security testing end-to-end. Here are the key features Neo has that Mirage is currently missing:
 
-1.  **Workflow Integration (Ticketing & Remediation):**
-    *   Neo automatically pulls findings from vulnerability backlogs, clusters them, and prioritizes them with context.
-    *   It updates tickets (e.g., Jira, ServiceNow) until closure.
-    *   It actively **drafts remediation plans** and provides actionable fixes for developers.
-2.  **White-Box / Grey-Box Capabilities (Code Reviews & Threat Modeling):**
-    *   Neo integrates directly with code repositories for **AI Code Reviews**. It pairs code review with runtime testing to validate if a bug found in code is actually exploitable in the deployed app.
-    *   Neo performs **Threat Modeling**, understanding system architecture and naming conventions.
-3.  **Enterprise Role-Based Access Control (RBAC) & Single Sign-On (SSO):**
+1.  **Continuous PR to Production Integration (CI/CD):**
+    *   Neo integrates directly into GitHub and triggers **secure design reviews on every new Pull Request (PR)**.
+    *   It provides continuous pentesting from PR to production.
+    *   It performs regression detection when the codebase changes, and automatic retesting when fixes ship.
+2.  **Workflow Integration (Ticketing & Remediation):**
+    *   Neo automatically creates and triages findings directly in ticketing systems like **Linear or Jira**.
+    *   It pulls findings from vulnerability backlogs, clusters them, and prioritizes them with context.
+    *   It updates tickets until closure and actively **drafts remediation plans** with actionable fixes for developers.
+3.  **White-Box / Grey-Box Capabilities (AI Code Reviews & Threat Modeling):**
+    *   Neo acts as an AI code reviewer that pairs code review with runtime testing (DAST) to validate if a bug found in code is actually exploitable in the deployed app.
+    *   Neo handles the full scenario end-to-end: understanding the environment, investigating and prioritizing issues, and proposing a complete remediation plan.
+    *   It performs **Threat Modeling**, understanding system architecture and business logic.
+4.  **Proof, Not Alerts (Extensive Evidence Generation):**
+    *   While Mirage validates findings via a headless browser, Neo specifically focuses on validating every finding with **concrete evidence, payloads, execution traces, and step-by-step reproduction**. This stops developers from triaging noise.
+5.  **Compounding Context (Continuous Learning Framework):**
+    *   While Mirage has cross-flow memory per target, Neo acts as a framework that continuously learns an organization's specific code, architecture, naming conventions, payments API, auth flows, and accepted risks over time. Every assessment is faster and more targeted than the last.
+6.  **Enterprise Role-Based Access Control (RBAC) & Single Sign-On (SSO):**
     *   Neo supports SAML/OIDC SSO, RBAC with custom permission policies, and comprehensive audit trails.
     *   Network controls like private connectivity and IP allowlisting.
-4.  **Continuous Learning Framework (Not just single-target memory):**
-    *   While Mirage has cross-flow memory per target, Neo acts as a framework that continuously learns an organization's specific code, architecture, naming conventions, and accepted risks over time, applying this context to all future workflows.
-5.  **Interactive Security Co-Engineer Workflows:**
-    *   Instead of just "fire-and-forget" scans, Neo operates as a co-engineer capable of pausing, resuming, and handling large volumes of long-running tasks in parallel (like triaging findings or investigating incidents).
+    *   Built as a transparent framework where you can see what it is doing, control what it can touch, and tune how it behaves.
 
 ## How to Make Mirage More Like Neo
 
 To evolve Mirage from a black-box pentesting agent to an AI Security Engineer like Neo, we would need to implement the following high-level epics:
 
-1.  **Source Code Integration (White-box testing):**
+1.  **CI/CD & Source Code Integration (PR Reviews & Continuous Testing):**
     *   *Action:* Add GitHub/GitLab integration. Allow Mirage to ingest source code, perform Static Application Security Testing (SAST), and correlate code findings with its dynamic testing (DAST) results.
+    *   *Action:* Build Webhook receivers so Mirage triggers automatically when new PRs are created, running code reviews and automated retesting.
 2.  **Ticketing & Issue Tracking Integration:**
-    *   *Action:* Build two-way sync integrations with Jira, Linear, or GitHub Issues. Mirage should automatically create tickets for validated findings, group related vulnerabilities, and update ticket statuses.
-3.  **Automated Remediation Drafting:**
+    *   *Action:* Build two-way sync integrations with Jira, Linear, or GitHub Issues. Mirage should automatically create tickets for validated findings, group related vulnerabilities, and update ticket statuses based on retesting.
+3.  **Automated Remediation & Step-by-Step Evidence Drafting:**
     *   *Action:* Add a new pipeline phase (e.g., `Remediation Phase`) where an LLM agent drafts specific code patches or configuration changes to fix the validated vulnerabilities.
-4.  **Threat Modeling & Architecture Context:**
+    *   *Action:* Enhance the `Reporting` phase to generate concrete execution traces and step-by-step reproduction scripts alongside the standard payloads.
+4.  **Threat Modeling & Compounding Architectural Context:**
+    *   *Action:* Expand the `Cross-Flow Memory` to not just remember endpoints, but explicitly map "Auth Flows", "Payment APIs", and "Business Logic".
     *   *Action:* Allow users to upload architectural diagrams, API schemas (OpenAPI/Swagger), and system documentation. Create a "Threat Modeling" agent that analyzes these documents to guide the Recon phase more intelligently.
 5.  **Enterprise Features & Access Control:**
     *   *Action:* Implement user authentication (OIDC/SAML), RBAC, and audit logging in the Go backend.
