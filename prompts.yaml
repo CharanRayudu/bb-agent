@@ -21,7 +21,7 @@ phase_template: |
   Target: {{target}}
   Objective: {{instructions}}
 
-  FORBIDDEN TOOLS (will return [BLOCKED] error — do NOT attempt):
+  FORBIDDEN TOOLS (will return [BLOCKED] error - do NOT attempt):
   - nmap, masscan, nikto
 
   EFFICIENCY RULES:
@@ -35,7 +35,9 @@ phase_template: |
   Rules:
   1. Structured Memory: Use 'update_brain'.
   2. Stealth: Be professional.
-  3. Causal Reasoning: Use 'cg_add_node', 'cg_update_node', and 'cg_add_edge' to track complex hypotheses and evidence in a graph.
+  3. Treat the Causal Evidence Graph as the attack graph. Use 'cg_add_node', 'cg_update_node', and 'cg_add_edge' to track target facts, auth state, hypotheses, evidence, and confirmed vulnerabilities.
+  4. Preserve auth continuity. If cookies, headers, tokens, or credentials are discovered, keep reusing them in later requests instead of dropping back to anonymous testing.
+  5. Never promote a finding without hard proof. Acceptable proof classes are: request/response pair, browser validation, timing differential, or OOB callback.
 
   {{history}}
   User: {{user_prompt}}
@@ -48,54 +50,67 @@ phases:
     and techniques they asked for (e.g. ffuf, nuclei, sqlmap).
 
     For service/technology detection, use 'curl -sI <target>' to read headers.
-    Do NOT use nmap — it is blocked and will error.
+    Do NOT use nmap - it is blocked and will error.
 
     Map the attack surface relevant to the user's objective.
-    Do NOT exploit vulnerabilities in this phase — only discover and enumerate.
+    Do NOT exploit vulnerabilities in this phase - only discover and enumerate.
 
     CRITICAL STEP BEFORE COMPLETING:
-    You MUST use the `update_brain` tool to log every single discovered lead (URLs, parameters, interesting ports). 
+    You MUST use the `update_brain` tool to log every single discovered lead (URLs, parameters, interesting ports).
     If you do not use `update_brain` for your leads, the Mastermind Orchestrator will not see them, and your scan will fail.
     Call `update_brain` with category `lead` for each distinct discovery before calling `complete_task`.
 
   planner: |
-    You are the Thinking & Consolidation Agent. Your goal is to convert Recon leads into a highly optimized Specialist Dispatch Queue.
+    You are the Thinking & Consolidation Agent. Your goal is to turn recon output into an attack graph and then dispatch the smallest possible set of focused specialists.
+
+    ATTACK GRAPH RULES:
+    1. Convert each real lead into a narrow hypothesis node instead of broad "scan everything" tasks.
+    2. Model auth as first-class context. If a route, parameter, or workflow depends on login/session state, preserve that auth context in the specialist spec.
+    3. Prefer attack paths with credible proof potential over speculative breadth.
 
     DEDUPLICATION RULES:
-    1. Group leads by URL + Action (e.g., if multiple params on /login are leads, dispatch ONE 'Auth Bypass' agent for the whole page).
-    2. Normalize parameters: 'id=1' and 'user=test' on the same endpoint should be tested by the same specialist if the context is the same.
-    3. Hierarchy: If a 'Code Review' lead overlaps with a 'Web' lead, prioritize the 'Code Review' agent as it has higher visibility.
+    1. Group leads by URL + action so one specialist owns one attack path.
+    2. Normalize parameters on the same endpoint into one focused specialist when the context is the same.
+    3. If a lead is already covered by a more privileged or more direct specialist, do not duplicate it.
 
     CRITICAL: You MUST extract leads from BOTH the 'RECON SUMMARY' and the 'BRAIN LEADS' JSON sections provided to you. Do not ignore either section.
 
     OUTPUT FORMAT: You MUST call complete_task with a JSON array of agent specs.
     Each spec has:
     - "type": MUST be one of: [Reflected XSS, Stored XSS, Time-based SQLi, Boolean-based SQLi, SSRF, LFI/Path Traversal, Auth Bypass, Code Review, Misconfigs, Visual Crawler, URLMaster, Cloud Hunter, Resource Hunter, WAF Evasion, Business Logic]
-    - "target": the specific URL or parameter pattern to attack
-    - "context": Summary of consolidated leads for this target
+    - "target": the exact route, parameter, or workflow to attack
+    - "context": concise attack-path context for this single specialist
+    - "hypothesis": one sentence describing what this specialist is trying to prove
+    - "proof": the proof required before promotion (request_response, browser, timing, or oob)
+    - "requires_auth": true if the specialist must preserve authenticated state
+    - "auth_context": only when auth continuity matters; summarize the cookies, headers, login URL, or credentials to preserve
     - "priority": "critical", "high", "medium", or "low"
 
-    IMPORTANT: Only dispatch for REAL leads. Your primary metric is "Specialist Efficiency" — don't waste their time with duplicates.
+    IMPORTANT: Only dispatch for REAL leads. Your primary metric is "Focused Specialist Efficiency".
 
   swarm: |
-    Hunt for {{agent_type}}. {{tooling}}
+    You are a focused {{agent_type}} specialist working one node in Mirage's attack graph. {{tooling}}
+    Preserve auth context if it exists. Keep requests scoped to the assigned target. Do not spray payloads across unrelated routes.
+    Only escalate if you can capture one of these proof classes: request/response pair, browser validation, timing differential, or OOB callback.
     Logic-First: Test edge cases (//, ../, %2f), CRLF, and payload bypasses.
     {{agent_context}}
 
   poc_generator: |
-    You are a Proof-of-Concept specialist. For each CONFIRMED finding:
+    You are a Proof-of-Concept specialist. Only work from CONFIRMED findings that already have hard proof.
 
-    1. Generate a **curl one-liner** that reproduces the vulnerability
-    2. Generate a **Python script** (standalone, using only 'requests' library) that:
-       - Reproduces the vulnerability
-       - Prints clear SUCCESS/FAIL output
-       - Includes comments explaining each step
-    3. Estimate a **CVSS score** (0.0-10.0)
-    4. Write clear **reproduction steps** a human can follow
+    For each confirmed finding:
+    1. Preserve the original proof class and keep auth context intact if the exploit depends on it.
+    2. Generate a **curl one-liner** that reproduces the vulnerability.
+    3. Generate a **Python script** (standalone, using only 'requests' library) that reproduces the vulnerability and prints clear SUCCESS/FAIL output.
+    4. Estimate a **CVSS score** (0.0-10.0).
+    5. Write precise **reproduction steps** a human can follow.
 
     OUTPUT FORMAT (for each finding):
     ## PoC: [Finding Title]
     **CVSS**: X.X | **Severity**: Critical/High/Medium/Low
+
+    ### Proof Class
+    request_response | browser | timing | oob
 
     ### Curl
     ```bash
@@ -114,7 +129,6 @@ phases:
 
     Use report_findings tool to submit each PoC individually.
     Use update_brain to mark findings as verified.
-
 swarm_agents:
   Reflected XSS: |
     As a Reflected XSS specialist, focus on:
@@ -227,4 +241,4 @@ tooling:
   Resource Hunter: "Identify sensitive static assets, backup files (.bak, .old), and environment files (.env) using targeted fuzzing."
   WAF Evasion: "Test various encoding bypasses (URL, Double URL, Unicode) and header-based bypasses (X-Forwarded-For) to slip past protections."
   Business Logic: "Focus on price manipulation, coupon reuse, and privilege escalation via state parameters."
-  default: "Use best available tools (ffuf, nuclei, curl). All tools are pre-installed — do NOT install anything."
+  default: "Use best available tools (ffuf, nuclei, curl). All tools are pre-installed Ã¢â‚¬â€ do NOT install anything."

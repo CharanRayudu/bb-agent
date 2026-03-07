@@ -11,6 +11,22 @@ import (
 
 var targetTextRe = regexp.MustCompile(`https?://[^\s"'<>]+|(?:\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b)|(?:/[A-Za-z0-9._~!$&()*+,;=:@%/\-?#[\]]+)`)
 
+var localArtifactPrefixes = []string{
+	"/tmp/",
+	"/var/tmp/",
+	"/dev/shm/",
+	"/proc/",
+	"/sys/",
+	"/etc/",
+	"/usr/",
+	"/opt/",
+	"/root/",
+	"/home/",
+	"/workspace/",
+	"./",
+	"../",
+}
+
 // ScopeEngine enforces target scope boundaries to prevent out-of-scope scanning.
 type ScopeEngine struct {
 	AllowedDomains []string    // e.g., ["example.com", "*.example.com"]
@@ -159,23 +175,61 @@ func (se *ScopeEngine) IsCommandInScope(command string) (bool, string) {
 
 func (se *ScopeEngine) validateTargets(targets []string) (bool, string) {
 	for _, t := range targets {
-		trimmed := strings.Trim(strings.TrimSpace(t), `"'`)
-		if trimmed == "" {
+		normalized := se.normalizeTarget(strings.Trim(strings.TrimSpace(t), `"'`))
+		if normalized == "" {
 			continue
 		}
 
 		// Heuristic: If it doesn't have a dot (like a domain/IP) and doesn't start with a protocol,
 		// it's likely a local Linux path from a command (e.g. /etc/passwd) or library (BeautifulSoup/).
 		// We skip scope validation for these to prevent false-positive blocks.
-		if !strings.Contains(trimmed, ".") && !strings.HasPrefix(trimmed, "http") && !strings.HasPrefix(trimmed, "ws") {
+		if !strings.Contains(normalized, ".") && !strings.HasPrefix(normalized, "http") && !strings.HasPrefix(normalized, "ws") {
 			continue
 		}
 
-		if !se.IsInScope(trimmed) {
-			return false, fmt.Sprintf("BLOCKED: Target '%s' is out of scope. Allowed scope: %v", trimmed, se.AllowedDomains)
+		if !se.IsInScope(normalized) {
+			return false, fmt.Sprintf("BLOCKED: Target '%s' is out of scope. Allowed scope: %v", normalized, se.AllowedDomains)
 		}
 	}
 	return true, ""
+}
+
+func (se *ScopeEngine) normalizeTarget(raw string) string {
+	if raw == "" {
+		return ""
+	}
+
+	for _, prefix := range localArtifactPrefixes {
+		if strings.HasPrefix(raw, prefix) {
+			return ""
+		}
+	}
+
+	if strings.HasPrefix(raw, "/") && !strings.HasPrefix(raw, "//") {
+		base := se.baseTargetURL()
+		if base != nil {
+			if ref, err := url.Parse(raw); err == nil {
+				return base.ResolveReference(ref).String()
+			}
+		}
+	}
+
+	return raw
+}
+
+func (se *ScopeEngine) baseTargetURL() *url.URL {
+	baseTarget := strings.TrimSpace(se.RawTarget)
+	if baseTarget == "" {
+		return nil
+	}
+	if !strings.Contains(baseTarget, "://") {
+		baseTarget = "http://" + baseTarget
+	}
+	parsed, err := url.Parse(baseTarget)
+	if err != nil {
+		return nil
+	}
+	return parsed
 }
 
 // matchDomain checks if a host matches a domain pattern (supports wildcards).

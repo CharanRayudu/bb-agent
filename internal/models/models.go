@@ -84,16 +84,25 @@ type Task struct {
 
 // SubTask represents a delegated piece of work assigned to a specialist agent
 type SubTask struct {
-	ID          uuid.UUID     `json:"id" db:"id"`
-	TaskID      uuid.UUID     `json:"task_id" db:"task_id"`
-	Name        string        `json:"name" db:"name"`
-	Description string        `json:"description" db:"description"`
-	Status      SubTaskStatus `json:"status" db:"status"`
-	AgentType   AgentType     `json:"agent_type" db:"agent_type"`
-	Context     string        `json:"context" db:"context"`
-	CreatedAt   time.Time     `json:"created_at" db:"created_at"`
-	UpdatedAt   time.Time     `json:"updated_at" db:"updated_at"`
-	Actions     []Action      `json:"actions,omitempty"`
+	ID              uuid.UUID      `json:"id" db:"id"`
+	TaskID          uuid.UUID      `json:"task_id" db:"task_id"`
+	ParentSubTaskID *uuid.UUID     `json:"parent_subtask_id,omitempty" db:"parent_subtask_id"`
+	Name            string         `json:"name" db:"name"`
+	Description     string         `json:"description" db:"description"`
+	Status          SubTaskStatus  `json:"status" db:"status"`
+	AgentType       AgentType      `json:"agent_type" db:"agent_type"`
+	Context         string         `json:"context" db:"context"`
+	Kind            SubTaskKind    `json:"kind" db:"kind"`
+	QueueName       string         `json:"queue_name" db:"queue_name"`
+	Target          string         `json:"target" db:"target"`
+	Priority        string         `json:"priority" db:"priority"`
+	Fingerprint     string         `json:"fingerprint" db:"fingerprint"`
+	Result          string         `json:"result" db:"result"`
+	Outcome         SubTaskOutcome `json:"outcome" db:"outcome"`
+	Metadata        map[string]any `json:"metadata,omitempty" db:"-"`
+	CreatedAt       time.Time      `json:"created_at" db:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at" db:"updated_at"`
+	Actions         []Action       `json:"actions,omitempty"`
 }
 
 // Action represents a single operation performed during a subtask

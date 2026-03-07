@@ -3,15 +3,38 @@ package base
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
 )
+
+var (
+	ErrBrowserUnavailable = errors.New("browser automation unavailable")
+	browserDisabled       atomic.Bool
+)
+
+func shouldIgnoreBrowserErrorMessage(msg string) bool {
+	lower := strings.ToLower(strings.TrimSpace(msg))
+	return strings.Contains(lower, "could not unmarshal event") &&
+		strings.Contains(lower, "cookiepartitionkey")
+}
+
+func browserErrorf(format string, args ...any) {
+	msg := fmt.Sprintf(format, args...)
+	if shouldIgnoreBrowserErrorMessage(msg) {
+		return
+	}
+	log.Printf("[browser] %s", msg)
+}
 
 // BrowserMetadata contains information about a browser session's results.
 type BrowserMetadata struct {
@@ -45,8 +68,67 @@ func DefaultBrowserOptions() BrowserOptions {
 	}
 }
 
+func BrowserAvailable() bool {
+	return !browserDisabled.Load()
+}
+
+func DisableBrowserAutomation() {
+	browserDisabled.Store(true)
+}
+
+func ResetBrowserAutomation() {
+	browserDisabled.Store(false)
+}
+
+func IsBrowserUnavailableError(err error) bool {
+	return errors.Is(err, ErrBrowserUnavailable)
+}
+
+func shouldDisableBrowser(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	lower := strings.ToLower(err.Error())
+	indicators := []string{
+		"cookiepartitionkey",
+		"chrome failed to start",
+		"failed to start",
+		"browser process exited",
+		"exec: \"google-chrome\"",
+		"exec: \"chromium\"",
+		"exec: \"chromium-browser\"",
+		"chrome not reachable",
+		"websocket url timeout reached",
+		"target closed",
+	}
+
+	for _, indicator := range indicators {
+		if strings.Contains(lower, indicator) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func normalizeBrowserError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if shouldDisableBrowser(err) {
+		DisableBrowserAutomation()
+		return fmt.Errorf("%w: %v", ErrBrowserUnavailable, err)
+	}
+	return err
+}
+
 // RunHeadless executes a browser task and returns metadata.
 func RunHeadless(ctx context.Context, targetURL string, opts BrowserOptions) (*BrowserMetadata, error) {
+	if !BrowserAvailable() {
+		return nil, ErrBrowserUnavailable
+	}
+
 	if opts.Timeout == 0 {
 		opts = DefaultBrowserOptions()
 	}
@@ -68,7 +150,7 @@ func RunHeadless(ctx context.Context, targetURL string, opts BrowserOptions) (*B
 	allocCtx, cancelAlloc := chromedp.NewExecAllocator(ctx, allocOpts...)
 	defer cancelAlloc()
 
-	browserCtx, cancelBrowser := chromedp.NewContext(allocCtx)
+	browserCtx, cancelBrowser := chromedp.NewContext(allocCtx, chromedp.WithErrorf(browserErrorf))
 	defer cancelBrowser()
 
 	timeoutCtx, cancelTimeout := context.WithTimeout(browserCtx, opts.Timeout)
@@ -103,7 +185,7 @@ func RunHeadless(ctx context.Context, targetURL string, opts BrowserOptions) (*B
 	)
 
 	if err != nil && err != context.DeadlineExceeded {
-		return nil, fmt.Errorf("browser run failed: %w", err)
+		return nil, fmt.Errorf("browser run failed: %w", normalizeBrowserError(err))
 	}
 
 	if len(buf) > 0 {
@@ -122,6 +204,10 @@ type CrawlResults struct {
 
 // RunCrawl executes a discovery-focused browser task
 func RunCrawl(ctx context.Context, targetURL string, opts BrowserOptions) (*CrawlResults, error) {
+	if !BrowserAvailable() {
+		return nil, ErrBrowserUnavailable
+	}
+
 	if opts.Timeout == 0 {
 		opts = DefaultBrowserOptions()
 		opts.Timeout = 30 * time.Second
@@ -136,7 +222,7 @@ func RunCrawl(ctx context.Context, targetURL string, opts BrowserOptions) (*Craw
 	allocCtx, cancelAlloc := chromedp.NewExecAllocator(ctx, allocOpts...)
 	defer cancelAlloc()
 
-	browserCtx, cancelBrowser := chromedp.NewContext(allocCtx)
+	browserCtx, cancelBrowser := chromedp.NewContext(allocCtx, chromedp.WithErrorf(browserErrorf))
 	defer cancelBrowser()
 
 	timeoutCtx, cancelTimeout := context.WithTimeout(browserCtx, opts.Timeout)
@@ -161,7 +247,11 @@ func RunCrawl(ctx context.Context, targetURL string, opts BrowserOptions) (*Craw
 		`, results),
 	)
 
-	return results, err
+	if err != nil {
+		return nil, normalizeBrowserError(err)
+	}
+
+	return results, nil
 }
 
 // RunHeadlessPOST simulates a form submission

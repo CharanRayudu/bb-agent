@@ -30,3 +30,21 @@ func TestValidateToolArgsChecksExecuteCommandCommandField(t *testing.T) {
 		t.Fatal("expected block reason for out-of-scope command")
 	}
 }
+
+func TestValidateToolArgsAllowsRootRelativeApplicationPaths(t *testing.T) {
+	scope := NewScopeEngine("http://example.com")
+
+	ok, reason := scope.ValidateToolArgs("execute_command", json.RawMessage(`{"command":"curl -s /login.php"}`))
+	if !ok {
+		t.Fatalf("expected root-relative app path to resolve in scope, got blocked: %s", reason)
+	}
+}
+
+func TestValidateToolArgsIgnoresLocalTempArtifacts(t *testing.T) {
+	scope := NewScopeEngine("http://example.com")
+
+	ok, reason := scope.ValidateToolArgs("execute_command", json.RawMessage(`{"command":"curl -s http://example.com -c /tmp/dvwa.cookie"}`))
+	if !ok {
+		t.Fatalf("expected local temp artifact path to bypass scope checks, got blocked: %s", reason)
+	}
+}

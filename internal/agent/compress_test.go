@@ -49,8 +49,8 @@ func TestCompressConversationPreservesToolStateMessages(t *testing.T) {
 	}
 
 	compressed := orch.compressConversation(context.Background(), msgs, 2)
-	if len(compressed) != 5 {
-		t.Fatalf("expected 5 messages after compression, got %d", len(compressed))
+	if len(compressed) != 6 {
+		t.Fatalf("expected 6 messages after compression, got %d", len(compressed))
 	}
 	if compressed[1].ToolCalls[0].ID != "call_1" {
 		t.Fatalf("expected tool call message to be preserved, got %+v", compressed[1])
@@ -60,5 +60,8 @@ func TestCompressConversationPreservesToolStateMessages(t *testing.T) {
 	}
 	if compressed[0].Content == "" {
 		t.Fatal("expected summary message to be present")
+	}
+	if compressed[3].Content == "" {
+		t.Fatal("expected post-tool summary message to be present")
 	}
 }

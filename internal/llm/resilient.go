@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -45,6 +46,11 @@ func (r *ResilientProvider) Complete(ctx context.Context, req CompletionRequest)
 		}
 
 		lastErr = err
+
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			log.Printf("[llm-resilience] Request ended with orchestration context cancellation: %v", err)
+			return nil, err
+		}
 
 		// Determine if the error is transient and should be retried
 		if !r.isTransientError(err) {

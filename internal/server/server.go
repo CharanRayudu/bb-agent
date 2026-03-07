@@ -166,6 +166,9 @@ func (s *Server) handleFlow(w http.ResponseWriter, r *http.Request) {
 		if subRoute == "/events" && r.Method == http.MethodGet {
 			s.handleFlowEvents(w, r, id)
 			return
+		} else if subRoute == "/ledger" && r.Method == http.MethodGet {
+			s.handleFlowLedger(w, r, id)
+			return
 		} else if subRoute == "/cancel" && r.Method == http.MethodPost {
 			s.handleCancelFlow(w, r, id)
 			return
@@ -291,8 +294,8 @@ func (s *Server) handleFlowByID(w http.ResponseWriter, r *http.Request, id uuid.
 		return
 	}
 
-	// Load tasks
-	tasks, err := s.queries.GetTasksByFlow(id)
+	// Load task ledger summary
+	tasks, err := s.queries.GetTaskLedgerByFlow(id)
 	if err == nil {
 		flow.Tasks = tasks
 	}
@@ -385,6 +388,23 @@ func (s *Server) handleFlowEvents(w http.ResponseWriter, r *http.Request, id uui
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(merged)
+}
+
+func (s *Server) handleFlowLedger(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	ledger, err := s.queries.GetFlowLedger(id)
+	if err != nil {
+		log.Printf("❌ Failed to fetch flow ledger: %v", err)
+		http.Error(w, "Failed to load ledger", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(ledger)
 }
 
 // CreateFlowRequest is the JSON body for creating a new flow

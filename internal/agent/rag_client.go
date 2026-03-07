@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -16,6 +19,8 @@ import (
 type RAGClient struct {
 	BaseURL    string
 	HTTPClient *http.Client
+	disabled   atomic.Bool
+	warned     atomic.Bool
 }
 
 // NewRAGClient creates a new client to talk to the local Knowledge Service.
@@ -55,6 +60,10 @@ type RAGDocument struct {
 
 // RetrieveKnowledge queries the FAISS vector DB for relevant payloads/techniques.
 func (c *RAGClient) RetrieveKnowledge(ctx context.Context, query string, topK int) (string, error) {
+	if c.disabled.Load() {
+		return "", nil
+	}
+
 	if topK <= 0 {
 		topK = 5
 	}
@@ -77,7 +86,13 @@ func (c *RAGClient) RetrieveKnowledge(ctx context.Context, query string, topK in
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		log.Printf("[RAGClient] Failed to reach RAG server at %s. Ensure run-rag.bat is running: %v", c.BaseURL, err)
+		if isRAGUnavailable(err) {
+			if c.warned.CompareAndSwap(false, true) {
+				log.Printf("[RAGClient] RAG server at %s unavailable; disabling knowledge enrichment for this run: %v", c.BaseURL, err)
+			}
+			c.disabled.Store(true)
+			return "", nil
+		}
 		return "", fmt.Errorf("RAG service unavailable: %w", err)
 	}
 	defer resp.Body.Close()
@@ -113,4 +128,21 @@ func (c *RAGClient) RetrieveKnowledge(ctx context.Context, query string, topK in
 	}
 
 	return contextBuilder.String(), nil
+}
+
+func isRAGUnavailable(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var netErr *net.OpError
+	if errors.As(err, &netErr) {
+		return true
+	}
+
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "connection refused") ||
+		strings.Contains(lower, "connectex") ||
+		strings.Contains(lower, "no such host") ||
+		strings.Contains(lower, "server misbehaving")
 }

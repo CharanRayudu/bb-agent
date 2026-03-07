@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ArrowLeft, Target, Clock, Activity, Cpu, Wrench, MessageSquare, CheckCircle, XCircle, ChevronRight, Terminal, Trash2, AlertTriangle, Shield, Zap, Bug, Eye, FileText, Search, Crosshair, Wifi } from 'lucide-react'
+import { FlowLedgerPanel, FlowEvidencePanel } from '../components/FlowLedgerPanel'
 
 const API_BASE = '/api'
 
@@ -477,7 +478,9 @@ function FlowDetail() {
     const [deleting, setDeleting] = useState(false)
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
     const [eventsError, setEventsError] = useState(null)
-    const [activeTab, setActiveTab] = useState('timeline') // 'timeline' | 'findings' | 'graph' | 'raw'
+    const [ledger, setLedger] = useState(null)
+    const [ledgerError, setLedgerError] = useState(null)
+    const [activeTab, setActiveTab] = useState('timeline') // 'timeline' | 'ledger' | 'findings' | 'graph' | 'raw'
     const [causalNodes, setCausalNodes] = useState({})
     const [causalEdges, setCausalEdges] = useState([])
     const eventsEndRef = useRef(null)
@@ -499,6 +502,7 @@ function FlowDetail() {
     useEffect(() => {
         fetchFlow()
         fetchEvents()
+        fetchLedger()
         connectWebSocket()
 
         return () => {
@@ -510,6 +514,18 @@ function FlowDetail() {
             }
         }
     }, [id])
+
+    useEffect(() => {
+        if (!flow || (flow.status !== 'active' && flow.status !== 'running' && flow.status !== 'pending')) {
+            return undefined
+        }
+
+        const timer = setInterval(() => {
+            fetchLedger()
+        }, 5000)
+
+        return () => clearInterval(timer)
+    }, [flow?.status, id])
 
     useEffect(() => {
         eventsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -569,6 +585,22 @@ function FlowDetail() {
         }
     }
 
+    async function fetchLedger() {
+        try {
+            const res = await fetch(`${API_BASE}/flows/${id}/ledger`)
+            if (!res.ok) {
+                setLedgerError('Failed to load execution ledger')
+                return
+            }
+            const data = await res.json()
+            setLedger(data)
+            setLedgerError(null)
+        } catch (err) {
+            console.error('Failed to fetch ledger:', err)
+            setLedgerError('Failed to load execution ledger')
+        }
+    }
+
     function connectWebSocket() {
         if (wsRef.current) return;
 
@@ -617,7 +649,10 @@ function FlowDetail() {
                     }
 
                     if (data.type === 'complete' || data.type === 'error') {
-                        setTimeout(fetchFlow, 1000)
+                        setTimeout(() => {
+                            fetchFlow()
+                            fetchLedger()
+                        }, 1000)
                     }
                 }
             } catch (err) {
@@ -1066,18 +1101,20 @@ function FlowDetail() {
                             <div
                                 className="absolute inset-y-0 left-0 rounded-full bg-accent-cyan shadow-[0_0_10px_rgba(0,212,255,0.4)] transition-transform duration-500 ease-out"
                                 style={{
-                                    width: `${100 / 4}%`,
+                                    width: `${100 / 5}%`,
                                     transform:
                                         activeTab === 'timeline'
                                             ? 'translateX(0%)'
-                                            : activeTab === 'findings'
+                                            : activeTab === 'ledger'
                                                 ? 'translateX(100%)'
-                                                : activeTab === 'graph'
+                                                : activeTab === 'findings'
                                                     ? 'translateX(200%)'
-                                                    : 'translateX(300%)',
+                                                    : activeTab === 'graph'
+                                                        ? 'translateX(300%)'
+                                                        : 'translateX(400%)',
                                 }}
                             />
-                            {['timeline', 'findings', 'graph', 'raw'].map((tab) => (
+                            {['timeline', 'ledger', 'findings', 'graph', 'raw'].map((tab) => (
                                 <button
                                     key={tab}
                                     type="button"
@@ -1086,6 +1123,7 @@ function FlowDetail() {
                                         }`}
                                 >
                                     {tab === 'timeline' && 'Timeline'}
+                                    {tab === 'ledger' && 'Ledger'}
                                     {tab === 'findings' && 'Findings'}
                                     {tab === 'graph' && 'Evidence Graph'}
                                     {tab === 'raw' && 'Raw Logs'}
@@ -1097,6 +1135,11 @@ function FlowDetail() {
                         {eventsError && (
                             <div className="mb-3 rounded-xl border border-accent-red/30 bg-accent-red/10 px-3 py-2 text-xs text-accent-red">
                                 {eventsError}
+                            </div>
+                        )}
+                        {ledgerError && activeTab === 'ledger' && (
+                            <div className="mb-3 rounded-xl border border-accent-red/30 bg-accent-red/10 px-3 py-2 text-xs text-accent-red">
+                                {ledgerError}
                             </div>
                         )}
                         <AnimatePresence mode="wait">
@@ -1148,14 +1191,20 @@ function FlowDetail() {
                                         )}
                                     </>
                                 )}
+                                {activeTab === 'ledger' && (
+                                    <FlowLedgerPanel ledger={ledger} formatTime={formatTime} />
+                                )}
                                 {activeTab === 'findings' && (
                                     <>
                                         {findings.length === 0 ? (
-                                            <div className="h-full flex items-center justify-center text-text-muted text-sm italic py-10">
-                                                No structured findings reported yet.
-                                            </div>
+                                            <FlowEvidencePanel evidence={ledger?.evidence || []} formatTime={formatTime} />
                                         ) : (
-                                            <FindingList findings={findings} formatTime={formatTime} />
+                                            <div className="space-y-4">
+                                                <FlowEvidencePanel evidence={ledger?.evidence || []} formatTime={formatTime} />
+                                                <div className="pt-2 border-t border-border/40">
+                                                    <FindingList findings={findings} formatTime={formatTime} />
+                                                </div>
+                                            </div>
                                         )}
                                     </>
                                 )}

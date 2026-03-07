@@ -150,6 +150,17 @@ func TestParsePlannerOutput_RepairsAgentsWrapper(t *testing.T) {
 	}
 }
 
+func TestParsePlannerOutput_RepairsPlainTextPlannerResponse(t *testing.T) {
+	input := "Dispatch XSS (high) for /search and SQLi (medium) for https://example.com/login.php. Keep SSRF low priority."
+	result, err := ParsePlannerOutput(input)
+	if err != nil {
+		t.Fatalf("expected plain text planner output to be repaired, got: %v", err)
+	}
+	if len(result.Specs) != 3 {
+		t.Fatalf("expected 3 repaired specs, got %d", len(result.Specs))
+	}
+}
+
 func TestParse_PlannerOutput_NoJSON(t *testing.T) {
 	input := "I think we should test for XSS and SQLi vulnerabilities."
 	_, err := Parse[PlannerOutput](input)

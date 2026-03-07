@@ -40,7 +40,7 @@ func (r *Registry) registerBuiltins() {
 	r.Register(&Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "execute_command",
-			Description: "Execute a shell command inside a secure, sandboxed Docker container equipped with penetration testing tools (nmap, nikto, sqlmap, gobuster, nuclei, metasploit, curl, wget, dig, whois, netcat, python3, etc.). Use this to run security scans, network reconnaissance, exploitation attempts, and data collection. The command runs in an isolated environment with network access to the target.\n\nIMPORTANT LOCATIONS:\n- Wordlists for gobuster/dirb are located at: `/usr/share/dirb/wordlists/common.txt` and others in `/usr/share/dirb/wordlists/`. Do NOT assume `/usr/share/wordlists` exists.\n\nIMPORTANT: This container is PERSISTENT. If a tool you need is missing, you are encouraged to install it yourself using `apt-get update && apt-get install -y <tool>`. For open-source tools not in apt, you can freely use `git clone <repo>`, `go install <pkg>`, `pip install <pkg>`, or `wget` to download and compile them from source. Anything you install or payload you download will remain available for subsequent commands and future pentest scans.",
+			Description: "Execute a shell command inside the sandbox to enumerate the in-scope target and gather reproducible evidence. Prefer short commands, multi-line scripts, or inline Python over brittle nested shell quoting. Use the command output to confirm behavior with concrete request/response, timing, browser, or callback proof.\n\nIMPORTANT LOCATIONS:\n- Wordlists for gobuster/dirb are located at: `/usr/share/dirb/wordlists/common.txt` and others in `/usr/share/dirb/wordlists/`. Do NOT assume `/usr/share/wordlists` exists.\n\nIMPORTANT: This container is PERSISTENT, so keep commands tidy and deterministic. If a command becomes quote-heavy, switch to a heredoc or a small script instead of stacking escapes.",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -355,8 +355,7 @@ func (r *Registry) executeBrowserScript(ctx context.Context, args json.RawMessag
 	// Base64 encode the script to avoid shell escaping issues
 	encodedScript := base64.StdEncoding.EncodeToString([]byte(params.Script))
 
-	// Decode script and execute with node
-	cmd := fmt.Sprintf("echo %s | base64 -d > /tmp/browser_script.js && export NODE_PATH=/usr/lib/node_modules/ && node /tmp/browser_script.js", encodedScript)
+	cmd := buildBrowserScriptCommand(encodedScript)
 
 	result, err := r.sandbox.Execute(ctx, cmd, params.Timeout)
 	if err != nil {
@@ -376,6 +375,19 @@ func (r *Registry) executeBrowserScript(ctx context.Context, args json.RawMessag
 	}
 
 	return output, nil
+}
+
+func buildBrowserScriptCommand(encodedScript string) string {
+	return fmt.Sprintf(
+		"script_path=$(mktemp /tmp/browser_script.XXXXXX.js) && "+
+			"printf '%%s' '%s' | base64 -d > \"$script_path\" && "+
+			"NODE_GLOBAL=$(npm root -g 2>/dev/null || true) && "+
+			"if [ -n \"$NODE_GLOBAL\" ]; then export NODE_PATH=\"$NODE_GLOBAL:/usr/lib/node_modules:/usr/local/lib/node_modules\"; "+
+			"else export NODE_PATH=\"/usr/lib/node_modules:/usr/local/lib/node_modules\"; fi && "+
+			"export PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH:-/usr/lib/playwright} && "+
+			"node \"$script_path\"; status=$?; rm -f \"$script_path\"; exit $status",
+		encodedScript,
+	)
 }
 
 // Register adds a tool to the registry
