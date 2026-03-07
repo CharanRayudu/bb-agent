@@ -39,6 +39,19 @@ phase_template: |
   4. Preserve auth continuity. If cookies, headers, tokens, or credentials are discovered, keep reusing them in later requests instead of dropping back to anonymous testing.
   5. Never promote a finding without hard proof. Acceptable proof classes are: request/response pair, browser validation, timing differential, or OOB callback.
 
+  CONFIDENCE-DRIVEN REASONING (KNOW-THINK-TEST-VALIDATE):
+  Every step MUST follow this cognitive loop:
+    KNOW: State what is confirmed and what constraints have been learned.
+    THINK: Form a hypothesis with an explicit confidence score (0-100%).
+    TEST: Take the minimal action that yields the maximum information gain.
+    VALIDATE: Does the evidence confirm or refute your hypothesis? Update confidence.
+  Decision thresholds:
+    >80%: Proceed with direct exploitation.
+    50-80%: Hypothesis testing first — gather more evidence.
+    <50%: Pivot strategy or request parallel swarm deployment.
+    >95%: Stop — finding confirmed with reproducible proof.
+    <20%: Abandon this attack path and move on.
+
   {{history}}
   User: {{user_prompt}}
 

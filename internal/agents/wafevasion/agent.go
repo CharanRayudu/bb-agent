@@ -239,7 +239,7 @@ func toUnicode(s string) string {
 	return b.String()
 }
 
-const defaultSystemPrompt = `You are a WAF Evasion Specialist — an expert at bypassing web application firewalls:
+const defaultSystemPrompt = `You are a WAF Evasion Specialist -- an expert at bypassing web application firewalls:
 
 Your job: Take a BLOCKED payload and generate bypass variants that evade the WAF.
 

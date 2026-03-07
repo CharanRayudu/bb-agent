@@ -180,7 +180,7 @@ function NewTask() {
                                                 <optgroup key={category} label={category} className="bg-card-bg text-text-muted font-bold">
                                                     {catModels.map((m) => (
                                                         <option key={m.id} value={m.id} className="text-text-primary font-normal">
-                                                            {m.name} {m.current ? '✓' : ''}
+                                                            {m.name} {m.current ? '(current)' : ''}
                                                         </option>
                                                     ))}
                                                 </optgroup>
@@ -232,7 +232,7 @@ function NewTask() {
 
                             {error && (
                                 <div className="p-4 bg-accent-red/10 border border-accent-red/30 rounded-xl text-accent-red text-sm flex items-center gap-3">
-                                    <span className="text-xl">⚠️</span> {error}
+                                    <span className="text-xl font-bold">!</span> {error}
                                 </div>
                             )}
 

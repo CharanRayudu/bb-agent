@@ -63,7 +63,7 @@ func (s *State) Transition(to Phase, reason string, metrics map[string]interface
 	from := s.CurrentPhase
 
 	if !CanTransition(from, to) {
-		return fmt.Errorf("invalid transition: %s → %s", from, to)
+		return fmt.Errorf("invalid transition: %s -> %s", from, to)
 	}
 
 	now := time.Now()

@@ -68,7 +68,7 @@ func XSSFingerprint(rawURL, param, context, sink, source string) Fingerprint {
 }
 
 func detectXSSRootCause(param, context, sink, source string) string {
-	// postMessage → eval (global event handler in shared JS)
+	// postMessage -> eval (global event handler in shared JS)
 	if param == "postMessage" || param == "window.postMessage" ||
 		source == "postMessage" || source == "window.postMessage" {
 		sinkName := strings.ToLower(sink)
@@ -77,7 +77,7 @@ func detectXSSRootCause(param, context, sink, source string) string {
 		}
 		return fmt.Sprintf("postMessage_%s_global", sinkName)
 	}
-	// location.search → document.write (global searchLogger)
+	// location.search -> document.write (global searchLogger)
 	if param == "location.search" && context == "dom_xss" {
 		if strings.Contains(strings.ToLower(sink), "document.write") {
 			return "location_search_docwrite_global"

@@ -142,7 +142,7 @@ func (l *Lifecycle) Shutdown(ctx context.Context, drainTimeout time.Duration) {
 		case <-done:
 			log.Printf("[lifecycle] All workers finished cleanly")
 		case <-time.After(drainTimeout):
-			log.Printf("[lifecycle] Shutdown timeout — some workers may still be running")
+			log.Printf("[lifecycle] Shutdown timeout -- some workers may still be running")
 		case <-ctx.Done():
 			log.Printf("[lifecycle] Shutdown cancelled by context")
 		}

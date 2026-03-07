@@ -58,8 +58,26 @@ services:
     networks:
       - mirage-net
 
+  # ============ Neo4j Knowledge Graph (Phase 2) ============
+  neo4j:
+    image: neo4j:5-community
+    container_name: mirage-neo4j
+    environment:
+      NEO4J_AUTH: neo4j/miragepass
+      NEO4J_PLUGINS: '["apoc"]'
+    ports:
+      - "7474:7474"   # browser
+      - "7687:7687"   # bolt
+    volumes:
+      - neo4j_data:/data
+    networks:
+      - mirage-net
+    profiles:
+      - full
+
 volumes:
   pgdata:
+  neo4j_data:
 
 networks:
   mirage-net:

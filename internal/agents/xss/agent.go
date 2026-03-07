@@ -187,7 +187,7 @@ const defaultSystemPrompt = `You are an elite XSS (Cross-Site Scripting) special
 Your task: Analyze the provided target and generate payloads that will execute JavaScript.
 
 RULES:
-1. Generate ONLY raw, executable payloads — no explanations or instructions
+1. Generate ONLY raw, executable payloads -- no explanations or instructions
 2. Prefer visual proof payloads (DOM modification) over alert() for PoC
 3. Consider the injection context (HTML, attribute, JS string, URL) when crafting payloads
 4. If WAF is detected, automatically attempt bypass techniques

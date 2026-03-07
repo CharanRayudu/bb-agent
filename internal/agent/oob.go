@@ -4,10 +4,10 @@
 //
 // Architecture:
 //
-//	Specialist Agent → oob.Register(scanID, token) → sends payload with token
+//	Specialist Agent -> oob.Register(scanID, token) -> sends payload with token
 //	... target makes OOB request ...
-//	OOB Poller → oob.Poll() → matches callback to registered token
-//	→ Agent receives confirmation → Finding marked as VALIDATED
+//	OOB Poller -> oob.Poll() -> matches callback to registered token
+//	-> Agent receives confirmation -> Finding marked as VALIDATED
 package agent
 
 import (
@@ -49,7 +49,7 @@ type OOBRegistration struct {
 type OOBManager struct {
 	mu sync.RWMutex
 
-	// registrations maps token → registration metadata
+	// registrations maps token -> registration metadata
 	registrations map[string]*OOBRegistration
 
 	// interactions stores confirmed callbacks

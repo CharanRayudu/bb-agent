@@ -16,9 +16,9 @@ import (
 
 // API endpoints
 const (
-	// ChatGPT backend endpoint — used by Codex CLI with ChatGPT OAuth
+	// ChatGPT backend endpoint -- used by Codex CLI with ChatGPT OAuth
 	codexResponsesURL = "https://chatgpt.com/backend-api/codex/responses"
-	// Standard OpenAI API endpoint — used with API keys
+	// Standard OpenAI API endpoint -- used with API keys
 	openAICompletionsURL = "https://api.openai.com/v1/chat/completions"
 )
 
@@ -235,7 +235,7 @@ func (o *OpenAIProvider) completeViaCodexResponses(ctx context.Context, req Comp
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	log.Printf("📡 Calling Codex Responses API (%s)...", model)
+	log.Printf("[API] Calling Codex Responses API (%s)...", model)
 
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", codexResponsesURL, bytes.NewReader(body))
 	if err != nil {
@@ -254,7 +254,7 @@ func (o *OpenAIProvider) completeViaCodexResponses(ctx context.Context, req Comp
 	// On 401, refresh token and retry
 	if resp.StatusCode == http.StatusUnauthorized {
 		resp.Body.Close()
-		log.Println("⚠️  Got 401 from Codex API, refreshing OAuth token...")
+		log.Println("[WARN] Got 401 from Codex API, refreshing OAuth token...")
 		o.codexAuth.ClearCache()
 		newToken, err := o.codexAuth.RefreshToken()
 		if err != nil {
@@ -337,7 +337,7 @@ func (o *OpenAIProvider) parseCodexSSEResponse(ctx context.Context, body io.Read
 		var event sseEvent
 		if err := json.Unmarshal([]byte(data), &event); err != nil {
 			// Skip unparseable events
-			log.Printf("⚠️  SSE unparseable: %s", data[:min(len(data), 200)])
+			log.Printf("[WARN] SSE unparseable: %s", data[:min(len(data), 200)])
 			continue
 		}
 
@@ -345,9 +345,9 @@ func (o *OpenAIProvider) parseCodexSSEResponse(ctx context.Context, body io.Read
 		if event.Type != "" {
 			if strings.Contains(event.Type, "function") || strings.Contains(event.Type, "output_item") || strings.Contains(event.Type, "output_text") {
 				// Don't flood logs in production, comment this out after verification
-				// log.Printf("📥 SSE event [%s]: %s", event.Type, data)
+				// log.Printf("[SSE] SSE event [%s]: %s", event.Type, data)
 			} else {
-				log.Printf("📥 SSE event: type=%s", event.Type)
+				log.Printf("[SSE] SSE event: type=%s", event.Type)
 			}
 		}
 
@@ -374,7 +374,7 @@ func (o *OpenAIProvider) parseCodexSSEResponse(ctx context.Context, body io.Read
 			}
 
 		case "response.function_call_arguments.done":
-			// Function call complete — set final arguments if provided
+			// Function call complete -- set final arguments if provided
 			if event.ItemID != "" {
 				if tc, ok := toolCalls[event.ItemID]; ok {
 					if event.Arguments != "" {
@@ -384,7 +384,7 @@ func (o *OpenAIProvider) parseCodexSSEResponse(ctx context.Context, body io.Read
 			}
 
 		case "response.completed":
-			// Final event — extract usage if available
+			// Final event -- extract usage if available
 			if event.Response != nil && event.Response.Usage != nil {
 				result.Usage = TokenUsage{
 					PromptTokens:     event.Response.Usage.InputTokens,
@@ -408,7 +408,7 @@ func (o *OpenAIProvider) parseCodexSSEResponse(ctx context.Context, body io.Read
 		result.ToolCalls = append(result.ToolCalls, *tc)
 	}
 
-	log.Printf("✅ Codex API response: %d chars text, %d tool calls, %d tokens",
+	log.Printf("[OK] Codex API response: %d chars text, %d tool calls, %d tokens",
 		len(result.Content), len(result.ToolCalls), result.Usage.TotalTokens)
 	return result, nil
 }

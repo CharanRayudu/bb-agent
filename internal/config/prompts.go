@@ -51,7 +51,7 @@ func LoadPrompts(path string) (*Prompts, error) {
 	if p.Phases.PocGenerator != "" {
 		count++
 	}
-	log.Printf("📝 Loaded %d phase prompts and %d tooling entries from %s", count, len(p.Tooling), path)
+	log.Printf("[PROMPTS] Loaded %d phase prompts and %d tooling entries from %s", count, len(p.Tooling), path)
 
 	return &p, nil
 }

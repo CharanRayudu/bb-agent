@@ -20,7 +20,7 @@ type RedirectInsight struct {
 // and generates actionable intelligence for the agent loop.
 type RedirectTracker struct {
 	mu             sync.Mutex
-	redirectCounts map[string]int // login URL → redirect count
+	redirectCounts map[string]int // login URL -> redirect count
 	loginPatterns  *regexp.Regexp // compiled pattern for login URL detection
 }
 
@@ -37,7 +37,7 @@ func NewRedirectTracker() *RedirectTracker {
 }
 
 // loginURLPatterns extracts login page URLs from tool output containing redirects
-var loginURLExtractor = regexp.MustCompile(`(?i)(?:location:\s*|< location:\s*|→\s*|redirect(?:ed)?\s+to\s+)(\S+)`)
+var loginURLExtractor = regexp.MustCompile(`(?i)(?:location:\s*|< location:\s*|->\s*|redirect(?:ed)?\s+to\s+)(\S+)`)
 
 // Analyze inspects tool output for redirect patterns and returns insight
 func (rt *RedirectTracker) Analyze(toolOutput string) *RedirectInsight {
@@ -78,7 +78,7 @@ func (rt *RedirectTracker) Analyze(toolOutput string) *RedirectInsight {
 		RedirectCount: count,
 		ShouldPivot:   true,
 		Message: fmt.Sprintf(
-			"⚠️ AUTH WALL DETECTED: %d requests redirected to %s. "+
+			"[WARN] AUTH WALL DETECTED: %d requests redirected to %s. "+
 				"PIVOT STRATEGY: (1) Try default credentials (admin/admin, admin/password). "+
 				"(2) Look for auth bypass (SQL injection in login form, IDOR). "+
 				"(3) Search for exposed backup configs or .env files with credentials. "+

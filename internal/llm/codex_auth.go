@@ -82,7 +82,7 @@ func (c *CodexTokenProvider) RefreshToken() (string, error) {
 		return "", fmt.Errorf("failed to parse Codex auth file: %w", err)
 	}
 
-	// Extract the access token — try multiple known formats
+	// Extract the access token -- try multiple known formats
 	var token string
 
 	// Format 1 (v0.104+): nested tokens object with id_token or access_token
@@ -113,13 +113,13 @@ func (c *CodexTokenProvider) RefreshToken() (string, error) {
 		if t, err := time.Parse(time.RFC3339Nano, auth.LastRefresh); err == nil {
 			age := time.Since(t)
 			if age > 24*time.Hour {
-				log.Printf("⚠️  Codex token last refreshed %s ago — may need 'codex login' to refresh", age.Round(time.Hour))
+				log.Printf("[WARN] Codex token last refreshed %s ago -- may need 'codex login' to refresh", age.Round(time.Hour))
 			}
 		}
 	}
 
 	c.cachedToken = token
-	log.Printf("✅ Loaded Codex OAuth token from %s (auth_mode: %s)", authPath, auth.AuthMode)
+	log.Printf("[OK] Loaded Codex OAuth token from %s (auth_mode: %s)", authPath, auth.AuthMode)
 	return token, nil
 }
 

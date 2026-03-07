@@ -3,18 +3,20 @@ module github.com/bb-agent/mirage
 go 1.25.0
 
 require (
+	github.com/chromedp/cdproto v0.0.0-20250724212937-08a3db8b4327
+	github.com/chromedp/chromedp v0.14.2
 	github.com/docker/docker v28.5.2+incompatible
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/lib/pq v1.11.2
 	gopkg.in/yaml.v3 v3.0.1
+	modernc.org/sqlite v1.46.1
 )
 
 require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/chromedp/cdproto v0.0.0-20250724212937-08a3db8b4327 // indirect
-	github.com/chromedp/chromedp v0.14.2 // indirect
 	github.com/chromedp/sysutil v1.1.0 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
@@ -55,5 +57,4 @@ require (
 	modernc.org/libc v1.67.6 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
-	modernc.org/sqlite v1.46.1 // indirect
 )

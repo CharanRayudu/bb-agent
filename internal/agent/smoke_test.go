@@ -46,7 +46,7 @@ func TestOrchestratorRegistryParity(t *testing.T) {
 		}
 	}
 
-	t.Logf("✅ Verified 31/31 agent queues are correctly joined.")
+	t.Logf("[OK] Verified 31/31 agent queues are correctly joined.")
 }
 
 func TestBrowserValidatorInitialization(t *testing.T) {
@@ -61,5 +61,5 @@ func TestBrowserValidatorInitialization(t *testing.T) {
 		t.Errorf("Expected browser_alert for xss, got %s", mapping)
 	}
 
-	t.Logf("✅ Visual Validator configuration verified.")
+	t.Logf("[OK] Visual Validator configuration verified.")
 }

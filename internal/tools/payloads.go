@@ -14,7 +14,7 @@ func (r *Registry) AddPayloadMutationTool(provider llm.Provider) {
 	r.Register(&Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "generate_payloads",
-			Description: "Use AI to generate context-aware, novel attack payloads based on the target's tech stack and detected WAF. This generates payloads that standard wordlists don't contain — custom bypass techniques, encoding tricks, and framework-specific vectors.",
+			Description: "Use AI to generate context-aware, novel attack payloads based on the target's tech stack and detected WAF. This generates payloads that standard wordlists don't contain -- custom bypass techniques, encoding tricks, and framework-specific vectors.",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -76,7 +76,7 @@ REQUIREMENTS:
 2. Use encoding tricks (URL encoding, Unicode, HTML entities, double encoding)
 3. Use framework-specific bypass techniques for the detected tech stack
 4. Include at least 2 "polyglot" payloads that work across contexts
-5. Vary payload length — include both short probes and full exploitation payloads
+5. Vary payload length -- include both short probes and full exploitation payloads
 6. Output ONLY a JSON array of strings, nothing else
 
 Example output format: ["payload1", "payload2", ...]`,

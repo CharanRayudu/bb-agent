@@ -13,7 +13,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// JSON Extraction — Multi-strategy parser for LLM output
+// JSON Extraction -- Multi-strategy parser for LLM output
 // ---------------------------------------------------------------------------
 
 var (
@@ -36,7 +36,7 @@ func ExtractJSON(raw string) string {
 		return ""
 	}
 
-	// Strategy 1: Code fence extraction (highest priority — most intentional)
+	// Strategy 1: Code fence extraction (highest priority -- most intentional)
 	if matches := codeFenceRe.FindStringSubmatch(raw); len(matches) > 1 {
 		return strings.TrimSpace(matches[1])
 	}
@@ -146,7 +146,7 @@ func CorrectionPrompt(validationErr error, originalResponse string) string {
 	return fmt.Sprintf(
 		"Your previous response failed validation:\n\n**Error**: %s\n\n"+
 			"Please fix the issue and respond with ONLY the corrected JSON. "+
-			"No explanation, no markdown code fences, no commentary — just the raw JSON.",
+			"No explanation, no markdown code fences, no commentary -- just the raw JSON.",
 		validationErr.Error(),
 	)
 }

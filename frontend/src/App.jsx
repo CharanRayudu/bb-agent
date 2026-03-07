@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Link, useLocation, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Shield, LayoutDashboard, Zap, Activity } from 'lucide-react'
+import { Shield, LayoutDashboard, Zap, Activity, Database, Settings } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
 import NewTask from './pages/NewTask'
 import FlowDetail from './pages/FlowDetail'
+import KnowledgeGraph from './pages/KnowledgeGraph'
+import SettingsPage from './pages/Settings'
 
 function Navbar() {
     const location = useLocation()
@@ -152,6 +154,8 @@ function CommandPalette() {
     const options = [
         { label: 'Go to Dashboard', action: () => navigate('/'), icon: LayoutDashboard },
         { label: 'Start New Scan', action: () => navigate('/new'), icon: Zap },
+        { label: 'Knowledge Graph', action: () => navigate('/knowledge'), icon: Database },
+        { label: 'Settings', action: () => navigate('/settings'), icon: Settings },
     ]
 
     const filtered = options.filter((opt) => opt.label.toLowerCase().includes(query.toLowerCase()))
@@ -246,6 +250,32 @@ function AppShell() {
                                     transition={{ duration: 0.25, ease: 'easeOut' }}
                                 >
                                     <FlowDetail />
+                                </motion.div>
+                            }
+                        />
+                        <Route
+                            path="/knowledge"
+                            element={
+                                <motion.div
+                                    initial={{ opacity: 0, y: 8 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, y: -8 }}
+                                    transition={{ duration: 0.25, ease: 'easeOut' }}
+                                >
+                                    <KnowledgeGraph />
+                                </motion.div>
+                            }
+                        />
+                        <Route
+                            path="/settings"
+                            element={
+                                <motion.div
+                                    initial={{ opacity: 0, y: 8 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    exit={{ opacity: 0, y: -8 }}
+                                    transition={{ duration: 0.25, ease: 'easeOut' }}
+                                >
+                                    <SettingsPage />
                                 </motion.div>
                             }
                         />

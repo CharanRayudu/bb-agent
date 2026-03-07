@@ -52,13 +52,13 @@ var attacks = []jwtAttack{
 	{
 		name:        "alg_none",
 		payload:     `{"alg":"none","typ":"JWT"}.{"sub":"admin","role":"admin"}.`,
-		description: "Algorithm set to 'none' — signature verification bypassed",
+		description: "Algorithm set to 'none' -- signature verification bypassed",
 		severity:    "critical",
 	},
 	{
 		name:        "alg_hs256_with_public_key",
 		payload:     `{"alg":"HS256"} signed with RSA public key`,
-		description: "Algorithm confusion: RS256→HS256, sign with public key as HMAC secret",
+		description: "Algorithm confusion: RS256->HS256, sign with public key as HMAC secret",
 		severity:    "critical",
 	},
 	{
@@ -106,7 +106,7 @@ var attacks = []jwtAttack{
 }
 
 const defaultSystemPrompt = `You are an elite JWT security specialist with expertise in:
-- Algorithm confusion attacks (none, RS256→HS256)
+- Algorithm confusion attacks (none, RS256->HS256)
 - Secret brute-forcing for HMAC-signed tokens
 - Header injection (kid path traversal, kid SQLi, jku SSRF)
 - Claim tampering (role escalation, sub impersonation, exp bypass)
@@ -114,7 +114,7 @@ const defaultSystemPrompt = `You are an elite JWT security specialist with exper
 
 RULES:
 1. Algorithm 'none' bypass is CRITICAL
-2. Algorithm confusion (RS→HS with public key) is CRITICAL
+2. Algorithm confusion (RS->HS with public key) is CRITICAL
 3. kid injection (LFI/SQLi) is CRITICAL
 4. Weak secret brute-force is HIGH
 5. Claim tampering without signature bypass is MEDIUM

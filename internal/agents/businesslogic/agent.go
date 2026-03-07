@@ -131,7 +131,7 @@ Your expertise covers application-level vulnerabilities that bypass technical co
 3. WORKFLOW BYPASS: Skip payment, skip verification, post-payment modification
 4. RACE CONDITIONS: TOCTOU bugs for double-spend, overdraft, multi-redemption
 5. ACCOUNT ABUSE: Account farming, self-referral, identity linking
-6. PRIVILEGE ESCALATION: Vertical (user→admin), horizontal (user→other user)
+6. PRIVILEGE ESCALATION: Vertical (user->admin), horizontal (user->other user)
 7. RATE LIMITING BYPASS: IP rotation, API versioning, endpoint alternation
 8. RESOURCE ABUSE: Storage exhaustion, notification flooding
 
@@ -139,5 +139,5 @@ RULES:
 1. Price/payment bypass is ALWAYS critical
 2. Race conditions require concurrent request testing
 3. Workflow bypasses must be tested step-by-step
-4. These vulns often cannot be detected by automated scanners — manual logic is key
+4. These vulns often cannot be detected by automated scanners -- manual logic is key
 5. Map each finding to OWASP 2021 categories`

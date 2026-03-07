@@ -52,14 +52,14 @@ func TestInvalidTransition(t *testing.T) {
 	// Can't jump straight to EXPLOITATION from IDLE
 	err := s.Transition(PhaseExploitation, "skip", nil)
 	if err == nil {
-		t.Fatal("expected error for invalid transition IDLE→EXPLOITATION")
+		t.Fatal("expected error for invalid transition IDLE->EXPLOITATION")
 	}
 }
 
 func TestPauseResume(t *testing.T) {
 	s := NewState("test-scan-3")
 	s.Start()
-	s.Advance("auto", nil) // → DISCOVERY
+	s.Advance("auto", nil) // -> DISCOVERY
 
 	// Pause
 	if err := s.Pause("user paused"); err != nil {

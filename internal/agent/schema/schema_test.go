@@ -77,7 +77,7 @@ func TestExtractJSON_NoJSON(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Parse Tests — PlannerOutput
+// Parse Tests -- PlannerOutput
 // ---------------------------------------------------------------------------
 
 func TestParse_PlannerOutput_Valid(t *testing.T) {
@@ -170,7 +170,7 @@ func TestParse_PlannerOutput_NoJSON(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Parse Tests — FindingsOutput
+// Parse Tests -- FindingsOutput
 // ---------------------------------------------------------------------------
 
 func TestParse_FindingsOutput_Valid(t *testing.T) {

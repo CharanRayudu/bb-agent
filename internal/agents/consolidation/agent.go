@@ -28,7 +28,7 @@ func (a *Agent) ProcessItem(ctx context.Context, item *queue.Item) ([]*base.Find
 		return nil, fmt.Errorf("missing target URL")
 	}
 
-	// The consolidation agent doesn't produce findings —
+	// The consolidation agent doesn't produce findings --
 	// instead, it classifies inputs and routes them to specialist queues.
 	// Output findings represent routing decisions.
 	vulnType, _ := item.Payload["type"].(string)
@@ -94,7 +94,7 @@ func mapToSpecialist(vulnType string) string {
 	return "xss" // Default fallback
 }
 
-const defaultSystemPrompt = `You are the Thinking & Consolidation Agent — the central brain of the scan pipeline.
+const defaultSystemPrompt = `You are the Thinking & Consolidation Agent -- the central brain of the scan pipeline.
 
 Your responsibilities:
 1. DEDUPLICATE: Remove duplicate findings (same URL + same parameter + same vuln type)
@@ -103,13 +103,13 @@ Your responsibilities:
 4. ROUTE: Dispatch classified items to the correct specialist queue
 
 Classification rules:
-- Reflected input → XSS queue
-- SQL error messages → SQLi queue
-- URL/redirect parameters → Open Redirect / SSRF queue
-- File path parameters → LFI queue
-- Command-like inputs → RCE queue
-- XML/SOAP endpoints → XXE queue
-- Sequential IDs → IDOR queue
-- Template syntax in response → SSTI/CSTI queue
+- Reflected input -> XSS queue
+- SQL error messages -> SQLi queue
+- URL/redirect parameters -> Open Redirect / SSRF queue
+- File path parameters -> LFI queue
+- Command-like inputs -> RCE queue
+- XML/SOAP endpoints -> XXE queue
+- Sequential IDs -> IDOR queue
+- Template syntax in response -> SSTI/CSTI queue
 
 CRITICAL: Remove duplicates before routing. Never send the same finding twice.`

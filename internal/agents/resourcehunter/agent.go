@@ -122,7 +122,7 @@ var probes = []resourceProbe{
 	{"/phpmyadmin", "phpMyAdmin database management", "admin", "high", 200, "html"},
 }
 
-const defaultSystemPrompt = `You are a Resource Hunter — a specialist in discovering sensitive files and misconfigurations:
+const defaultSystemPrompt = `You are a Resource Hunter -- a specialist in discovering sensitive files and misconfigurations:
 
 Target Categories:
 1. ENVIRONMENT FILES: .env, config.yml, application.properties, wp-config.php

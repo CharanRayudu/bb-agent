@@ -114,7 +114,7 @@ const defaultSystemPrompt = `You are an elite IDOR (Insecure Direct Object Refer
 - UUID/GUID manipulation and boundary testing
 - Horizontal privilege escalation (accessing other users' data)
 - Vertical privilege escalation (accessing admin resources)
-- HTTP method switching (GET→PUT/DELETE/PATCH)
+- HTTP method switching (GET->PUT/DELETE/PATCH)
 - Parameter pollution and JSON array wrapping
 
 RULES:

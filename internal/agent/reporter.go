@@ -42,14 +42,14 @@ func (rg *ReportGenerator) GenerateReport(
 	var sb strings.Builder
 
 	// Header
-	sb.WriteString("# 🛡️ Penetration Test Report\n\n")
+	sb.WriteString("# Penetration Test Report\n\n")
 	sb.WriteString(fmt.Sprintf("**Target:** `%s`\n", target))
 	sb.WriteString(fmt.Sprintf("**Flow ID:** `%s`\n", flowID.String()))
 	sb.WriteString(fmt.Sprintf("**Date:** %s\n", time.Now().Format("2006-01-02 15:04:05 MST")))
 	sb.WriteString(fmt.Sprintf("**Duration:** %s\n\n", formatReportDuration(duration)))
 
 	// Executive Summary
-	sb.WriteString("---\n\n## 📊 Executive Summary\n\n")
+	sb.WriteString("---\n\n## Executive Summary\n\n")
 
 	criticalCount := countSeverity(findings, "critical")
 	highCount := countSeverity(findings, "high")
@@ -58,16 +58,16 @@ func (rg *ReportGenerator) GenerateReport(
 
 	sb.WriteString("| Severity | Count |\n")
 	sb.WriteString("|----------|-------|\n")
-	sb.WriteString(fmt.Sprintf("| 🔴 Critical | %d |\n", criticalCount))
-	sb.WriteString(fmt.Sprintf("| 🟠 High | %d |\n", highCount))
-	sb.WriteString(fmt.Sprintf("| 🟡 Medium | %d |\n", mediumCount))
-	sb.WriteString(fmt.Sprintf("| 🟢 Low/Info | %d |\n", lowCount))
+	sb.WriteString(fmt.Sprintf("| [!] Critical | %d |\n", criticalCount))
+	sb.WriteString(fmt.Sprintf("| [!] High | %d |\n", highCount))
+	sb.WriteString(fmt.Sprintf("| [~] Medium | %d |\n", mediumCount))
+	sb.WriteString(fmt.Sprintf("| [.] Low/Info | %d |\n", lowCount))
 	sb.WriteString(fmt.Sprintf("| **Total** | **%d** |\n\n", len(findings)))
 
 	if len(findings) == 0 {
-		sb.WriteString("✅ **No confirmed vulnerabilities were found during this assessment.**\n\n")
+		sb.WriteString("[OK] **No confirmed vulnerabilities were found during this assessment.**\n\n")
 	} else {
-		sb.WriteString(fmt.Sprintf("⚠️ **%d vulnerabilities** were identified during this assessment, ", len(findings)))
+		sb.WriteString(fmt.Sprintf("[WARN] **%d vulnerabilities** were identified during this assessment, ", len(findings)))
 		if criticalCount > 0 {
 			sb.WriteString(fmt.Sprintf("including **%d critical** findings requiring immediate remediation.\n\n", criticalCount))
 		} else if highCount > 0 {
@@ -78,16 +78,16 @@ func (rg *ReportGenerator) GenerateReport(
 	}
 
 	// Methodology
-	sb.WriteString("---\n\n## 🔧 Methodology\n\n")
+	sb.WriteString("---\n\n## Methodology\n\n")
 	sb.WriteString("This assessment was conducted using the **Mirage Autonomous Security Agent** with the following phases:\n\n")
-	sb.WriteString("1. **Reconnaissance** — Automated target profiling, technology fingerprinting, and attack surface mapping\n")
-	sb.WriteString("2. **Planning** — AI-driven analysis of recon data to identify high-value attack vectors\n")
-	sb.WriteString("3. **Exploitation** — Concurrent specialist agents testing for specific vulnerability classes\n")
-	sb.WriteString("4. **Validation** — PoC generation and finding confirmation with reproducible evidence\n")
-	sb.WriteString("5. **Reporting** — Automated report generation with remediation guidance\n\n")
+	sb.WriteString("1. **Reconnaissance** -- Automated target profiling, technology fingerprinting, and attack surface mapping\n")
+	sb.WriteString("2. **Planning** -- AI-driven analysis of recon data to identify high-value attack vectors\n")
+	sb.WriteString("3. **Exploitation** -- Concurrent specialist agents testing for specific vulnerability classes\n")
+	sb.WriteString("4. **Validation** -- PoC generation and finding confirmation with reproducible evidence\n")
+	sb.WriteString("5. **Reporting** -- Automated report generation with remediation guidance\n\n")
 
 	// Reconnaissance Summary
-	sb.WriteString("---\n\n## 🔍 Reconnaissance Summary\n\n")
+	sb.WriteString("---\n\n## Reconnaissance Summary\n\n")
 	if reconSummary != "" {
 		sb.WriteString(reconSummary + "\n\n")
 	} else {
@@ -95,7 +95,7 @@ func (rg *ReportGenerator) GenerateReport(
 	}
 
 	// Detailed Findings
-	sb.WriteString("---\n\n## 🐛 Detailed Findings\n\n")
+	sb.WriteString("---\n\n## Detailed Findings\n\n")
 	if len(findings) > 0 {
 		for i, f := range findings {
 			sb.WriteString(fmt.Sprintf("### Finding %d: %s\n\n", i+1, f.Type))
@@ -123,19 +123,19 @@ func (rg *ReportGenerator) GenerateReport(
 
 	// Exploitation Results
 	if swarmResults != "" {
-		sb.WriteString("---\n\n## ⚔️ Exploitation Details\n\n")
+		sb.WriteString("---\n\n## Exploitation Details\n\n")
 		sb.WriteString(swarmResults + "\n\n")
 	}
 
 	// PoC Evidence
 	if pocResults != "" {
-		sb.WriteString("---\n\n## 🧪 Proof of Concept (PoC) Evidence\n\n")
+		sb.WriteString("---\n\n## Proof of Concept (PoC) Evidence\n\n")
 		sb.WriteString(pocResults + "\n\n")
 	}
 
 	// Recon Leads (for future investigation)
 	if len(leads) > 0 {
-		sb.WriteString("---\n\n## 📋 Additional Leads (Unconfirmed)\n\n")
+		sb.WriteString("---\n\n## Additional Leads (Unconfirmed)\n\n")
 		sb.WriteString("The following items were identified during reconnaissance but not confirmed as vulnerabilities:\n\n")
 		for i, l := range leads {
 			sb.WriteString(fmt.Sprintf("%d. %s\n", i+1, l))
@@ -145,7 +145,7 @@ func (rg *ReportGenerator) GenerateReport(
 
 	// Excluded / Dead Ends
 	if len(exclusions) > 0 {
-		sb.WriteString("---\n\n## ❌ Excluded / Dead Ends\n\n")
+		sb.WriteString("---\n\n## Excluded / Dead Ends\n\n")
 		for i, e := range exclusions {
 			sb.WriteString(fmt.Sprintf("%d. %s\n", i+1, e))
 		}

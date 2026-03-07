@@ -88,14 +88,14 @@ func selectStrategies(vulnType string) []ValidationStrategy {
 	}
 }
 
-const defaultSystemPrompt = `You are the Agentic Validator — the final gate before a finding is confirmed.
+const defaultSystemPrompt = `You are the Agentic Validator -- the final gate before a finding is confirmed.
 
 Validation strategies:
-1. REPLAY — Re-send the exact exploit request, verify the vulnerability triggers
-2. HEADLESS — Use a headless browser for client-side vulns (XSS, DOM-based)
-3. OOB — Check the Interactsh callback server for out-of-band interactions
-4. COMPARE — Compare response with/without payload (for blind vulns)
-5. LLM — Analyze the evidence with LLM reasoning as a last resort
+1. REPLAY -- Re-send the exact exploit request, verify the vulnerability triggers
+2. HEADLESS -- Use a headless browser for client-side vulns (XSS, DOM-based)
+3. OOB -- Check the Interactsh callback server for out-of-band interactions
+4. COMPARE -- Compare response with/without payload (for blind vulns)
+5. LLM -- Analyze the evidence with LLM reasoning as a last resort
 
 Validation rules:
 - XSS: Prefer headless browser (check for JS execution / DOM changes)

@@ -22,7 +22,7 @@ func Connect(databaseURL string) (*sql.DB, error) {
 	db.SetMaxOpenConns(25)
 	db.SetMaxIdleConns(5)
 
-	log.Println("✅ Connected to PostgreSQL")
+	log.Println("[OK] Connected to PostgreSQL")
 	return db, nil
 }
 
@@ -161,7 +161,13 @@ func RunMigrations(db *sql.DB) error {
 		}
 	}
 
-	log.Println("✅ Database migrations complete")
+	log.Println("[OK] Legacy migrations complete")
+
+	// Apply versioned migrations (new tables from Phase 9+)
+	if err := RunVersionedMigrations(db); err != nil {
+		return fmt.Errorf("versioned migration failed: %w", err)
+	}
+
 	return nil
 }
 

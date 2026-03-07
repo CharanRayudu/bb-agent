@@ -61,7 +61,7 @@ func New(cfg *config.Config, db *sql.DB) *Server {
 }
 
 func (s *Server) setupRoutes() {
-	// API routes — register more specific patterns first so /api/flows/{id} and /api/flows/create
+	// API routes -- register more specific patterns first so /api/flows/{id} and /api/flows/create
 	// are handled by handleFlow/handleCreateFlow, not handleFlows (which only allows GET and would return 405 for DELETE)
 	s.mux.HandleFunc("/api/health", s.handleHealth)
 	s.mux.HandleFunc("/api/models", s.handleModels)
@@ -69,6 +69,9 @@ func (s *Server) setupRoutes() {
 	s.mux.HandleFunc("/api/flows/create", s.handleCreateFlow)
 	s.mux.HandleFunc("/api/flows/", s.handleFlow)
 	s.mux.HandleFunc("/api/flows", s.handleFlows)
+
+	// Extended API routes (knowledge graph, analytics, config, metrics, schedules)
+	s.registerExtendedRoutes()
 
 	// WebSocket
 	s.mux.HandleFunc("/ws", s.handleWebSocket)
@@ -201,11 +204,11 @@ func (s *Server) handleDeleteFlow(w http.ResponseWriter, r *http.Request, id uui
 		return
 	}
 
-	log.Printf("🗑️ DELETE flow request: %s", id.String())
+	log.Printf("[DELETE] DELETE flow request: %s", id.String())
 
 	flow, err := s.queries.GetFlow(id)
 	if err != nil {
-		log.Printf("❌ Delete flow: %v", err)
+		log.Printf("[ERROR] Delete flow: %v", err)
 		http.Error(w, "Flow not found", http.StatusNotFound)
 		return
 	}
@@ -233,12 +236,12 @@ func (s *Server) handleDeleteFlow(w http.ResponseWriter, r *http.Request, id uui
 	}
 
 	if err := s.queries.DeleteFlow(id); err != nil {
-		log.Printf("❌ DeleteFlow db error: %v", err)
+		log.Printf("[ERROR] DeleteFlow db error: %v", err)
 		http.Error(w, "Failed to delete flow", http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("✅ Flow deleted: %s", id.String())
+	log.Printf("[OK] Flow deleted: %s", id.String())
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -256,10 +259,10 @@ func (s *Server) handleCancelFlow(w http.ResponseWriter, r *http.Request, id uui
 	s.activeScansMu.Unlock()
 
 	if exists {
-		log.Printf("🛑 User requested cancellation for flow: %s", id.String())
+		log.Printf("[CANCEL] User requested cancellation for flow: %s", id.String())
 		cancel() // This triggers <-ctx.Done() inside the orchestrator
 	} else {
-		log.Printf("⚠️  User requested cancellation for non-active flow: %s (force clearing status)", id.String())
+		log.Printf("[WARN] User requested cancellation for non-active flow: %s (force clearing status)", id.String())
 	}
 
 	// ALWAYS update database and broadcast event to ensure orphans are cleared in the UI
@@ -313,7 +316,7 @@ func (s *Server) handleFlowEvents(w http.ResponseWriter, r *http.Request, id uui
 	// 1. Fetch from new flow_events table
 	events, err := s.queries.GetFlowEvents(id)
 	if err != nil {
-		log.Printf("❌ Failed to fetch flow events: %v", err)
+		log.Printf("[ERROR] Failed to fetch flow events: %v", err)
 		http.Error(w, "Failed to load events", http.StatusInternalServerError)
 		return
 	}
@@ -321,7 +324,7 @@ func (s *Server) handleFlowEvents(w http.ResponseWriter, r *http.Request, id uui
 	// 2. Fetch from actions table (fallback/legacy/auto-reported findings)
 	actions, err := s.queries.GetActionsByFlow(id)
 	if err != nil {
-		log.Printf("❌ Failed to fetch actions for fallback: %v", err)
+		log.Printf("[ERROR] Failed to fetch actions for fallback: %v", err)
 	}
 
 	// 3. Merge and deduplicate using unique Content + Type + Timestamp (approx)
@@ -398,7 +401,7 @@ func (s *Server) handleFlowLedger(w http.ResponseWriter, r *http.Request, id uui
 
 	ledger, err := s.queries.GetFlowLedger(id)
 	if err != nil {
-		log.Printf("❌ Failed to fetch flow ledger: %v", err)
+		log.Printf("[ERROR] Failed to fetch flow ledger: %v", err)
 		http.Error(w, "Failed to load ledger", http.StatusInternalServerError)
 		return
 	}
@@ -452,7 +455,7 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 	// Create Docker sandbox
 	sandbox, err := docker.NewSandbox(s.cfg.DockerHost, s.cfg.SandboxImage)
 	if err != nil {
-		log.Printf("❌ Failed to create sandbox: %v", err)
+		log.Printf("[ERROR] Failed to create sandbox: %v", err)
 		s.queries.UpdateFlowStatus(flowID, models.FlowStatusFailed)
 		s.broadcast(agent.Event{
 			Type:    agent.EventError,
@@ -468,21 +471,21 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 	if model == "" {
 		model = s.cfg.OpenAIModel
 	}
-	log.Printf("🧠 Using model: %s", model)
+	log.Printf("[BRAIN] Using model: %s", model)
 
-	// Create LLM provider — prefer Codex OAuth, fall back to API key
+	// Create LLM provider -- prefer Codex OAuth, fall back to API key
 	var provider llm.Provider
 
 	codexAuth := llm.NewCodexTokenProvider(s.cfg.CodexHome)
 	if codexAuth.IsAvailable() {
-		log.Println("🔐 Using Codex CLI OAuth for LLM authentication")
+		log.Println("[AUTH] Using Codex CLI OAuth for LLM authentication")
 		provider = llm.NewOpenAIProviderWithCodex(codexAuth, model, s.cfg.OpenAITemperature)
 	} else if s.cfg.OpenAIAPIKey != "" {
-		log.Println("🔑 Using OpenAI API key for LLM authentication")
+		log.Println("[KEY] Using OpenAI API key for LLM authentication")
 		provider = llm.NewOpenAIProvider(s.cfg.OpenAIAPIKey, model, s.cfg.OpenAITemperature)
 	} else {
 		errMsg := "No LLM authentication available. Run 'codex login' or set OPENAI_API_KEY"
-		log.Printf("❌ %s", errMsg)
+		log.Printf("[ERROR] %s", errMsg)
 		s.queries.UpdateFlowStatus(flowID, models.FlowStatusFailed)
 		s.broadcast(agent.Event{
 			Type:    agent.EventError,
@@ -500,7 +503,7 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 	// Load externalized prompts
 	prompts, err := config.LoadPrompts("prompts.yaml")
 	if err != nil {
-		log.Printf("⚠️ Failed to load prompts.yaml: %v (using defaults)", err)
+		log.Printf("[WARN] Failed to load prompts.yaml: %v (using defaults)", err)
 		prompts = &config.Prompts{}
 	}
 
@@ -510,10 +513,10 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 		// Mirage 2.0: Persist events so they survive page refreshes
 		flowIDuuid, err := uuid.Parse(event.FlowID)
 		if err != nil {
-			log.Printf("⚠️ Failed to parse flow ID for event persistence: %v", err)
+			log.Printf("[WARN] Failed to parse flow ID for event persistence: %v", err)
 		} else {
 			if err := s.queries.CreateFlowEvent(flowIDuuid, string(event.Type), event.Content, event.Metadata); err != nil {
-				log.Printf("❌ Database error saving flow event: %v", err)
+				log.Printf("[ERROR] Database error saving flow event: %v", err)
 			}
 		}
 		s.broadcast(event)
@@ -539,7 +542,7 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 			Type:      agent.EventMessage,
 			FlowID:    flowID.String(),
 			TaskID:    "conductor",
-			Content:   "📊 Queue Metrics Update",
+			Content:   "[STATS] Queue Metrics Update",
 			Metadata:  metrics,
 			Timestamp: time.Now(),
 		})
@@ -562,10 +565,10 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 	// Run the flow via Conductor
 	if err := conductor.RunFlowWithOversight(ctx, flowID, prompt); err != nil {
 		if ctx.Err() == context.Canceled {
-			log.Printf("🛑 Flow %s was intentionally cancelled", flowID)
+			log.Printf("[CANCEL] Flow %s was intentionally cancelled", flowID)
 			// Status is already updated by handleCancelFlow
 		} else {
-			log.Printf("❌ Flow %s failed: %v", flowID, err)
+			log.Printf("[ERROR] Flow %s failed: %v", flowID, err)
 			s.queries.UpdateFlowStatus(flowID, models.FlowStatusFailed)
 		}
 	} else {
@@ -586,7 +589,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	s.clients[conn] = true
 	s.clientsMu.Unlock()
 
-	log.Printf("🔌 WebSocket client connected (%d total)", len(s.clients))
+	log.Printf("[WS] WebSocket client connected (%d total)", len(s.clients))
 
 	// Read loop (handle disconnections)
 	go func() {
@@ -595,7 +598,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			delete(s.clients, conn)
 			s.clientsMu.Unlock()
 			conn.Close()
-			log.Printf("🔌 WebSocket client disconnected (%d remaining)", len(s.clients))
+			log.Printf("[WS] WebSocket client disconnected (%d remaining)", len(s.clients))
 		}()
 
 		for {

@@ -2,7 +2,7 @@
 //
 // The pipeline models the following execution model:
 //
-//	IDLE → RECONNAISSANCE → DISCOVERY → STRATEGY → EXPLOITATION → VALIDATION → REPORTING → COMPLETE
+//	IDLE -> RECONNAISSANCE -> DISCOVERY -> STRATEGY -> EXPLOITATION -> VALIDATION -> REPORTING -> COMPLETE
 //
 // Any active phase can transition to PAUSED or ERROR.
 // PAUSED can resume to any active phase.
@@ -16,7 +16,7 @@ const (
 	PhaseIdle           Phase = iota // Not started
 	PhaseReconnaissance              // GoSpider crawling, asset discovery
 	PhaseDiscovery                   // DAST analysis, input classification
-	PhaseStrategy                    // Thinking/Consolidation — dedup, classify, route to queues
+	PhaseStrategy                    // Thinking/Consolidation -- dedup, classify, route to queues
 	PhaseExploitation                // Specialist agents working concurrently
 	PhaseValidation                  // Multi-layer finding verification
 	PhaseReporting                   // AI report generation

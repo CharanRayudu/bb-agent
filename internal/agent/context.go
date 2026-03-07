@@ -3,7 +3,7 @@
 //
 // It loads technology profiles from recon data and generates context-aware
 // "Prime Directive" prompt blocks that make every specialist agent aware of
-// the target's exact technology stack — transforming generic agents into
+// the target's exact technology stack -- transforming generic agents into
 // stack-specific precision tools.
 package agent
 
@@ -185,7 +185,7 @@ func normalizeStack(raw map[string]interface{}) *TechStack {
 	}
 dbDone:
 
-	// 2. Framework → DB inference
+	// 2. Framework -> DB inference
 	if stack.DB == "generic" {
 		for _, fw := range frameworks {
 			for hint, dbType := range frameworkToDB {
@@ -218,7 +218,7 @@ srvDone:
 		}
 	}
 
-	// 5. Framework → Language fallback
+	// 5. Framework -> Language fallback
 	if stack.Lang == "generic" {
 		for _, fw := range frameworks {
 			switch {
@@ -325,7 +325,7 @@ func GenerateContextPrompt(stack *TechStack) string {
 
 	// WAF
 	if stack.WAF != "" {
-		b.WriteString(fmt.Sprintf("- WAF PRESENT (%s): Use evasion techniques — encoding, case mixing, comments\n", stack.WAF))
+		b.WriteString(fmt.Sprintf("- WAF PRESENT (%s): Use evasion techniques -- encoding, case mixing, comments\n", stack.WAF))
 	}
 
 	return b.String()

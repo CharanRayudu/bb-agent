@@ -75,7 +75,7 @@ func readCurrentModel(codexHome string) string {
 		return ""
 	}
 
-	// Simple TOML parsing — look for the model = "..." line
+	// Simple TOML parsing -- look for the model = "..." line
 	// Only match top-level model key (not inside a [section])
 	inSection := false
 	for _, line := range strings.Split(string(data), "\n") {

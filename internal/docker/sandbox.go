@@ -44,13 +44,13 @@ func NewSandbox(dockerHost, imageName string) (*Sandbox, error) {
 	_, err = cli.ContainerInspect(ctx, sandboxName)
 	if err != nil {
 		if client.IsErrNotFound(err) {
-			log.Printf("⚠️  Sandbox container '%s' not found. It must be started via docker-compose.", sandboxName)
+			log.Printf("[WARN] Sandbox container '%s' not found. It must be started via docker-compose.", sandboxName)
 		} else {
 			return nil, fmt.Errorf("failed to inspect sandbox container: %w", err)
 		}
 	}
 
-	log.Println("✅ Connected to Docker daemon and verified sandbox container")
+	log.Println("[OK] Connected to Docker daemon and verified sandbox container")
 	return &Sandbox{client: cli, imageName: imageName}, nil
 }
 

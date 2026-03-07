@@ -58,7 +58,7 @@ func HealToolError(toolName string, output string, originalArgs json.RawMessage)
 		return ToolErrorStrategy{
 			ShouldRetry: true,
 			Delay:       5 * time.Second,
-			Message:     "🔧 Target connection failed. Waiting 5s before retry (network may be intermittent).",
+			Message:     "[HEAL] Target connection failed. Waiting 5s before retry (network may be intermittent).",
 		}
 	}
 
@@ -70,7 +70,7 @@ func HealToolError(toolName string, output string, originalArgs json.RawMessage)
 			ShouldRetry: true,
 			NewArgs:     injectTimeoutFlag(originalArgs),
 			Delay:       2 * time.Second,
-			Message:     "🔧 Command timed out. Retrying with reduced scope/timeout.",
+			Message:     "[HEAL] Command timed out. Retrying with reduced scope/timeout.",
 		}
 	}
 
@@ -82,11 +82,11 @@ func HealToolError(toolName string, output string, originalArgs json.RawMessage)
 			ShouldRetry: true,
 			NewArgs:     injectConcurrencyLimit(originalArgs),
 			Delay:       3 * time.Second,
-			Message:     "🔧 Process killed (OOM). Retrying with lower concurrency.",
+			Message:     "[HEAL] Process killed (OOM). Retrying with lower concurrency.",
 		}
 	}
 
-	// Pattern 4: Command not found → Dynamic tool install
+	// Pattern 4: Command not found -> Dynamic tool install
 	if strings.Contains(outputLower, "command not found") ||
 		strings.Contains(outputLower, "not found") && strings.Contains(outputLower, "no such file") {
 		toolToInstall := extractMissingTool(output)
@@ -97,13 +97,13 @@ func HealToolError(toolName string, output string, originalArgs json.RawMessage)
 					ShouldRetry: true,
 					NewArgs:     buildInstallAndRetryArgs(installCmd, originalArgs),
 					Delay:       1 * time.Second,
-					Message:     fmt.Sprintf("🔧 Tool '%s' not found. Auto-installing and retrying.", toolToInstall),
+					Message:     fmt.Sprintf("[HEAL] Tool '%s' not found. Auto-installing and retrying.", toolToInstall),
 				}
 			}
 		}
 		return ToolErrorStrategy{
 			ShouldRetry: false,
-			Message:     fmt.Sprintf("❌ Command not found and no auto-install available: %s", output),
+			Message:     fmt.Sprintf("[ERROR] Command not found and no auto-install available: %s", output),
 		}
 	}
 
@@ -116,7 +116,7 @@ func HealToolError(toolName string, output string, originalArgs json.RawMessage)
 			ShouldRetry: true,
 			NewArgs:     injectRateLimit(originalArgs),
 			Delay:       10 * time.Second,
-			Message:     "🔧 Rate limited by target/WAF. Backing off 10s and reducing scan rate.",
+			Message:     "[HEAL] Rate limited by target/WAF. Backing off 10s and reducing scan rate.",
 		}
 	}
 
@@ -128,7 +128,7 @@ func HealToolError(toolName string, output string, originalArgs json.RawMessage)
 			ShouldRetry: true,
 			NewArgs:     injectInsecureFlag(originalArgs),
 			Delay:       1 * time.Second,
-			Message:     "🔧 SSL/TLS error. Retrying with --insecure flag.",
+			Message:     "[HEAL] SSL/TLS error. Retrying with --insecure flag.",
 		}
 	}
 
@@ -161,7 +161,7 @@ func ExecuteWithHealing(ctx context.Context, toolName string, execFn func(json.R
 
 		if !strategy.ShouldRetry {
 			if emitWarning != nil {
-				emitWarning(fmt.Sprintf("❌ [Self-Heal Failed] %s: %s", toolName, strategy.Message))
+				emitWarning(fmt.Sprintf("[ERROR] [Self-Heal Failed] %s: %s", toolName, strategy.Message))
 			}
 			if err != nil {
 				return "", err
@@ -170,7 +170,7 @@ func ExecuteWithHealing(ctx context.Context, toolName string, execFn func(json.R
 		}
 
 		if emitWarning != nil {
-			emitWarning(fmt.Sprintf("🔄 [Self-Heal Attempt %d/%d] %s", attempt+1, maxHealAttempts, strategy.Message))
+			emitWarning(fmt.Sprintf("[RETRY] [Self-Heal Attempt %d/%d] %s", attempt+1, maxHealAttempts, strategy.Message))
 		}
 
 		// Apply recovery strategy

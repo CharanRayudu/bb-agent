@@ -142,7 +142,7 @@ func (c *Conductor) monitorHealth(ctx context.Context, flowID uuid.UUID) {
 			for id, agent := range c.activeAgents {
 				// If agentTimeout is 0 or negative, it means "no timeout"
 				if c.agentTimeout > 0 && now.Sub(agent.StartTime) > c.agentTimeout {
-					log.Printf("⚠️ Conductor: Agent %s (%s) exceeded timeout (%v). Terminating.", agent.ID, agent.Type, c.agentTimeout)
+					log.Printf("[WARN] Conductor: Agent %s (%s) exceeded timeout (%v). Terminating.", agent.ID, agent.Type, c.agentTimeout)
 					toKill = append(toKill, id)
 				}
 			}
@@ -202,6 +202,6 @@ func (c *Conductor) emitStateUpdate(flowID uuid.UUID, state string) {
 		Type:    EventMessage,
 		FlowID:  flowID.String(),
 		TaskID:  "conductor",
-		Content: fmt.Sprintf("🚂 [Conductor Status]: %s", state),
+		Content: fmt.Sprintf("[CONDUCTOR] [Conductor Status]: %s", state),
 	})
 }

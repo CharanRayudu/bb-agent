@@ -18,11 +18,14 @@ type Config struct {
 	DockerHost   string
 	SandboxImage string
 
-	// LLM — Codex OAuth (preferred) or API key (fallback)
+	// LLM -- Codex OAuth (preferred) or API key (fallback)
 	CodexHome         string // Path to Codex CLI config dir (default: ~/.codex)
 	OpenAIAPIKey      string // Optional fallback: raw API key
 	OpenAIModel       string
 	OpenAITemperature float64
+
+	// Auth
+	JWTSecret string
 
 	// Search
 	TavilyAPIKey string
@@ -43,15 +46,16 @@ func Load() (*Config, error) {
 		OpenAIAPIKey:      getEnv("OPENAI_API_KEY", ""),
 		OpenAIModel:       getEnv("OPENAI_MODEL", "gpt-4o"),
 		OpenAITemperature: temp,
+		JWTSecret:         getEnv("JWT_SECRET", ""),
 		TavilyAPIKey:      getEnv("TAVILY_API_KEY", ""),
 		ShodanAPIKey:      getEnv("SHODAN_API_KEY", ""),
 	}
 
-	// No hard requirement on API key anymore — Codex OAuth is checked at runtime
+	// No hard requirement on API key anymore -- Codex OAuth is checked at runtime
 	if cfg.OpenAIAPIKey != "" {
-		log.Println("🔑 Using OpenAI API key for authentication")
+		log.Println("[KEY] Using OpenAI API key for authentication")
 	} else {
-		log.Println("🔐 No API key set — will use Codex CLI OAuth (run 'codex login' first)")
+		log.Println("[AUTH] No API key set -- will use Codex CLI OAuth (run 'codex login' first)")
 	}
 
 	return cfg, nil

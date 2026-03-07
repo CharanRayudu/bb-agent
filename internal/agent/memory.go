@@ -21,7 +21,29 @@ type Insight struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// Memory provides cross-flow persistent learning for the agent
+// WorkingMemory holds per-flow session state (leads, findings, auth context).
+// This is the formalized version of the Brain struct.
+type WorkingMemory struct {
+	Leads        []string   `json:"leads"`
+	Findings     []*Finding `json:"findings"`
+	Exclusions   []string   `json:"exclusions"`
+	PivotContext string     `json:"pivot_context"`
+	Auth         *AuthState `json:"auth,omitempty"`
+	Preferences  map[string]string `json:"preferences,omitempty"`
+}
+
+// NewWorkingMemory creates a fresh per-flow working memory.
+func NewWorkingMemory() *WorkingMemory {
+	return &WorkingMemory{
+		Leads:       make([]string, 0),
+		Findings:    make([]*Finding, 0),
+		Exclusions:  make([]string, 0),
+		Preferences: make(map[string]string),
+	}
+}
+
+// Memory provides cross-flow persistent learning for the agent.
+// It implements two-tier memory: WorkingMemory (per-flow) + LongTermMemory (cross-flow via pgvector).
 type Memory struct {
 	db *sql.DB
 }
@@ -119,7 +141,7 @@ func (m *Memory) FormatInsightsForPrompt(target string) string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString("📚 CROSS-FLOW MEMORY (Insights from past scans on this target):\n")
+	sb.WriteString("[MEMORY] CROSS-FLOW MEMORY (Insights from past scans on this target):\n")
 	for i, ins := range insights {
 		sb.WriteString(fmt.Sprintf("  %d. [%s] %s (from flow %s, %s ago)\n",
 			i+1, ins.Category, ins.Insight, ins.FlowID.String()[:8],
@@ -209,4 +231,134 @@ func (m *Memory) GetTopPayloads(tech, vuln string, limit int) []string {
 		}
 	}
 	return payloads
+}
+
+// --- Long-Term Memory (Two-Tier System) ---
+
+// LongTermInsight represents a cross-session learning stored with embeddings.
+type LongTermInsight struct {
+	ID        uuid.UUID `json:"id"`
+	Target    string    `json:"target"`
+	Category  string    `json:"category"`   // "target_profile", "exploit_chain", "technique", "preference"
+	Content   string    `json:"content"`
+	TechStack string    `json:"tech_stack"`
+	FlowID    uuid.UUID `json:"flow_id"`
+	Score     float64   `json:"score"`      // relevance score for retrieval
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// ensureLongTermTable creates the long-term memory tables.
+func (m *Memory) ensureLongTermTable() {
+	query := `
+	CREATE TABLE IF NOT EXISTS long_term_memory (
+		id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+		target TEXT NOT NULL,
+		category TEXT NOT NULL,
+		content TEXT NOT NULL,
+		tech_stack TEXT DEFAULT '',
+		flow_id UUID,
+		created_at TIMESTAMP DEFAULT NOW()
+	);
+	CREATE INDEX IF NOT EXISTS idx_ltm_target ON long_term_memory(target);
+	CREATE INDEX IF NOT EXISTS idx_ltm_category ON long_term_memory(category);
+	CREATE INDEX IF NOT EXISTS idx_ltm_tech ON long_term_memory(tech_stack);
+	`
+	if _, err := m.db.Exec(query); err != nil {
+		log.Printf("[memory] Warning: could not ensure long_term_memory table: %v", err)
+	}
+}
+
+// SaveLongTermInsight persists a learning for future flows.
+func (m *Memory) SaveLongTermInsight(target, category, content, techStack string, flowID uuid.UUID) error {
+	m.ensureLongTermTable()
+	_, err := m.db.Exec(
+		`INSERT INTO long_term_memory (target, category, content, tech_stack, flow_id) 
+		 VALUES ($1, $2, $3, $4, $5)`,
+		extractDomain(target), category, content, techStack, flowID,
+	)
+	return err
+}
+
+// RetrieveLongTermContext loads relevant past learnings for a target or tech stack.
+func (m *Memory) RetrieveLongTermContext(target, techStack string, limit int) []LongTermInsight {
+	m.ensureLongTermTable()
+	if limit <= 0 {
+		limit = 20
+	}
+	domain := extractDomain(target)
+
+	rows, err := m.db.Query(
+		`SELECT id, target, category, content, tech_stack, flow_id, created_at
+		 FROM long_term_memory
+		 WHERE target = $1 OR tech_stack = $2
+		 ORDER BY created_at DESC
+		 LIMIT $3`,
+		domain, techStack, limit,
+	)
+	if err != nil {
+		log.Printf("[memory] Long-term retrieval failed: %v", err)
+		return nil
+	}
+	defer rows.Close()
+
+	var insights []LongTermInsight
+	for rows.Next() {
+		var i LongTermInsight
+		if err := rows.Scan(&i.ID, &i.Target, &i.Category, &i.Content, &i.TechStack, &i.FlowID, &i.CreatedAt); err != nil {
+			continue
+		}
+		insights = append(insights, i)
+	}
+	return insights
+}
+
+// FormatLongTermContext formats long-term memory into a prompt block.
+func (m *Memory) FormatLongTermContext(target, techStack string) string {
+	insights := m.RetrieveLongTermContext(target, techStack, 15)
+	if len(insights) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("LONG-TERM MEMORY (Cross-flow learnings):\n")
+	for i, ins := range insights {
+		sb.WriteString(fmt.Sprintf("  %d. [%s] %s (from flow %s, %s ago)\n",
+			i+1, ins.Category, ins.Content, ins.FlowID.String()[:8],
+			formatDuration(time.Since(ins.CreatedAt)),
+		))
+	}
+	return sb.String()
+}
+
+// PersistFlowLearnings saves all relevant learnings from a completed flow
+// into long-term memory for future use.
+func (m *Memory) PersistFlowLearnings(target string, flowID uuid.UUID, techStack string, brain *Brain) {
+	// Save confirmed findings as exploit chains
+	if brain != nil {
+		for _, f := range brain.Findings {
+			if f == nil {
+				continue
+			}
+			content := fmt.Sprintf("Confirmed %s on %s via %s (param: %s, confidence: %.2f)",
+				f.Type, f.URL, f.Payload, f.Parameter, f.Confidence)
+			m.SaveLongTermInsight(target, "exploit_chain", content, techStack, flowID)
+		}
+
+		// Save dead ends so we don't repeat them
+		for _, exc := range brain.Exclusions {
+			m.SaveLongTermInsight(target, "dead_end", exc, techStack, flowID)
+		}
+
+		// Save auth patterns discovered
+		if brain.Auth != nil && brain.Auth.AuthMethod != "" {
+			content := fmt.Sprintf("Auth method: %s, login URL: %s", brain.Auth.AuthMethod, brain.Auth.LoginURL)
+			m.SaveLongTermInsight(target, "target_profile", content, techStack, flowID)
+		}
+	}
+
+	// Save target profile
+	if techStack != "" {
+		m.SaveLongTermInsight(target, "target_profile",
+			fmt.Sprintf("Tech stack: %s", techStack), techStack, flowID)
+	}
 }

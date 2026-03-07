@@ -33,8 +33,8 @@ type Stats struct {
 // SpecialistQueue is an async queue with backpressure and rate limiting.
 //
 // Features:
-//   - Max depth enforcement (backpressure) — rejects items when full
-//   - Token bucket rate limiting — prevents overloading the target
+//   - Max depth enforcement (backpressure) -- rejects items when full
+//   - Token bucket rate limiting -- prevents overloading the target
 //   - Thread-safe for concurrent producers and consumers
 type SpecialistQueue struct {
 	Name      string
@@ -95,7 +95,7 @@ func (sq *SpecialistQueue) Enqueue(payload map[string]interface{}, scanContext s
 		sq.mu.Unlock()
 		return true
 	default:
-		// Queue is full — backpressure
+		// Queue is full -- backpressure
 		atomic.AddInt64(&sq.stats.Rejected, 1)
 		log.Printf("[queue:%s] Backpressure: queue full (%d/%d), item rejected",
 			sq.Name, len(sq.ch), sq.MaxDepth)

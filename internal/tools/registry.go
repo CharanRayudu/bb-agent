@@ -36,7 +36,7 @@ func NewRegistry(sandbox *docker.Sandbox) *Registry {
 }
 
 func (r *Registry) registerBuiltins() {
-	// execute_command — run a shell command in the Docker sandbox
+	// execute_command -- run a shell command in the Docker sandbox
 	r.Register(&Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "execute_command",
@@ -59,11 +59,11 @@ func (r *Registry) registerBuiltins() {
 		Execute: r.executeCommand,
 	})
 
-	// think — internal reasoning/planning step
+	// think -- internal reasoning/planning step
 	r.Register(&Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "think",
-			Description: "Use this tool to think through a problem, plan your next steps, analyze results, or reason about findings. This does not execute anything — it's purely for structured thinking. Use this before making decisions about what tool to run next, or to analyze output from previous commands.",
+			Description: "Use this tool to think through a problem, plan your next steps, analyze results, or reason about findings. This does not execute anything -- it's purely for structured thinking. Use this before making decisions about what tool to run next, or to analyze output from previous commands.",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -86,7 +86,7 @@ func (r *Registry) registerBuiltins() {
 		},
 	})
 
-	// report_findings — create a structured report
+	// report_findings -- create a structured report
 	r.Register(&Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "report_findings",
@@ -133,7 +133,7 @@ func (r *Registry) registerBuiltins() {
 		},
 	})
 
-	// complete_task — signal that the current task is done
+	// complete_task -- signal that the current task is done
 	r.Register(&Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "complete_task",
@@ -174,7 +174,7 @@ func (r *Registry) registerBuiltins() {
 		},
 	})
 
-	// execute_browser_script — native headless browser driver
+	// execute_browser_script -- native headless browser driver
 	r.Register(&Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "execute_browser_script",
@@ -197,11 +197,11 @@ func (r *Registry) registerBuiltins() {
 		Execute: r.executeBrowserScript,
 	})
 
-	// analyze_source_code — CodeMapper for finding injection choke points
+	// analyze_source_code -- CodeMapper for finding injection choke points
 	r.Register(&Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "analyze_source_code",
-			Description: "Clone a git repository or download source code and analyze it for security-critical patterns (injection points, unsafe calls, hardcoded secrets, auth bypasses). Uses grep/semgrep patterns to find 'choke points' — code locations most likely to contain vulnerabilities. Returns a structured list of findings with file paths, line numbers, and matched patterns.\n\nUse this BEFORE fuzzing to identify exactly which parameters, endpoints, and functions to target.",
+			Description: "Clone a git repository or download source code and analyze it for security-critical patterns (injection points, unsafe calls, hardcoded secrets, auth bypasses). Uses grep/semgrep patterns to find 'choke points' -- code locations most likely to contain vulnerabilities. Returns a structured list of findings with file paths, line numbers, and matched patterns.\n\nUse this BEFORE fuzzing to identify exactly which parameters, endpoints, and functions to target.",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -312,7 +312,7 @@ func (r *Registry) executeCommand(ctx context.Context, args json.RawMessage) (st
 		return "[ERROR]: The 'nikto' scanner is explicitly prohibited by the user. Do not use this tool. Please rely on nuclei or manual enumeration instead.", nil
 	}
 
-	log.Printf("🔧 Executing: %s (timeout: %ds)", params.Command, params.Timeout)
+	log.Printf("[TOOL] Executing: %s (timeout: %ds)", params.Command, params.Timeout)
 
 	result, err := r.sandbox.Execute(ctx, params.Command, params.Timeout)
 	if err != nil {
@@ -350,7 +350,7 @@ func (r *Registry) executeBrowserScript(ctx context.Context, args json.RawMessag
 		params.Timeout = 300
 	}
 
-	log.Printf("🌐 Executing Browser Script (timeout: %ds)", params.Timeout)
+	log.Printf("[BROWSER] Executing Browser Script (timeout: %ds)", params.Timeout)
 
 	// Base64 encode the script to avoid shell escaping issues
 	encodedScript := base64.StdEncoding.EncodeToString([]byte(params.Script))
@@ -405,7 +405,7 @@ func (r *Registry) analyzeSourceCode(ctx context.Context, args json.RawMessage) 
 		return "", fmt.Errorf("invalid analyze_source_code args: %w", err)
 	}
 
-	log.Printf("🔍 CodeMapper: Analyzing %s (focus: %s)", params.URL, params.Focus)
+	log.Printf("[ANALYZE] CodeMapper: Analyzing %s (focus: %s)", params.URL, params.Focus)
 
 	// Build the analysis script
 	cloneCmd := fmt.Sprintf("cd /tmp && rm -rf codemapper_repo && git clone --depth=1 %s codemapper_repo 2>&1 && cd codemapper_repo", params.URL)

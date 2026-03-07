@@ -73,7 +73,7 @@ func (r *Registry) AddOOBTools(oob OOBProvider) {
 			// Generate payload variants
 			payloads := oob.GeneratePayloads(token)
 
-			result := fmt.Sprintf("🎯 OOB Token Generated\n\nCallback URL: %s\nDNS Hostname: %s\nToken: %s\n\n", callbackURL, dnsCallback, token)
+			result := fmt.Sprintf("[OOB] OOB Token Generated\n\nCallback URL: %s\nDNS Hostname: %s\nToken: %s\n\n", callbackURL, dnsCallback, token)
 			result += "Ready-to-use payloads:\n"
 			for name, payload := range payloads {
 				result += fmt.Sprintf("  %s: %s\n", name, payload)

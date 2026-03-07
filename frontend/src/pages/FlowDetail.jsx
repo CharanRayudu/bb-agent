@@ -334,7 +334,7 @@ function SchemaWarningCard({ event }) {
                         Schema Validation Recovery
                     </div>
                     <div className="text-xs text-accent-orange/80 whitespace-pre-wrap leading-relaxed">
-                        {event.content.replace(/^⚠️\s*/, '')}
+                        {event.content.replace(/^\[WARN\]\s*/, '')}
                     </div>
                 </div>
             </div>
@@ -348,7 +348,7 @@ function SchemaWarningCard({ event }) {
 
 function isSchemaWarning(event) {
     return event.type === 'message' &&
-        (event.content?.includes('schema validation') || event.content?.startsWith('⚠️'))
+        (event.content?.includes('schema validation') || event.content?.startsWith('[WARN]'))
 }
 
 function isSpecialistDispatch(event) {

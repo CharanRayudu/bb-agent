@@ -34,7 +34,7 @@ func (a *Agent) ProcessItem(ctx context.Context, item *queue.Item) ([]*base.Find
 		return nil, fmt.Errorf("missing target URL")
 	}
 
-	fmt.Printf("[URLMaster] 🚀 Starting deep analysis of %s\n", targetURL)
+	fmt.Printf("[URLMaster] [START] Starting deep analysis of %s\n", targetURL)
 
 	// Phase 1: Feature Extraction & Recon (Internal)
 	// Phase 2: Vulnerability Analysis (LLM Thought)
@@ -72,7 +72,7 @@ func (a *Agent) ProcessItem(ctx context.Context, item *queue.Item) ([]*base.Find
 	return findings, nil
 }
 
-const defaultSystemPrompt = `You are a URLMaster Agent — an elite vertical orchestrator:
+const defaultSystemPrompt = `You are a URLMaster Agent -- an elite vertical orchestrator:
 
 Your job: Own the COMPLETE security lifecycle of a single URL.
 

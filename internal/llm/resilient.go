@@ -54,13 +54,13 @@ func (r *ResilientProvider) Complete(ctx context.Context, req CompletionRequest)
 
 		// Determine if the error is transient and should be retried
 		if !r.isTransientError(err) {
-			log.Printf("❌ [llm-resilience] Non-transient error: %v. Aborting.", err)
+			log.Printf("[ERROR] [llm-resilience] Non-transient error: %v. Aborting.", err)
 			return nil, err
 		}
 
 		if attempt < r.maxRetries {
 			delay := r.baseDelay * time.Duration(1<<uint(attempt))
-			log.Printf("⚠️ [llm-resilience] Attempt %d/%d failed: %v. Retrying in %v...", attempt+1, r.maxRetries, err, delay)
+			log.Printf("[WARN] [llm-resilience] Attempt %d/%d failed: %v. Retrying in %v...", attempt+1, r.maxRetries, err, delay)
 
 			select {
 			case <-time.After(delay):
