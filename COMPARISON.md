@@ -82,3 +82,33 @@ To evolve Mirage into a hybrid of an Enterprise AI Security Engineer (Neo) and a
 ### Epic D: Enterprise Features & Evidence Collection (Inspired by Neo)
 *   **Action:** Enhance the `Reporting` phase to generate concrete execution traces and step-by-step reproduction scripts alongside standard payloads.
 *   **Action:** Implement user authentication (OIDC/SAML), Role-Based Access Control (RBAC), and audit logging in the Go backend.
+
+---
+
+## 5. Insights from the Tsec-Hackathon (Tencent Intelligent Penetration Agent Hackathon)
+
+The repository `Yeti-791/Tsec-Hackathon` is the official resource repository for the Tencent Intelligent Penetration Hackathon. This competition focused on exploring the application potential of AI Agents in automated penetration testing using the **XBOW Benchmark**.
+
+While the repository itself is a collection of presentations and links rather than a single tool, it provides an invaluable **landscape of cutting-edge AI penetration testing architectures** that highly correlate with the goals of Mirage and LuaN1aoAgent (which was one of the top winners).
+
+**Key trends and features from the top Tsec-Hackathon projects that Mirage should consider:**
+
+1.  **Shift from State Machines to OODA/ReAct Loops:**
+    *   Many top projects (like *AgentNote* and *newmapta*) abandoned rigid state-machine pipelines (like Mirage's 8-phase pipeline) in favor of **OODA (Observe, Orient, Decide, Act)** loops or heavily customized **ReAct (Reason + Act)** architectures. This allows agents to adapt much faster to unexpected scenarios.
+2.  **"Swarm Intelligence" and Multi-Agent Collaboration:**
+    *   Projects like *xbow-competition* focused on "Swarm Mind" architectures. While Mirage has 32 specialist agents, they operate somewhat independently in queues. The hackathon projects emphasize **methodology-guided multi-agent systems** where agents actively debate and pass complex state objects to each other, rather than just raw JSON findings.
+3.  **State Awareness & Causal Reasoning:**
+    *   As seen in *LuaN1aoAgent* (BinX team), there is a massive push towards **Causal Graph Reasoning**. Future iterations of Mirage must move away from "flat" findings tables in PostgreSQL to a **Knowledge Graph** or **Causal Graph** where every finding is explicitly linked to the evidence that proved it, and the hypothesis that generated it.
+4.  **Extensive Tool Integration via MCP:**
+    *   Projects like *CyberStrikeAI* (which integrated 100+ security tools) and others heavily utilize the **Model Context Protocol (MCP)** to standardize how the LLM interacts with external tools. Mirage currently uses custom tool wrappers, but adopting MCP would allow Mirage to instantly support hundreds of community-built security tools without writing custom Go adapters.
+
+---
+
+## 6. Consolidated Action Plan for Mirage
+
+To elevate Mirage from a standard AI Pentesting Agent to an **Enterprise AI Security Engineer (Neo-level)** with **State-of-the-Art Offensive Cognitive Capabilities (Tsec-Hackathon level)**, the roadmap should be:
+
+1.  **Architecture:** Migrate the 8-phase linear pipeline to a **Plan-on-Graph (PoG)** or **OODA loop** architecture with a dedicated "Planner" and "Reflector" (inspired by LuaN1ao).
+2.  **Tooling:** Refactor the current Docker-based tool execution to use the **Model Context Protocol (MCP)**, allowing plug-and-play access to 100+ tools (inspired by CyberStrikeAI and the Tsec-Hackathon).
+3.  **Enterprise Workflows:** Build deep integrations for **GitHub/GitLab PR reviews**, **Jira/Linear ticket syncing**, and automated **Remediation Code Generation** (inspired by ProjectDiscovery Neo).
+4.  **Data Structure:** Upgrade the PostgreSQL database to support **Causal Graph Reasoning**, ensuring every vulnerability has an explicit, mathematically sound evidence chain to prevent LLM hallucinations.
