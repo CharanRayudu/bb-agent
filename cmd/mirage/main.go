@@ -44,7 +44,7 @@ func main() {
 	}()
 
 	addr := fmt.Sprintf("%s:%d", cfg.ServerHost, cfg.ServerPort)
-	log.Printf("🚀 mirage server starting on %s", addr)
+	log.Printf("[startup] mirage server starting on %s", addr)
 
 	if err := srv.Start(ctx, addr); err != nil {
 		log.Fatalf("Server error: %v", err)

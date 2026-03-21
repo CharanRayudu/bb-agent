@@ -220,7 +220,7 @@ func extractPlannerURLHint(raw string) string {
 }
 
 // ---------------------------------------------------------------------------
-// ReconOutput â€” structured reconnaissance results
+// ReconOutput - structured reconnaissance results
 // ---------------------------------------------------------------------------
 
 // ReconOutput is the expected output from the Reconnaissance phase.
@@ -256,7 +256,7 @@ func (r *ReconOutput) Validate() error {
 }
 
 // ---------------------------------------------------------------------------
-// FindingsOutput â€” structured vulnerability findings
+// FindingsOutput - structured vulnerability findings
 // ---------------------------------------------------------------------------
 
 // FindingsOutput is the expected output from specialist agents and PoC phases.

@@ -168,7 +168,7 @@ function CommandPalette() {
                         autoFocus
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
-                        placeholder="Jump to a screen… (Ctrl+K)"
+                        placeholder="Jump to a screen... (Ctrl+K)"
                         className="w-full bg-transparent text-sm text-text-primary placeholder:text-text-muted/70 outline-none"
                     />
                 </div>

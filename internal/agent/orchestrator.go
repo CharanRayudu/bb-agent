@@ -2004,7 +2004,7 @@ func (o *Orchestrator) emitPipelineEvent(flowID, taskID string) {
 		Type:     EventMessage,
 		FlowID:   flowID,
 		TaskID:   taskID,
-		Content:  fmt.Sprintf("âš¡ Pipeline Phase: %s", o.pipeline.Current()),
+		Content:  fmt.Sprintf("⚡ Pipeline Phase: %s", o.pipeline.Current()),
 		Metadata: o.pipeline.ToMap(),
 	})
 	// Also emit on internal bus for Conductor/WebSocket

@@ -137,6 +137,6 @@ Target Categories:
 RULES:
 1. .env and credential files are ALWAYS critical
 2. Exposed .git is critical (full source code access)
-3. Check response codes AND content (200 with HTML error ≠ real file)
+3. Check response codes AND content (200 with HTML error != real file)
 4. Spring Actuator /heapdump is critical (memory dump with secrets)
 5. Always verify findings by checking response content, not just status codes`

@@ -67,10 +67,14 @@ RUN curl -sL https://api.github.com/repos/projectdiscovery/subfinder/releases/la
     && unzip -o /tmp/subfinder.zip -d /usr/local/bin/ \
     && rm -f /tmp/subfinder.zip
 
-RUN curl -sL https://api.github.com/repos/hahwul/dalfox/releases/latest | grep "browser_download_url.*linux_amd64.tar.gz" | cut -d : -f 2,3 | tr -d \" | xargs curl -sL -o /tmp/dalfox.tar.gz \
-    && tar -xzf /tmp/dalfox.tar.gz -C /usr/local/bin/ dalfox \
-    && chmod +x /usr/local/bin/dalfox \
-    && rm -f /tmp/dalfox.tar.gz
+RUN set -eux; \
+    DALFOX_URL="$(curl -fsSL https://api.github.com/repos/hahwul/dalfox/releases/latest | jq -r '.assets[] | select(.name == "dalfox-linux-amd64.tar.gz") | .browser_download_url')"; \
+    test -n "$DALFOX_URL"; \
+    curl -fsSL "$DALFOX_URL" -o /tmp/dalfox.tar.gz; \
+    tar -xzf /tmp/dalfox.tar.gz -C /usr/local/bin/ dalfox-linux-amd64; \
+    mv /usr/local/bin/dalfox-linux-amd64 /usr/local/bin/dalfox; \
+    chmod +x /usr/local/bin/dalfox; \
+    rm -f /tmp/dalfox.tar.gz
 
 # Install advanced CLI security tools (separate steps to avoid cascade failures)
 RUN cd /opt && \

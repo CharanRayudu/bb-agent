@@ -94,7 +94,7 @@ function Dashboard() {
             case 'completed':
                 return `${baseClasses} bg-accent-green/10 text-accent-green border-accent-green/30`
             case 'active':
-                // Active but not yet completed — blue/cyan without pulse
+                // Active but not yet completed - blue/cyan without pulse
                 return `${baseClasses} bg-accent-cyan/10 text-accent-cyan border-accent-cyan/30`
             case 'running':
                 return `${baseClasses} bg-accent-cyan/10 text-accent-cyan border-accent-cyan/30 animate-pulse`
@@ -187,7 +187,7 @@ function Dashboard() {
 
     return (
         <div className="relative pb-12">
-            {/* Delete confirmation modal — in-app so it can't be closed by navigation */}
+            {/* Delete confirmation modal - in-app so it can't be closed by navigation */}
             {deleteConfirm && (
                 <div
                     className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"

@@ -88,7 +88,7 @@ function FindingList({ findings, formatTime }) {
 }
 
 // ============================================================================
-// PIPELINE TRACKER — Animated phase stepper
+// PIPELINE TRACKER - Animated phase stepper
 // ============================================================================
 
 const PIPELINE_PHASES = [
@@ -228,7 +228,7 @@ function PipelineTracker({ currentPhase }) {
 }
 
 // ============================================================================
-// SPECIALIST DISPATCH — Animated badge grid
+// SPECIALIST DISPATCH - Animated badge grid
 // ============================================================================
 
 const SPECIALIST_COLORS = {
@@ -306,7 +306,7 @@ function SpecialistDispatchCard({ event }) {
 }
 
 // ============================================================================
-// SCHEMA WARNING — Orange validation alert
+// SCHEMA WARNING - Orange validation alert
 // ============================================================================
 
 function SchemaWarningCard({ event }) {
@@ -367,7 +367,7 @@ function extractPipelinePhase(content) {
 }
 
 // ============================================================================
-// CAUSAL GRAPH — Evidence relationships
+// CAUSAL GRAPH - Evidence relationships
 // ============================================================================
 
 function CausalGraph({ nodes, edges }) {
@@ -486,7 +486,7 @@ function FlowDetail() {
     const eventsEndRef = useRef(null)
     const wsRef = useRef(null)
 
-    // Pipeline phase tracking — derive from events
+    // Pipeline phase tracking - derive from events
     const currentPhase = useMemo(() => {
         for (let i = events.length - 1; i >= 0; i--) {
             if (isPipelinePhaseEvent(events[i])) {
@@ -806,7 +806,7 @@ function FlowDetail() {
 
     return (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="relative pb-12 max-w-[1600px] mx-auto">
-            {/* Delete confirmation modal — in-app so it can't be closed by navigation */}
+            {/* Delete confirmation modal - in-app so it can't be closed by navigation */}
             {showDeleteConfirm && (
                 <div
                     className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
@@ -1007,7 +1007,7 @@ function FlowDetail() {
                                         {/* Command Execution */}
                                         {event.type === 'tool_call' && meta.tool === 'execute_command' && (
                                             <div className="text-accent-cyan/90 font-bold flex gap-3">
-                                                <span className="text-accent-purple select-none mt-0.5">λ</span>
+                                                <span className="text-accent-purple select-none mt-0.5">&gt;</span>
                                                 <span className="whitespace-pre-wrap flex-1">
                                                     {meta.subtask_id && <span className="mr-2 inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-mono text-white/70 bg-white/10" title="Agent Thread ID">{meta.subtask_id}</span>}
                                                     {(() => {
@@ -1083,7 +1083,7 @@ function FlowDetail() {
                         {/* Blinking Cursor */}
                         {isActive && (
                             <div className="flex items-center gap-3 text-accent-cyan h-6 mt-3 pl-1">
-                                <span className="text-accent-purple select-none mt-0.5 font-bold">λ</span>
+                                <span className="text-accent-purple select-none mt-0.5 font-bold">&gt;</span>
                                 <div className="w-2.5 h-4 bg-accent-cyan animate-[blink_1s_step-end_infinite] shadow-[0_0_8px_rgba(0,212,255,0.8)]"></div>
                             </div>
                         )}

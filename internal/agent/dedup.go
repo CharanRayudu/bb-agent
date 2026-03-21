@@ -4,7 +4,7 @@
 // Uses type-specific fingerprinting to correctly deduplicate findings:
 // - Cookie-based SQLi is GLOBAL (same cookie = same vuln across URLs)
 // - Header injection is GLOBAL (same header = same vuln)
-// - XSS considers injection context (HTML body ≠ JS context)
+// - XSS considers injection context (HTML body != JS context)
 // - CSTI considers template engine type
 // - Most other vulns are per-endpoint + per-parameter
 package agent

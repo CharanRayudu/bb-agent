@@ -254,4 +254,4 @@ tooling:
   Resource Hunter: "Identify sensitive static assets, backup files (.bak, .old), and environment files (.env) using targeted fuzzing."
   WAF Evasion: "Test various encoding bypasses (URL, Double URL, Unicode) and header-based bypasses (X-Forwarded-For) to slip past protections."
   Business Logic: "Focus on price manipulation, coupon reuse, and privilege escalation via state parameters."
-  default: "Use best available tools (ffuf, nuclei, curl). All tools are pre-installed Ã¢â‚¬â€ do NOT install anything."
+  default: "Use best available tools (ffuf, nuclei, curl). All tools are pre-installed -- do NOT install anything."

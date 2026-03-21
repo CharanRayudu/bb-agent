@@ -116,20 +116,22 @@ Write-Host "  Containers recreated with fresh backend image" -ForegroundColor Gr
 Write-Host "[5/6] Waiting for backend..." -ForegroundColor Yellow
 $retries = 0
 $maxRetries = 45
+$backendReady = $false
 while ($retries -lt $maxRetries) {
     try {
-        $response = Invoke-WebRequest -Uri "http://localhost:8443/api/flows" -TimeoutSec 2 -ErrorAction Stop
-        if ($response.StatusCode -eq 200) {
+        curl.exe -fsS --max-time 2 "http://localhost:8443/api/health" | Out-Null
+        if ($LASTEXITCODE -eq 0) {
             Write-Host "  Backend is ready" -ForegroundColor Green
+            $backendReady = $true
             break
         }
     }
     catch {
-        Start-Sleep -Seconds 2
-        $retries++
     }
+    Start-Sleep -Seconds 2
+    $retries++
 }
-if ($retries -ge $maxRetries) {
+if (-not $backendReady) {
     Write-Host "  Backend did not respond in time" -ForegroundColor Red
     exit 1
 }
