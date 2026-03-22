@@ -136,14 +136,6 @@ func (se *ScopeEngine) ValidateToolArgs(toolName string, rawArgs json.RawMessage
 			return false, "BLOCKED: execute_command requires a non-empty command."
 		}
 		return se.IsCommandInScope(params.Command)
-	case "execute_browser_script":
-		var params struct {
-			Script string `json:"script"`
-		}
-		if err := json.Unmarshal(rawArgs, &params); err != nil {
-			return false, fmt.Sprintf("BLOCKED: Invalid execute_browser_script arguments: %v", err)
-		}
-		return se.validateTargets(extractTargetsFromText(params.Script))
 	case "visual_crawl":
 		var params struct {
 			URL string `json:"url"`

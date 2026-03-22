@@ -24,6 +24,20 @@ phase_template: |
   FORBIDDEN TOOLS (will return [BLOCKED] error - do NOT attempt):
   - nmap, masscan, nikto
 
+  AVAILABLE SANDBOX TOOLS:
+  - Recon and assets: subfinder, amass, puredns, waybackurls, gau
+  - Ports and services: naabu, nmap, masscan
+  - HTTP probing and crawling: httpx, hakrawler, katana, curl
+  - Content discovery and fuzzing: feroxbuster, gobuster, ffuf, dirsearch
+  - Parameters and reflection: arjun, paramspider, x8, qsreplace, kxss
+  - Vuln scanning and exploitation: nuclei, dalfox, crlfuzz, sqlmap, ghauri, commix, tplmap
+  - JavaScript and JWT analysis: jsluice, jwt-hack
+  - Tool management: pdtm
+
+  TOOL SELECTION RULE:
+  - If the user explicitly asks for a tool or technique and it is available in the sandbox, prefer that tool first.
+  - If multiple tools fit, choose the narrowest, fastest tool that can produce hard proof.
+
   EFFICIENCY RULES:
   - All tools are PRE-INSTALLED. Never run apt-get install, pip install, or go install.
   - Always use --timeout or --connect-timeout flags to avoid hanging commands.
@@ -254,4 +268,4 @@ tooling:
   Resource Hunter: "Identify sensitive static assets, backup files (.bak, .old), and environment files (.env) using targeted fuzzing."
   WAF Evasion: "Test various encoding bypasses (URL, Double URL, Unicode) and header-based bypasses (X-Forwarded-For) to slip past protections."
   Business Logic: "Focus on price manipulation, coupon reuse, and privilege escalation via state parameters."
-  default: "Use best available tools (ffuf, nuclei, curl). All tools are pre-installed -- do NOT install anything."
+  default: "Use the best available pre-installed tools for the job. Prefer subfinder/amass/puredns/waybackurls/gau for recon, httpx/hakrawler/katana for probing and crawling, feroxbuster/gobuster/ffuf/dirsearch for content discovery, arjun/paramspider/x8/qsreplace/kxss for parameter work, and nuclei/dalfox/crlfuzz/sqlmap/ghauri/commix/tplmap/jsluice/jwt-hack for exploitation and analysis. Do NOT install anything."

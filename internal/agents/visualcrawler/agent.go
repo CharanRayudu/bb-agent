@@ -5,6 +5,7 @@ package visualcrawler
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/bb-agent/mirage/internal/agent/base"
@@ -43,7 +44,7 @@ func (a *Agent) ProcessItem(ctx context.Context, item *queue.Item) ([]*base.Find
 
 	var findings []*base.Finding
 	for _, link := range results.Links {
-		if strings.HasPrefix(link, "http") {
+		if shouldKeepDiscoveredLink(targetURL, link) {
 			findings = append(findings, &base.Finding{
 				Type:       "URL Lead (Headless)",
 				URL:        link,
@@ -58,6 +59,31 @@ func (a *Agent) ProcessItem(ctx context.Context, item *queue.Item) ([]*base.Find
 	}
 
 	return findings, nil
+}
+
+func shouldKeepDiscoveredLink(targetURL, discovered string) bool {
+	if !strings.HasPrefix(discovered, "http://") && !strings.HasPrefix(discovered, "https://") {
+		return false
+	}
+
+	targetParsed, err := url.Parse(targetURL)
+	if err != nil || targetParsed.Hostname() == "" {
+		return false
+	}
+
+	discoveredParsed, err := url.Parse(discovered)
+	if err != nil || discoveredParsed.Hostname() == "" {
+		return false
+	}
+
+	targetHost := strings.ToLower(targetParsed.Hostname())
+	discoveredHost := strings.ToLower(discoveredParsed.Hostname())
+
+	if discoveredHost == targetHost {
+		return true
+	}
+
+	return strings.HasSuffix(discoveredHost, "."+targetHost)
 }
 
 const defaultSystemPrompt = `You are a Visual Crawler, a specialist in modern web application discovery.

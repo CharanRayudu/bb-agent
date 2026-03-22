@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -40,7 +39,7 @@ func (r *Registry) registerBuiltins() {
 	r.Register(&Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "execute_command",
-			Description: "Execute a shell command inside the sandbox to enumerate the in-scope target and gather reproducible evidence. Prefer short commands, multi-line scripts, or inline Python over brittle nested shell quoting. Use the command output to confirm behavior with concrete request/response, timing, browser, or callback proof.\n\nIMPORTANT LOCATIONS:\n- Wordlists for gobuster/dirb are located at: `/usr/share/dirb/wordlists/common.txt` and others in `/usr/share/dirb/wordlists/`. Do NOT assume `/usr/share/wordlists` exists.\n\nIMPORTANT: This container is PERSISTENT, so keep commands tidy and deterministic. If a command becomes quote-heavy, switch to a heredoc or a small script instead of stacking escapes.",
+			Description: "Execute a shell command inside the sandbox to enumerate the in-scope target and gather reproducible evidence. Prefer short commands, multi-line scripts, or inline Python over brittle nested shell quoting. Use the command output to confirm behavior with concrete request/response, timing, browser, or callback proof.\n\nAVAILABLE SANDBOX TOOLS:\n- Recon and assets: `subfinder`, `amass`, `puredns`, `waybackurls`, `gau`\n- Ports and services: `naabu`, `nmap`, `masscan`\n- HTTP probing and crawling: `httpx`, `hakrawler`, `katana`, `curl`\n- Content discovery and fuzzing: `feroxbuster`, `gobuster`, `ffuf`, `dirsearch`\n- Parameter and reflection discovery: `arjun`, `paramspider`, `x8`, `qsreplace`, `kxss`\n- Vulnerability scanning and exploitation: `nuclei`, `dalfox`, `crlfuzz`, `sqlmap`, `ghauri`, `commix`, `tplmap`\n- JavaScript and JWT analysis: `jsluice`, `jwt-hack`\n- Tool management: `pdtm`\n\nIMPORTANT LOCATIONS:\n- Wordlists for gobuster/dirb are located at: `/usr/share/dirb/wordlists/common.txt` and others in `/usr/share/dirb/wordlists/`. Do NOT assume `/usr/share/wordlists` exists.\n\nIMPORTANT: This container is PERSISTENT, so keep commands tidy and deterministic. If a command becomes quote-heavy, switch to a heredoc or a small script instead of stacking escapes. Match tool choice to the user's request whenever possible.",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -172,29 +171,6 @@ func (r *Registry) registerBuiltins() {
 			}
 			return result, nil
 		},
-	})
-
-	// execute_browser_script -- native headless browser driver
-	r.Register(&Tool{
-		Definition: llm.ToolDefinition{
-			Name:        "execute_browser_script",
-			Description: "Execute a custom Playwright (Node.js) script inside the headless browser environment to interact with SPAs, bypass captchas, extract DOM-based data, or login. Provide the raw javascript code. The script will be saved to a temporary file and run with `node`. Console output will be returned. Note: the `playwright` module is globally installed, so you can `require('playwright')`. Always make sure your scripts handle errors and clean up cleanly using `browser.close()`.",
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"script": map[string]interface{}{
-						"type":        "string",
-						"description": "The raw Javascript code using Playwright to run.",
-					},
-					"timeout": map[string]interface{}{
-						"type":        "integer",
-						"description": "Maximum execution time in seconds (default: 60)",
-					},
-				},
-				"required": []string{"script"},
-			},
-		},
-		Execute: r.executeBrowserScript,
 	})
 
 	// analyze_source_code -- CodeMapper for finding injection choke points
@@ -332,62 +308,6 @@ func (r *Registry) executeCommand(ctx context.Context, args json.RawMessage) (st
 	}
 
 	return output, nil
-}
-
-func (r *Registry) executeBrowserScript(ctx context.Context, args json.RawMessage) (string, error) {
-	var params struct {
-		Script  string `json:"script"`
-		Timeout int    `json:"timeout"`
-	}
-	if err := json.Unmarshal(args, &params); err != nil {
-		return "", fmt.Errorf("invalid browser script args: %w", err)
-	}
-
-	if params.Timeout <= 0 {
-		params.Timeout = 60
-	}
-	if params.Timeout > 300 {
-		params.Timeout = 300
-	}
-
-	log.Printf("[BROWSER] Executing Browser Script (timeout: %ds)", params.Timeout)
-
-	// Base64 encode the script to avoid shell escaping issues
-	encodedScript := base64.StdEncoding.EncodeToString([]byte(params.Script))
-
-	cmd := buildBrowserScriptCommand(encodedScript)
-
-	result, err := r.sandbox.Execute(ctx, cmd, params.Timeout)
-	if err != nil {
-		return "", fmt.Errorf("sandbox browser execution failed: %w", err)
-	}
-
-	output := result.Stdout
-	if result.Stderr != "" {
-		output += "\n" + result.Stderr
-	}
-	output += fmt.Sprintf("\n\n[Exit Code: %d | Duration: %s]", result.ExitCode, result.Duration.Round(time.Millisecond))
-
-	// Truncate very long output
-	const maxOutput = 20000
-	if len(output) > maxOutput {
-		output = output[:maxOutput] + "\n\n... [output truncated, showing first 20000 characters]"
-	}
-
-	return output, nil
-}
-
-func buildBrowserScriptCommand(encodedScript string) string {
-	return fmt.Sprintf(
-		"script_path=$(mktemp /tmp/browser_script.XXXXXX.js) && "+
-			"printf '%%s' '%s' | base64 -d > \"$script_path\" && "+
-			"NODE_GLOBAL=$(npm root -g 2>/dev/null || true) && "+
-			"if [ -n \"$NODE_GLOBAL\" ]; then export NODE_PATH=\"$NODE_GLOBAL:/usr/lib/node_modules:/usr/local/lib/node_modules\"; "+
-			"else export NODE_PATH=\"/usr/lib/node_modules:/usr/local/lib/node_modules\"; fi && "+
-			"export PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH:-/usr/lib/playwright} && "+
-			"node \"$script_path\"; status=$?; rm -f \"$script_path\"; exit $status",
-		encodedScript,
-	)
 }
 
 // Register adds a tool to the registry
