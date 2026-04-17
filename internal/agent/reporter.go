@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -94,10 +95,34 @@ func (rg *ReportGenerator) GenerateReport(
 		sb.WriteString("No detailed recon summary available.\n\n")
 	}
 
+	// CVSS Risk Matrix
+	if len(findings) > 0 {
+		sb.WriteString("---\n\n## CVSS Risk Matrix\n\n")
+		sb.WriteString("| Finding | URL | CVSS Score | Severity | Vector |\n")
+		sb.WriteString("|---------|-----|------------|----------|--------|\n")
+		for _, f := range findings {
+			cvss := ScoreFinding(f)
+			sb.WriteString(fmt.Sprintf("| %s | `%s` | %.1f | %s | `%s` |\n",
+				f.Type, f.URL, cvss.Score, cvss.Severity, cvss.Vector))
+		}
+		sb.WriteString("\n")
+
+		// Exploit Chains
+		ce := NewChainExecutor()
+		chains := ce.DetectChains(findings)
+		if len(chains) > 0 {
+			sb.WriteString("---\n\n")
+			sb.WriteString(ce.FormatChainReport(chains))
+		}
+	}
+
 	// Detailed Findings
 	sb.WriteString("---\n\n## Detailed Findings\n\n")
 	if len(findings) > 0 {
 		for i, f := range findings {
+			cvss := ScoreFinding(f)
+			remediation := RemediationFor(f.Type)
+
 			sb.WriteString(fmt.Sprintf("### Finding %d: %s\n\n", i+1, f.Type))
 			sb.WriteString(fmt.Sprintf("**URL:** `%s`\n", f.URL))
 			if f.Parameter != "" {
@@ -105,6 +130,12 @@ func (rg *ReportGenerator) GenerateReport(
 			}
 			sb.WriteString(fmt.Sprintf("**Severity:** %s\n", f.Severity))
 			sb.WriteString(fmt.Sprintf("**Confidence:** %.2f\n\n", f.Confidence))
+
+			// CVSS 3.1 details
+			sb.WriteString(fmt.Sprintf("**CVSS 3.1 Score:** %.1f (%s)\n", cvss.Score, cvss.Severity))
+			sb.WriteString(fmt.Sprintf("**CVSS Vector:** `%s`\n", cvss.Vector))
+			sb.WriteString(fmt.Sprintf("**Exploitability:** %s\n\n", cvss.Exploitable))
+
 			if f.Payload != "" {
 				sb.WriteString(fmt.Sprintf("**Payload:** `%s`\n\n", f.Payload))
 			}
@@ -115,7 +146,20 @@ func (rg *ReportGenerator) GenerateReport(
 				}
 				sb.WriteString("```\n\n")
 			}
-			sb.WriteString("---\n\n")
+
+			// Remediation section
+			sb.WriteString("**Remediation:**\n\n")
+			sb.WriteString(fmt.Sprintf("> %s\n\n", remediation.Summary))
+			for j, step := range remediation.Steps {
+				sb.WriteString(fmt.Sprintf("%d. %s\n", j+1, step))
+			}
+			if len(remediation.References) > 0 {
+				sb.WriteString("\n**References:**\n")
+				for _, ref := range remediation.References {
+					sb.WriteString(fmt.Sprintf("- %s\n", ref))
+				}
+			}
+			sb.WriteString("\n---\n\n")
 		}
 	} else {
 		sb.WriteString("No vulnerabilities were confirmed during this assessment.\n\n")
@@ -148,6 +192,42 @@ func (rg *ReportGenerator) GenerateReport(
 		sb.WriteString("---\n\n## Excluded / Dead Ends\n\n")
 		for i, e := range exclusions {
 			sb.WriteString(fmt.Sprintf("%d. %s\n", i+1, e))
+		}
+		sb.WriteString("\n")
+	}
+
+	// Risk Prioritization
+	if len(findings) > 0 {
+		sb.WriteString("---\n\n## Risk Prioritization\n\n")
+		sb.WriteString("Findings sorted by CVSS score (highest risk first):\n\n")
+
+		type scoredFinding struct {
+			f    *Finding
+			cvss CVSSScore
+		}
+		scored := make([]scoredFinding, len(findings))
+		for i, f := range findings {
+			scored[i] = scoredFinding{f: f, cvss: ScoreFinding(f)}
+		}
+		sort.Slice(scored, func(i, j int) bool {
+			return scored[i].cvss.Score > scored[j].cvss.Score
+		})
+
+		remediationWindow := map[string]string{
+			"Critical": "Remediate within 24h",
+			"High":     "Remediate within 7 days",
+			"Medium":   "Remediate within 30 days",
+			"Low":      "Remediate within 90 days",
+			"None":     "Monitor",
+		}
+
+		for i, sf := range scored {
+			window := remediationWindow[sf.cvss.Severity]
+			if window == "" {
+				window = "Remediate within 30 days"
+			}
+			sb.WriteString(fmt.Sprintf("%d. [%.1f %s] %s at `%s` — %s\n",
+				i+1, sf.cvss.Score, sf.cvss.Severity, sf.f.Type, sf.f.URL, window))
 		}
 		sb.WriteString("\n")
 	}
