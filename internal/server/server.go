@@ -1,12 +1,19 @@
 package server
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -54,11 +61,35 @@ type Server struct {
 	// Live operator collaboration
 	operatorAnnotations   map[string][]OperatorAnnotation
 	operatorAnnotationsMu sync.RWMutex
+
+	// Operational subsystems
+	rbac               *agent.RBAC
+	auditLog           *agent.AuditLog
+	scheduler          *agent.Scheduler
+	remediationTracker *agent.RemediationTracker
+	surfaceStore       *agent.SurfaceStore
+
+	// CI/CD webhook HMAC secret (optional)
+	webhookSecret string
 }
 
 // New creates a new server instance
 func New(cfg *config.Config, db *sql.DB) *Server {
-	s := &Server{
+	rbac := agent.NewRBAC()
+	auditLog := agent.NewAuditLog()
+	surfaceStore := agent.NewSurfaceStore()
+	remediationTracker := agent.NewRemediationTracker()
+
+	// Scheduler trigger will create a new flow when fired.
+	// We use a placeholder here; the real trigger is set after s is constructed.
+	var s *Server
+	scheduler := agent.NewScheduler(func(target, profile string) {
+		if s != nil {
+			s.schedulerTrigger(target, profile)
+		}
+	})
+
+	s = &Server{
 		cfg:     cfg,
 		db:      db,
 		queries: database.NewQueries(db),
@@ -69,10 +100,29 @@ func New(cfg *config.Config, db *sql.DB) *Server {
 		clients:             make(map[*websocket.Conn]bool),
 		activeScans:         make(map[uuid.UUID]context.CancelFunc),
 		operatorAnnotations: make(map[string][]OperatorAnnotation),
+		rbac:               rbac,
+		auditLog:           auditLog,
+		scheduler:          scheduler,
+		remediationTracker: remediationTracker,
+		surfaceStore:       surfaceStore,
 	}
 
 	s.setupRoutes()
 	return s
+}
+
+// schedulerTrigger is the callback invoked by the Scheduler to start a new scan.
+func (s *Server) schedulerTrigger(target, profile string) {
+	flow, err := s.queries.CreateFlow("Scheduled: "+target, "Scheduled scan via profile "+profile, target)
+	if err != nil {
+		log.Printf("[SCHEDULER] Failed to create flow for %s: %v", target, err)
+		return
+	}
+	s.auditLog.Record("scheduler", "scan_started", flow.ID.String(), map[string]interface{}{
+		"target":  target,
+		"profile": profile,
+	}, "")
+	go s.runAgent(flow.ID, "Automated scheduled scan", "", 0, 0)
 }
 
 func (s *Server) setupRoutes() {
@@ -81,9 +131,18 @@ func (s *Server) setupRoutes() {
 	s.mux.HandleFunc("/api/health", s.handleHealth)
 	s.mux.HandleFunc("/api/models", s.handleModels)
 	s.mux.HandleFunc("/api/findings", s.handleFindings)
+	s.mux.HandleFunc("/api/findings/remediation", s.handleRemediationList)
+	s.mux.HandleFunc("/api/findings/", s.handleFindingSubroute)
 	s.mux.HandleFunc("/api/flows/create", s.handleCreateFlow)
 	s.mux.HandleFunc("/api/flows/", s.handleFlow)
 	s.mux.HandleFunc("/api/flows", s.handleFlows)
+
+	// Operational routes
+	s.mux.HandleFunc("/api/schedules", s.handleSchedules)
+	s.mux.HandleFunc("/api/schedules/", s.handleScheduleByID)
+	s.mux.HandleFunc("/api/users", s.handleUsers)
+	s.mux.HandleFunc("/api/audit", s.handleAudit)
+	s.mux.HandleFunc("/api/cicd/trigger", s.handleCICDTrigger)
 
 	// Extended API routes (knowledge graph, analytics, config, metrics, schedules)
 	s.registerExtendedRoutes()
@@ -196,6 +255,27 @@ func (s *Server) handleFlow(w http.ResponseWriter, r *http.Request) {
 		} else if subRoute == "/annotate" && r.Method == http.MethodPost {
 			s.handleAnnotateFlow(w, r, id)
 			return
+		} else if subRoute == "/pause" && r.Method == http.MethodPost {
+			s.handlePauseFlow(w, r, id)
+			return
+		} else if subRoute == "/resume" && r.Method == http.MethodPost {
+			s.handleResumeFlow(w, r, id)
+			return
+		} else if subRoute == "/surface-diff" && r.Method == http.MethodGet {
+			s.handleSurfaceDiff(w, r, id)
+			return
+		} else if subRoute == "/report/html" && r.Method == http.MethodGet {
+			s.handleHTMLReport(w, r, id)
+			return
+		} else if subRoute == "/report/burp" && r.Method == http.MethodGet {
+			s.handleBurpReport(w, r, id)
+			return
+		} else if subRoute == "/report/nuclei" && r.Method == http.MethodGet {
+			s.handleNucleiReport(w, r, id)
+			return
+		} else if subRoute == "/compliance" && r.Method == http.MethodGet {
+			s.handleCompliance(w, r, id)
+			return
 		}
 
 		http.Error(w, "Endpoint or method not supported", http.StatusNotFound)
@@ -302,6 +382,9 @@ func (s *Server) handleCancelFlow(w http.ResponseWriter, r *http.Request, id uui
 		Content:   "Scan cancelled by user.",
 		Timestamp: time.Now(),
 	})
+
+	actor := s.actorFromRequest(r)
+	s.auditLog.Record(actor, "scan_cancelled", id.String(), nil, r.RemoteAddr)
 
 	w.WriteHeader(http.StatusOK)
 }
@@ -504,6 +587,7 @@ type CreateFlowRequest struct {
 	Timeout           int      `json:"timeout"`            // Total scan timeout in minutes
 	AgentTimeout      int      `json:"agent_timeout"`      // Per-agent timeout in minutes
 	AdditionalTargets []string `json:"additional_targets"` // Up to 5 extra targets for multi-target scans
+	Profile           string   `json:"profile"`            // Scan profile name (see agent.DefaultProfiles)
 }
 
 func (s *Server) handleCreateFlow(w http.ResponseWriter, r *http.Request) {
@@ -528,6 +612,14 @@ func (s *Server) handleCreateFlow(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	// Record audit event for scan start
+	actor := s.actorFromRequest(r)
+	s.auditLog.Record(actor, "scan_started", flow.ID.String(), map[string]interface{}{
+		"target":  req.Target,
+		"name":    req.Name,
+		"profile": req.Profile,
+	}, r.RemoteAddr)
 
 	// Initialize the agent and run the primary flow asynchronously
 	go s.runAgent(flow.ID, req.Description, req.Model, req.Timeout, req.AgentTimeout)
@@ -680,6 +772,436 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 	}
 }
 
+// ============ Pause / Resume ============
+
+func (s *Server) handlePauseFlow(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	// Cancel the active context so the scan goroutine stops.
+	s.activeScansMu.Lock()
+	cancel, exists := s.activeScans[id]
+	if exists {
+		delete(s.activeScans, id)
+	}
+	s.activeScansMu.Unlock()
+
+	if !exists {
+		http.Error(w, "flow is not active", http.StatusConflict)
+		return
+	}
+	cancel()
+
+	s.queries.UpdateFlowStatus(id, models.FlowStatusPaused)
+	s.queries.CreateFlowEvent(id, string(agent.EventMessage), "Scan paused by user.", nil)
+	s.broadcast(agent.Event{
+		Type:      agent.EventMessage,
+		FlowID:    id.String(),
+		Content:   "Scan paused by user.",
+		Timestamp: time.Now(),
+	})
+
+	actor := s.actorFromRequest(r)
+	s.auditLog.Record(actor, "scan_paused", id.String(), nil, r.RemoteAddr)
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleResumeFlow(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	flow, err := s.queries.GetFlow(id)
+	if err != nil {
+		http.Error(w, "flow not found", http.StatusNotFound)
+		return
+	}
+	if flow.Status != models.FlowStatusPaused {
+		http.Error(w, "flow is not paused", http.StatusConflict)
+		return
+	}
+
+	var body struct {
+		Target string `json:"target"`
+	}
+	// Target is optional — default to the flow's original target.
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	target := body.Target
+	if target == "" {
+		target = flow.Target
+	}
+
+	s.queries.UpdateFlowStatus(id, models.FlowStatusActive)
+	s.queries.CreateFlowEvent(id, string(agent.EventMessage), "Scan resumed by user.", nil)
+	s.broadcast(agent.Event{
+		Type:      agent.EventMessage,
+		FlowID:    id.String(),
+		Content:   "Scan resumed by user.",
+		Timestamp: time.Now(),
+	})
+
+	actor := s.actorFromRequest(r)
+	s.auditLog.Record(actor, "scan_resumed", id.String(), map[string]interface{}{"target": target}, r.RemoteAddr)
+
+	// Restart the agent goroutine.
+	go s.runAgent(id, flow.Description, "", 0, 0)
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// ============ Remediation ============
+
+func (s *Server) handleFindingSubroute(w http.ResponseWriter, r *http.Request) {
+	// /api/findings/{id}/remediation
+	path := r.URL.Path[len("/api/findings/"):]
+	if len(path) == 0 {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	// Split id from sub-path
+	parts := splitPath(path)
+	if len(parts) == 2 && parts[1] == "remediation" {
+		findingID := parts[0]
+		switch r.Method {
+		case http.MethodPatch:
+			s.handleUpdateRemediation(w, r, findingID)
+		case http.MethodGet:
+			status := s.remediationTracker.GetStatus(findingID)
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"finding_id": findingID, "status": string(status)})
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+		return
+	}
+	http.Error(w, "not found", http.StatusNotFound)
+}
+
+func (s *Server) handleUpdateRemediation(w http.ResponseWriter, r *http.Request, findingID string) {
+	var body struct {
+		Status   agent.RemediationStatus `json:"status"`
+		Operator string                  `json:"operator"`
+		Notes    string                  `json:"notes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if err := s.remediationTracker.UpdateStatus(findingID, body.Status, body.Operator, body.Notes); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	actor := s.actorFromRequest(r)
+	s.auditLog.Record(actor, "finding_updated", findingID, map[string]interface{}{
+		"status":   body.Status,
+		"operator": body.Operator,
+	}, r.RemoteAddr)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"finding_id": findingID, "status": string(body.Status)})
+}
+
+func (s *Server) handleRemediationList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	records := s.remediationTracker.GetAll()
+	if records == nil {
+		records = []*agent.RemediationRecord{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(records)
+}
+
+// ============ RBAC / Users ============
+
+func (s *Server) authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Bootstrapping mode: if no users exist, allow all requests.
+		if s.rbac.UserCount() == 0 {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		apiKey := r.Header.Get("X-API-Key")
+		if apiKey == "" {
+			http.Error(w, `{"error":"X-API-Key header required"}`, http.StatusUnauthorized)
+			return
+		}
+
+		user, ok := s.rbac.Authenticate(apiKey)
+		if !ok {
+			http.Error(w, `{"error":"invalid API key"}`, http.StatusUnauthorized)
+			return
+		}
+
+		ctx := context.WithValue(r.Context(), agentUserKey, user)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+type agentContextKey string
+
+const agentUserKey agentContextKey = "agent_user"
+
+func agentUserFromContext(ctx context.Context) *agent.AgentUser {
+	u, _ := ctx.Value(agentUserKey).(*agent.AgentUser)
+	return u
+}
+
+func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Require admin if users already exist.
+	if s.rbac.UserCount() > 0 {
+		user := agentUserFromContext(r.Context())
+		if !s.rbac.CanAdmin(user) {
+			http.Error(w, `{"error":"admin role required"}`, http.StatusForbidden)
+			return
+		}
+	}
+
+	var body struct {
+		Username string          `json:"username"`
+		Role     agent.AgentRole `json:"role"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if body.Username == "" {
+		http.Error(w, "username is required", http.StatusBadRequest)
+		return
+	}
+	if body.Role == "" {
+		body.Role = agent.AgentRoleOperator
+	}
+
+	apiKey, err := s.rbac.AddUser(body.Username, body.Role)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	actor := s.actorFromRequest(r)
+	s.auditLog.Record(actor, "user_created", body.Username, map[string]interface{}{
+		"role": body.Role,
+	}, r.RemoteAddr)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]string{
+		"username": body.Username,
+		"role":     string(body.Role),
+		"api_key":  apiKey,
+	})
+}
+
+// ============ Audit ============
+
+func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	actor := r.URL.Query().Get("actor")
+	var events []agent.AuditEvent
+	if actor != "" {
+		events = s.auditLog.GetByActor(actor)
+	} else {
+		events = s.auditLog.GetAll()
+	}
+	if events == nil {
+		events = []agent.AuditEvent{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(events)
+}
+
+// ============ Schedules ============
+
+func (s *Server) handleSchedules(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		scans := s.scheduler.ListAll()
+		if scans == nil {
+			scans = []*agent.ScheduledScan{}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(scans)
+
+	case http.MethodPost:
+		var body struct {
+			Target   string `json:"target"`
+			Profile  string `json:"profile"`
+			CronExpr string `json:"cron_expr"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		scan, err := s.scheduler.Add(body.Target, body.Profile, body.CronExpr)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(scan)
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleScheduleByID(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Path[len("/api/schedules/"):]
+	if id == "" {
+		http.Error(w, "schedule ID required", http.StatusBadRequest)
+		return
+	}
+	if r.Method != http.MethodDelete {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := s.scheduler.Remove(id); err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ============ CI/CD Webhook ============
+
+func (s *Server) handleCICDTrigger(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Optional HMAC verification (GitHub webhook format).
+	if s.webhookSecret != "" {
+		sig := r.Header.Get("X-Hub-Signature-256")
+		if sig == "" {
+			http.Error(w, "missing X-Hub-Signature-256", http.StatusUnauthorized)
+			return
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "failed to read body", http.StatusInternalServerError)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		if !verifyHMACSHA256([]byte(s.webhookSecret), body, sig) {
+			http.Error(w, "invalid signature", http.StatusUnauthorized)
+			return
+		}
+	}
+
+	var req struct {
+		Target  string `json:"target"`
+		Profile string `json:"profile"`
+		Ref     string `json:"ref"`
+		Repo    string `json:"repo"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.Target == "" {
+		http.Error(w, "target is required", http.StatusBadRequest)
+		return
+	}
+	if req.Profile == "" {
+		req.Profile = "quick"
+	}
+
+	name := fmt.Sprintf("CI/CD: %s [%s]", req.Repo, req.Ref)
+	flow, err := s.queries.CreateFlow(name, "Triggered by CI/CD pipeline", req.Target)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.auditLog.Record("cicd", "scan_started", flow.ID.String(), map[string]interface{}{
+		"target":  req.Target,
+		"profile": req.Profile,
+		"ref":     req.Ref,
+		"repo":    req.Repo,
+	}, r.RemoteAddr)
+
+	go s.runAgent(flow.ID, fmt.Sprintf("CI/CD scan for %s at %s", req.Repo, req.Ref), "", 0, 0)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]string{
+		"flow_id": flow.ID.String(),
+		"status":  "started",
+	})
+}
+
+// ============ Attack Surface Diff ============
+
+func (s *Server) handleSurfaceDiff(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	baselineStr := r.URL.Query().Get("baseline")
+	if baselineStr == "" {
+		http.Error(w, "baseline query parameter required", http.StatusBadRequest)
+		return
+	}
+	baselineID, err := uuid.Parse(baselineStr)
+	if err != nil {
+		http.Error(w, "invalid baseline flow ID", http.StatusBadRequest)
+		return
+	}
+
+	previous := s.surfaceStore.Get(baselineID)
+	current := s.surfaceStore.Get(id)
+
+	diff := agent.DiffSurfaces(previous, current)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(diff)
+}
+
+// ============ Helpers ============
+
+// actorFromRequest extracts the actor name from context or defaults to "anonymous".
+func (s *Server) actorFromRequest(r *http.Request) string {
+	if u := agentUserFromContext(r.Context()); u != nil {
+		return u.Username
+	}
+	if claims := GetUserFromContext(r.Context()); claims != nil && claims.Username != "" {
+		return claims.Username
+	}
+	return "anonymous"
+}
+
+// splitPath splits a URL path segment by "/" returning non-empty parts.
+func splitPath(p string) []string {
+	var parts []string
+	for _, s := range strings.Split(p, "/") {
+		if s != "" {
+			parts = append(parts, s)
+		}
+	}
+	return parts
+}
+
+// verifyHMACSHA256 checks a GitHub-style "sha256=<hex>" signature.
+func verifyHMACSHA256(secret, body []byte, sigHeader string) bool {
+	const prefix = "sha256="
+	if !strings.HasPrefix(sigHeader, prefix) {
+		return false
+	}
+	expected, err := hex.DecodeString(sigHeader[len(prefix):])
+	if err != nil {
+		return false
+	}
+	mac := hmac.New(sha256.New, secret)
+	mac.Write(body)
+	return hmac.Equal(mac.Sum(nil), expected)
+}
+
 // ============ WebSocket ============
 
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -732,6 +1254,96 @@ func (s *Server) broadcast(event agent.Event) {
 			conn.Close()
 		}
 	}
+}
+
+// ============ Report Export Handlers ============
+
+// globalFindingsForFlow returns agent.Finding slice for a specific flow by parsing GlobalFinding records.
+func globalFindingsForFlow(allFindings []database.GlobalFinding, flowID uuid.UUID) []*agent.Finding {
+	var out []*agent.Finding
+	for _, gf := range allFindings {
+		if gf.FlowID != flowID {
+			continue
+		}
+		f := &agent.Finding{
+			Type:     gf.Title,
+			URL:      gf.Target,
+			Severity: gf.Severity,
+		}
+		out = append(out, f)
+	}
+	return out
+}
+
+func (s *Server) handleHTMLReport(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	flow, err := s.queries.GetFlow(id)
+	if err != nil {
+		http.Error(w, "flow not found", http.StatusNotFound)
+		return
+	}
+	all, _ := s.queries.GetAllFindings()
+	agentFindings := globalFindingsForFlow(all, id)
+	duration := time.Since(flow.CreatedAt).Round(time.Second).String()
+	html := agent.GenerateHTMLReport(flow.Target, id.String(), duration, agentFindings)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"mirage-report-%s.html\"", id.String()[:8]))
+	fmt.Fprint(w, html)
+}
+
+func (s *Server) handleBurpReport(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	all, _ := s.queries.GetAllFindings()
+	agentFindings := globalFindingsForFlow(all, id)
+	xmlOut := agent.ExportBurpSuiteXML(agentFindings)
+	w.Header().Set("Content-Type", "application/xml")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"burp-findings-%s.xml\"", id.String()[:8]))
+	fmt.Fprint(w, xmlOut)
+}
+
+func (s *Server) handleNucleiReport(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	all, _ := s.queries.GetAllFindings()
+	agentFindings := globalFindingsForFlow(all, id)
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"nuclei-templates-%s.zip\"", id.String()[:8]))
+	zw := zip.NewWriter(w)
+	defer zw.Close()
+	seen := map[string]bool{}
+	for idx, f := range agentFindings {
+		key := f.Type + f.URL + f.Parameter
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		tmpl := agent.GenerateNucleiTemplate(f)
+		name := fmt.Sprintf("%s-%03d.yaml", strings.ToLower(strings.ReplaceAll(f.Type, " ", "_")), idx)
+		fw, err := zw.Create(name)
+		if err != nil {
+			continue
+		}
+		fmt.Fprint(fw, tmpl)
+	}
+}
+
+func (s *Server) handleCompliance(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	all, _ := s.queries.GetAllFindings()
+	agentFindings := globalFindingsForFlow(all, id)
+	type complianceRow struct {
+		VulnType   string              `json:"vuln_type"`
+		Compliance agent.ComplianceTag `json:"compliance"`
+	}
+	seen := map[string]bool{}
+	var rows []complianceRow
+	for _, f := range agentFindings {
+		if seen[f.Type] {
+			continue
+		}
+		seen[f.Type] = true
+		rows = append(rows, complianceRow{VulnType: f.Type, Compliance: agent.ComplianceTags(f.Type)})
+	}
+	if rows == nil {
+		rows = []complianceRow{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(rows)
 }
 
 // ============ Middleware ============

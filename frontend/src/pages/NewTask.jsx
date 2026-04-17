@@ -12,6 +12,7 @@ function NewTask() {
         target: '',
         description: '',
         model: '',
+        profile: 'full',
         additionalTargets: [],
     })
     const [models, setModels] = useState([])
@@ -70,6 +71,7 @@ function NewTask() {
                     name: form.name,
                     target: form.target,
                     model: form.model,
+                    profile: form.profile,
                     description: form.description || `Perform a comprehensive penetration test against ${form.target}`,
                     additional_targets: form.additionalTargets.filter((t) => t.trim()),
                 }),
@@ -283,6 +285,34 @@ function NewTask() {
                                     placeholder="Provide explicit instructions. e.g., 'Discover subdomains, then run dirb on all discovered HTTP servers. Avoid DoS tools.' If left blank, default Recon & Scan occurs."
                                     rows={5}
                                 />
+                            </div>
+
+                            {/* Scan Profile */}
+                            <div>
+                                <label className="block text-sm font-semibold text-text-primary mb-2 flex items-center gap-2">
+                                    <Shield className="w-4 h-4 text-accent-cyan" />
+                                    Scan Profile
+                                </label>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {[
+                                        { id: 'quick', label: 'Quick', desc: 'Fast recon + top vulns' },
+                                        { id: 'owasp', label: 'OWASP', desc: 'OWASP Top 10 coverage' },
+                                        { id: 'api', label: 'API', desc: 'API security focused' },
+                                        { id: 'pci', label: 'PCI-DSS', desc: 'PCI compliance checks' },
+                                        { id: 'stealth', label: 'Stealth', desc: 'Low-noise, slow checks' },
+                                        { id: 'full', label: 'Full', desc: 'Everything, max depth' },
+                                    ].map((p) => (
+                                        <button
+                                            key={p.id}
+                                            type="button"
+                                            onClick={() => setForm((prev) => ({ ...prev, profile: p.id }))}
+                                            className={`p-3 rounded-xl border text-left transition-all ${form.profile === p.id ? 'border-accent-cyan bg-accent-cyan/10 text-accent-cyan' : 'border-border bg-[#0d1321] text-text-muted hover:border-border-focus'}`}
+                                        >
+                                            <div className="font-bold text-xs">{p.label}</div>
+                                            <div className="text-[10px] opacity-70 mt-0.5">{p.desc}</div>
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
 
                             {error && (

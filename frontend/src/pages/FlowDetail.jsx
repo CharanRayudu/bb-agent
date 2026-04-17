@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { ArrowLeft, Target, Clock, Activity, Cpu, Wrench, MessageSquare, CheckCircle, XCircle, ChevronRight, Terminal, Trash2, AlertTriangle, Shield, Zap, Bug, Eye, FileText, Search, Crosshair, Wifi } from 'lucide-react'
+import { ArrowLeft, Target, Clock, Activity, Cpu, Wrench, MessageSquare, CheckCircle, XCircle, ChevronRight, Terminal, Trash2, AlertTriangle, Shield, Zap, Bug, Eye, FileText, Search, Crosshair, Wifi, Download, Pause, Play } from 'lucide-react'
 import { FlowLedgerPanel, FlowEvidencePanel } from '../components/FlowLedgerPanel'
 
 const API_BASE = '/api'
@@ -770,7 +770,6 @@ function FlowDetail() {
         try {
             const res = await fetch(`${API_BASE}/flows/${id}/cancel`, { method: 'POST' });
             if (res.ok) {
-                // Optimistically update
                 setFlow(prev => ({ ...prev, status: 'failed' }));
             }
         } catch (err) {
@@ -778,6 +777,28 @@ function FlowDetail() {
         } finally {
             setStopping(false);
         }
+    }
+
+    async function handlePause() {
+        try {
+            await fetch(`${API_BASE}/flows/${id}/pause`, { method: 'POST' });
+            setFlow(prev => ({ ...prev, status: 'paused' }));
+        } catch (err) {
+            console.error('Failed to pause scan:', err);
+        }
+    }
+
+    async function handleResume() {
+        try {
+            await fetch(`${API_BASE}/flows/${id}/resume`, { method: 'POST' });
+            setFlow(prev => ({ ...prev, status: 'active' }));
+        } catch (err) {
+            console.error('Failed to resume scan:', err);
+        }
+    }
+
+    function downloadReport(type) {
+        window.open(`${API_BASE}/flows/${id}/report/${type}`, '_blank');
     }
 
     function openDeleteConfirm() {
@@ -904,14 +925,57 @@ function FlowDetail() {
                     </span>
 
                     {isActive && (
+                        <>
+                            <button
+                                onClick={handlePause}
+                                className="flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-mono font-bold tracking-widest uppercase border backdrop-blur-md shadow-sm transition-all bg-accent-cyan/10 text-accent-cyan border-accent-cyan/30 hover:bg-accent-cyan/20 hover:scale-105"
+                            >
+                                <Pause className="w-3 h-3" /> Pause
+                            </button>
+                            <button
+                                onClick={handleStopScan}
+                                disabled={stopping}
+                                className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-mono font-bold tracking-widest uppercase border backdrop-blur-md shadow-sm transition-all
+                                    ${stopping ? 'bg-text-muted/10 text-text-muted border-text-muted/30 cursor-not-allowed' : 'bg-accent-red/10 text-accent-red border-accent-red/30 hover:bg-accent-red/20 hover:scale-105'}`}
+                            >
+                                {stopping ? 'Stopping...' : <><XCircle className="w-3 h-3" /> Stop Scan</>}
+                            </button>
+                        </>
+                    )}
+
+                    {flow.status === 'paused' && (
                         <button
-                            onClick={handleStopScan}
-                            disabled={stopping}
-                            className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-mono font-bold tracking-widest uppercase border backdrop-blur-md shadow-sm transition-all
-                                ${stopping ? 'bg-text-muted/10 text-text-muted border-text-muted/30 cursor-not-allowed' : 'bg-accent-red/10 text-accent-red border-accent-red/30 hover:bg-accent-red/20 hover:scale-105'}`}
+                            onClick={handleResume}
+                            className="flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-mono font-bold tracking-widest uppercase border backdrop-blur-md shadow-sm transition-all bg-accent-green/10 text-accent-green border-accent-green/30 hover:bg-accent-green/20 hover:scale-105"
                         >
-                            {stopping ? 'Stopping...' : <><XCircle className="w-3 h-3" /> Stop Scan</>}
+                            <Play className="w-3 h-3" /> Resume
                         </button>
+                    )}
+
+                    {!isActive && flow.status !== 'paused' && (
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => downloadReport('html')}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-mono font-bold tracking-widest uppercase border backdrop-blur-md shadow-sm transition-all bg-accent-purple/10 text-accent-purple border-accent-purple/30 hover:bg-accent-purple/20 hover:scale-105"
+                                title="Download HTML report"
+                            >
+                                <Download className="w-3 h-3" /> HTML
+                            </button>
+                            <button
+                                onClick={() => downloadReport('burp')}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-mono font-bold tracking-widest uppercase border backdrop-blur-md shadow-sm transition-all bg-accent-orange/10 text-accent-orange border-accent-orange/30 hover:bg-accent-orange/20 hover:scale-105"
+                                title="Download Burp Suite XML"
+                            >
+                                <Download className="w-3 h-3" /> Burp
+                            </button>
+                            <button
+                                onClick={() => downloadReport('nuclei')}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-mono font-bold tracking-widest uppercase border backdrop-blur-md shadow-sm transition-all bg-accent-cyan/10 text-accent-cyan border-accent-cyan/30 hover:bg-accent-cyan/20 hover:scale-105"
+                                title="Download Nuclei templates (ZIP)"
+                            >
+                                <Download className="w-3 h-3" /> Nuclei
+                            </button>
+                        </div>
                     )}
 
                     <button

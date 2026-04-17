@@ -18,33 +18,43 @@ import (
 	"github.com/bb-agent/mirage/internal/agents/apisecurity"
 	"github.com/bb-agent/mirage/internal/agents/assetdiscovery"
 	"github.com/bb-agent/mirage/internal/agents/authdiscovery"
+	"github.com/bb-agent/mirage/internal/agents/blindoracle"
 	"github.com/bb-agent/mirage/internal/agents/businesslogic"
+	"github.com/bb-agent/mirage/internal/agents/cachepoisoning"
 	"github.com/bb-agent/mirage/internal/agents/chaindiscovery"
 	"github.com/bb-agent/mirage/internal/agents/cloudhunter"
 	"github.com/bb-agent/mirage/internal/agents/consolidation"
+	"github.com/bb-agent/mirage/internal/agents/cors"
 	"github.com/bb-agent/mirage/internal/agents/csti"
 	"github.com/bb-agent/mirage/internal/agents/dastysast"
+	"github.com/bb-agent/mirage/internal/agents/deserialization"
 	"github.com/bb-agent/mirage/internal/agents/fileupload"
 	"github.com/bb-agent/mirage/internal/agents/gospider"
 	"github.com/bb-agent/mirage/internal/agents/headerinjection"
 	"github.com/bb-agent/mirage/internal/agents/idor"
 	"github.com/bb-agent/mirage/internal/agents/jwt"
+	k8sagent "github.com/bb-agent/mirage/internal/agents/k8s"
 	"github.com/bb-agent/mirage/internal/agents/lfi"
+	"github.com/bb-agent/mirage/internal/agents/log4shell"
 	"github.com/bb-agent/mirage/internal/agents/massassignment"
 	"github.com/bb-agent/mirage/internal/agents/nuclei"
+	"github.com/bb-agent/mirage/internal/agents/oauth"
 	"github.com/bb-agent/mirage/internal/agents/openredirect"
 	"github.com/bb-agent/mirage/internal/agents/postexploit"
 	"github.com/bb-agent/mirage/internal/agents/protopollution"
 	"github.com/bb-agent/mirage/internal/agents/rce"
 	reportingagent "github.com/bb-agent/mirage/internal/agents/reporting"
 	"github.com/bb-agent/mirage/internal/agents/resourcehunter"
+	"github.com/bb-agent/mirage/internal/agents/smuggling"
 	"github.com/bb-agent/mirage/internal/agents/sqli"
 	"github.com/bb-agent/mirage/internal/agents/sqlmap"
 	"github.com/bb-agent/mirage/internal/agents/ssrf"
+	"github.com/bb-agent/mirage/internal/agents/ssti"
 	"github.com/bb-agent/mirage/internal/agents/urlmaster"
 	"github.com/bb-agent/mirage/internal/agents/validation"
 	"github.com/bb-agent/mirage/internal/agents/visualcrawler"
 	"github.com/bb-agent/mirage/internal/agents/wafevasion"
+	"github.com/bb-agent/mirage/internal/agents/websocket"
 	"github.com/bb-agent/mirage/internal/agents/xss"
 	"github.com/bb-agent/mirage/internal/agents/xxe"
 	"github.com/bb-agent/mirage/internal/config"
@@ -150,41 +160,55 @@ type Orchestrator struct {
 
 	// Phase 15: The Mirage Singularity (Performance & Precision)
 	workers map[string]*Worker
+
+	// Pause/Resume support
+	pausedFlows map[uuid.UUID]context.CancelFunc
+	pauseMu     sync.RWMutex
 }
 
 func buildSpecialists() map[string]Specialist {
 	return map[string]Specialist{
-		"apisecurity":      apisecurity.New(),
-		"assetdiscovery":   assetdiscovery.New(),
-		"authdiscovery":    authdiscovery.New(),
-		"businesslogic":    businesslogic.New(),
-		"chaindiscovery":   chaindiscovery.New(),
-		"cloudhunter":      cloudhunter.New(),
-		"consolidation":    consolidation.New(),
-		"csti":             csti.New(),
-		"dastysast":        dastysast.New(),
-		"fileupload":       fileupload.New(),
-		"gospider":         gospider.New(),
-		"header_injection": headerinjection.New(),
-		"idor":             idor.New(),
-		"jwt":              jwt.New(),
-		"lfi":              lfi.New(),
-		"massassignment":   massassignment.New(),
-		"nuclei":           nuclei.New(),
-		"openredirect":     openredirect.New(),
-		"protopollution":   protopollution.New(),
-		"rce":              rce.New(),
-		"reporting":        reportingagent.New(),
-		"resourcehunter":   resourcehunter.New(),
-		"sqli":             sqli.New(),
-		"sqlmap":           sqlmap.New(),
-		"ssrf":             ssrf.New(),
-		"urlmaster":        urlmaster.New(),
-		"validation":       validation.New(),
-		"visualcrawler":    visualcrawler.New(),
-		"wafevasion":       wafevasion.New(),
-		"xss":              xss.New(),
-		"xxe":              xxe.New(),
+		"apisecurity":       apisecurity.New(),
+		"assetdiscovery":    assetdiscovery.New(),
+		"authdiscovery":     authdiscovery.New(),
+		"blindoracle":       blindoracle.New(),
+		"businesslogic":     businesslogic.New(),
+		"cachepoisoning":    cachepoisoning.New(),
+		"chaindiscovery":    chaindiscovery.New(),
+		"cloudhunter":       cloudhunter.New(),
+		"consolidation":     consolidation.New(),
+		"cors":              cors.New(),
+		"csti":              csti.New(),
+		"dastysast":         dastysast.New(),
+		"deserialization":   deserialization.New(),
+		"fileupload":        fileupload.New(),
+		"gospider":          gospider.New(),
+		"header_injection":  headerinjection.New(),
+		"idor":              idor.New(),
+		"jwt":               jwt.New(),
+		"k8s":               k8sagent.New(),
+		"lfi":               lfi.New(),
+		"log4shell":         log4shell.New(),
+		"massassignment":    massassignment.New(),
+		"nuclei":            nuclei.New(),
+		"oauth":             oauth.New(),
+		"openredirect":      openredirect.New(),
+		"protopollution":    protopollution.New(),
+		"rce":               rce.New(),
+		"reporting":         reportingagent.New(),
+		"resourcehunter":    resourcehunter.New(),
+		"smuggling":         smuggling.New(),
+		"sqli":              sqli.New(),
+		"sqlmap":            sqlmap.New(),
+		"ssrf":              ssrf.New(),
+		"ssti":              ssti.New(),
+		"urlmaster":         urlmaster.New(),
+		"validation":        validation.New(),
+		"visualcrawler":     visualcrawler.New(),
+		"wafevasion":        wafevasion.New(),
+		"websocket":         websocket.New(),
+		"xss":               xss.New(),
+		"xxe":               xxe.New(),
 	}
 }
 
@@ -367,6 +391,7 @@ func NewOrchestrator(provider llm.Provider, registry *tools.Registry, db *sql.DB
 		validator:    base.NewVisualValidator(),
 		strategist:   NewWAFStrategist(),
 		workers:      make(map[string]*Worker),
+		pausedFlows:  make(map[uuid.UUID]context.CancelFunc),
 	}
 
 	if db != nil {
@@ -471,6 +496,61 @@ func (o *Orchestrator) SetConductor(c *Conductor) {
 // GetEventBus returns the internal event bus
 func (o *Orchestrator) GetEventBus() *EventBus {
 	return o.bus
+}
+
+// PauseFlow cancels the running context for the given flow and marks it as paused.
+// The cancel function must have been registered via RegisterFlowCancel before calling this.
+func (o *Orchestrator) PauseFlow(flowID uuid.UUID) error {
+	o.pauseMu.Lock()
+	defer o.pauseMu.Unlock()
+
+	cancel, ok := o.pausedFlows[flowID]
+	if !ok {
+		return fmt.Errorf("flow %s is not active or already paused", flowID)
+	}
+	cancel()
+	// Keep the entry so ResumeFlow knows about it until a fresh cancel is registered.
+	delete(o.pausedFlows, flowID)
+
+	if o.queries != nil {
+		o.queries.UpdateFlowStatus(flowID, models.FlowStatusPaused)
+	}
+	return nil
+}
+
+// ResumeFlow restarts a paused flow by launching a new scan goroutine.
+// The caller is responsible for wiring the new cancel func back via RegisterFlowCancel.
+func (o *Orchestrator) ResumeFlow(flowID uuid.UUID, target string) error {
+	if o.queries == nil {
+		return fmt.Errorf("queries not initialised")
+	}
+
+	flow, err := o.queries.GetFlow(flowID)
+	if err != nil {
+		return fmt.Errorf("flow %s not found: %w", flowID, err)
+	}
+	if flow.Status != models.FlowStatusPaused {
+		return fmt.Errorf("flow %s is not paused (status: %s)", flowID, flow.Status)
+	}
+
+	if err := o.queries.UpdateFlowStatus(flowID, models.FlowStatusActive); err != nil {
+		return fmt.Errorf("failed to update flow status: %w", err)
+	}
+	return nil
+}
+
+// RegisterFlowCancel stores a cancel function so PauseFlow can use it.
+func (o *Orchestrator) RegisterFlowCancel(flowID uuid.UUID, cancel context.CancelFunc) {
+	o.pauseMu.Lock()
+	defer o.pauseMu.Unlock()
+	o.pausedFlows[flowID] = cancel
+}
+
+// UnregisterFlowCancel removes the cancel function when a flow ends naturally.
+func (o *Orchestrator) UnregisterFlowCancel(flowID uuid.UUID) {
+	o.pauseMu.Lock()
+	defer o.pauseMu.Unlock()
+	delete(o.pausedFlows, flowID)
 }
 
 // RunFlow executes a complete penetration testing flow using concurrent agents
