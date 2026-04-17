@@ -29,7 +29,7 @@ type FuzzClient struct {
 	baseDelay time.Duration // baseline timing for time-based detection
 }
 
-// NewFuzzClient creates a fuzz client with a 10s timeout, TLS skip.
+// NewFuzzClient creates a fuzz client with a 10s timeout and TLS verification disabled.
 func NewFuzzClient() *FuzzClient {
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
@@ -49,27 +49,44 @@ func NewFuzzClient() *FuzzClient {
 	return &FuzzClient{client: client}
 }
 
-// Baseline measures a clean response for timing comparison.
-func (fc *FuzzClient) Baseline(ctx context.Context, targetURL string) time.Duration {
-	start := time.Now()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
-	if err != nil {
-		return 0
-	}
-	resp, err := fc.client.Do(req)
-	if err != nil {
-		return 0
+// readBody reads at most 512KB from the response body.
+func readBody(resp *http.Response) string {
+	if resp == nil || resp.Body == nil {
+		return ""
 	}
 	defer resp.Body.Close()
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 512*1024))
-	return time.Since(start)
+	lr := io.LimitReader(resp.Body, 512*1024)
+	b, _ := io.ReadAll(lr)
+	return string(b)
 }
 
 // ProbeGET sends a GET request substituting payload into a query parameter.
-// paramName: the parameter to inject (e.g. "q", "id"). If empty, appends as ?inject=payload.
+// If paramName is empty, appends as ?inject=payload.
 func (fc *FuzzClient) ProbeGET(ctx context.Context, targetURL, paramName, payload string) ProbeResult {
-	injectedURL := injectQueryParam(targetURL, paramName, payload)
-	return fc.doRequest(ctx, http.MethodGet, injectedURL, "", "")
+	probeURL := injectParam(targetURL, paramName, payload)
+
+	start := time.Now()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, probeURL, nil)
+	if err != nil {
+		return ProbeResult{Error: err, Duration: time.Since(start)}
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; SecurityScanner/1.0)")
+
+	resp, err := fc.client.Do(req)
+	dur := time.Since(start)
+	if err != nil {
+		return ProbeResult{Error: err, Duration: dur}
+	}
+
+	body := readBody(resp)
+	result := ProbeResult{
+		StatusCode: resp.StatusCode,
+		Body:       body,
+		Headers:    resp.Header,
+		Duration:   dur,
+	}
+	result.TimingAnomaly = fc.baseDelay > 0 && dur > fc.baseDelay+4*time.Second
+	return result
 }
 
 // ProbePOST sends a POST with payload in a form field.
@@ -77,89 +94,84 @@ func (fc *FuzzClient) ProbePOST(ctx context.Context, targetURL, paramName, paylo
 	if paramName == "" {
 		paramName = "inject"
 	}
-	return fc.doRequest(ctx, http.MethodPost, targetURL, paramName, payload)
-}
-
-// ProbeURL sends a GET with the entire URL replaced by payload (for SSRF).
-func (fc *FuzzClient) ProbeURL(ctx context.Context, targetURL, paramName, payloadURL string) ProbeResult {
-	injectedURL := injectQueryParam(targetURL, paramName, payloadURL)
-	return fc.doRequest(ctx, http.MethodGet, injectedURL, "", "")
-}
-
-// doRequest executes an HTTP request and returns a ProbeResult.
-func (fc *FuzzClient) doRequest(ctx context.Context, method, targetURL, postParam, postValue string) ProbeResult {
-	var req *http.Request
-	var err error
-
-	if method == http.MethodPost && postParam != "" {
-		formData := url.Values{}
-		formData.Set(postParam, postValue)
-		body := strings.NewReader(formData.Encode())
-		req, err = http.NewRequestWithContext(ctx, method, targetURL, body)
-		if err != nil {
-			return ProbeResult{Error: err}
-		}
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	} else {
-		req, err = http.NewRequestWithContext(ctx, method, targetURL, nil)
-		if err != nil {
-			return ProbeResult{Error: err}
-		}
-	}
-
-	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; SecurityScanner/1.0)")
+	formData := url.Values{}
+	formData.Set(paramName, payload)
 
 	start := time.Now()
-	resp, err := fc.client.Do(req)
-	duration := time.Since(start)
-
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, strings.NewReader(formData.Encode()))
 	if err != nil {
-		return ProbeResult{Error: err, Duration: duration}
+		return ProbeResult{Error: err, Duration: time.Since(start)}
 	}
-	defer resp.Body.Close()
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; SecurityScanner/1.0)")
 
-	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
-	bodyStr := string(bodyBytes)
+	resp, err := fc.client.Do(req)
+	dur := time.Since(start)
+	if err != nil {
+		return ProbeResult{Error: err, Duration: dur}
+	}
 
+	body := readBody(resp)
 	result := ProbeResult{
 		StatusCode: resp.StatusCode,
-		Body:       bodyStr,
+		Body:       body,
 		Headers:    resp.Header,
-		Duration:   duration,
+		Duration:   dur,
 	}
-
-	// Flag timing anomaly if response took > baseline + 4s
-	if fc.baseDelay > 0 && duration > fc.baseDelay+4*time.Second {
-		result.TimingAnomaly = true
-	} else if fc.baseDelay == 0 && duration > 4*time.Second {
-		// No baseline set; flag anything over 4s
-		result.TimingAnomaly = true
-	}
-
+	result.TimingAnomaly = fc.baseDelay > 0 && dur > fc.baseDelay+4*time.Second
 	return result
 }
 
-// injectQueryParam injects payload into the named query parameter, or adds inject=payload if empty.
-func injectQueryParam(rawURL, paramName, payload string) string {
-	parsed, err := url.Parse(rawURL)
+// ProbeURL sends a GET with the entire URL replaced by payloadURL (for SSRF).
+// The payloadURL is injected as the value of paramName in the targetURL.
+func (fc *FuzzClient) ProbeURL(ctx context.Context, targetURL, paramName, payloadURL string) ProbeResult {
+	return fc.ProbeGET(ctx, targetURL, paramName, payloadURL)
+}
+
+// Baseline measures a clean response for timing comparison.
+func (fc *FuzzClient) Baseline(ctx context.Context, targetURL string) time.Duration {
+	start := time.Now()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
 	if err != nil {
-		return rawURL
+		return 0
 	}
-	q := parsed.Query()
+	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; SecurityScanner/1.0)")
+	resp, err := fc.client.Do(req)
+	dur := time.Since(start)
+	if err != nil {
+		return 0
+	}
+	if resp != nil && resp.Body != nil {
+		resp.Body.Close()
+	}
+	fc.baseDelay = dur
+	return dur
+}
+
+// injectParam builds a URL with the given param set to payload.
+func injectParam(targetURL, paramName, payload string) string {
+	u, err := url.Parse(targetURL)
+	if err != nil {
+		// Fallback: simple concatenation
+		if paramName == "" {
+			paramName = "inject"
+		}
+		sep := "?"
+		if strings.Contains(targetURL, "?") {
+			sep = "&"
+		}
+		return targetURL + sep + url.QueryEscape(paramName) + "=" + url.QueryEscape(payload)
+	}
 	if paramName == "" {
 		paramName = "inject"
 	}
+	q := u.Query()
 	q.Set(paramName, payload)
-	parsed.RawQuery = q.Encode()
-	return parsed.String()
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
-// SetBaseline stores a measured baseline duration for timing comparisons.
-func (fc *FuzzClient) SetBaseline(d time.Duration) {
-	fc.baseDelay = d
-}
-
-// DetectReflection checks if payload appears verbatim in response body.
+// DetectReflection checks if payload appears verbatim in the response body.
 func DetectReflection(body, payload string) bool {
 	if payload == "" {
 		return false
@@ -167,7 +179,7 @@ func DetectReflection(body, payload string) bool {
 	return strings.Contains(body, payload)
 }
 
-// DetectXSSExecution checks for unescaped XSS indicators in body after reflection.
+// DetectXSSExecution checks for unescaped XSS execution markers in the body.
 func DetectXSSExecution(body, payload string) bool {
 	if !DetectReflection(body, payload) {
 		return false
@@ -175,26 +187,25 @@ func DetectXSSExecution(body, payload string) bool {
 	lower := strings.ToLower(body)
 	return strings.Contains(lower, "<script") ||
 		strings.Contains(lower, "onerror=") ||
-		strings.Contains(lower, "onload=") ||
 		strings.Contains(lower, "alert(")
 }
 
 var (
-	mysqlErrorRe = regexp.MustCompile(`(?i)(you have an error in your sql syntax|mysql_fetch|mysql_num_rows|supplied argument is not a valid mysql|Warning: mysql_|com\.mysql\.jdbc\.exceptions)`)
-	pgErrorRe    = regexp.MustCompile(`(?i)(pg_query\(\)|pg_exec\(\)|PostgreSQL.*ERROR|ERROR:.*syntax error|org\.postgresql\.util\.PSQLException|unterminated quoted string at or near)`)
-	mssqlErrorRe = regexp.MustCompile(`(?i)(Microsoft OLE DB Provider for SQL|Unclosed quotation mark after the character string|SqlException|System\.Data\.SqlClient\.SqlException|Incorrect syntax near|ODBC SQL Server Driver)`)
-	oracleErrorRe = regexp.MustCompile(`(?i)(ORA-\d{5}|oracle\.jdbc\.driver|quoted string not properly terminated)`)
-	sqliteErrorRe = regexp.MustCompile(`(?i)(SQLite\/JDBCDriver|SQLite\.Exception|System\.Data\.SQLite|sqlite3\.OperationalError|unrecognized token:)`)
+	mysqlErrorRe = regexp.MustCompile(`(?i)(you have an error in your sql syntax|mysql_fetch|supplied argument is not a valid mysql|mysql_numrows|call to undefined function mysql)`)
+	pgErrorRe    = regexp.MustCompile(`(?i)(pg_query\(\)|supplied argument is not a valid postgresql|unterminated quoted string at|pg_exec\(\)|error:.*syntax error at or near|postgresql.*error)`)
+	mssqlErrorRe = regexp.MustCompile(`(?i)(microsoft sql server|syntax error converting|unclosed quotation mark|incorrect syntax near|sql server.*driver|odbc.*sql server)`)
+	oracleErrorRe = regexp.MustCompile(`(?i)(ora-\d{4,5}|oracle.*error|quoted string not properly terminated)`)
+	sqliteErrorRe = regexp.MustCompile(`(?i)(sqlite_error|sqlite3.*error|unrecognized token:)`)
 )
 
-// DetectSQLError matches MySQL/PG/MSSQL/Oracle/SQLite error strings.
-// Returns (found bool, dbtype string).
+// DetectSQLError performs regex matching for database error strings.
+// Returns (found, dbtype) where dbtype is "mysql", "pg", "mssql", "oracle", "sqlite", or "".
 func DetectSQLError(body string) (bool, string) {
 	switch {
 	case mysqlErrorRe.MatchString(body):
 		return true, "mysql"
 	case pgErrorRe.MatchString(body):
-		return true, "postgresql"
+		return true, "pg"
 	case mssqlErrorRe.MatchString(body):
 		return true, "mssql"
 	case oracleErrorRe.MatchString(body):
@@ -206,25 +217,19 @@ func DetectSQLError(body string) (bool, string) {
 	}
 }
 
-var (
-	passwdRe    = regexp.MustCompile(`root:x?:0:0`)
-	winIniRe    = regexp.MustCompile(`(?i)\[boot loader\]`)
-)
-
-// DetectPathTraversal checks for /etc/passwd or Windows boot.ini signatures.
+// DetectPathTraversal checks for path traversal success markers in the body.
 func DetectPathTraversal(body string) bool {
-	return passwdRe.MatchString(body) || winIniRe.MatchString(body)
+	return strings.Contains(body, "root:x:0:0") ||
+		strings.Contains(body, "[boot loader]") ||
+		strings.Contains(body, "[operating systems]")
 }
 
-var (
-	awsMetaRe  = regexp.MustCompile(`(?i)(ami-id|instance-id|instance-type|local-ipv4|security-credentials)`)
-	gcpMetaRe  = regexp.MustCompile(`(?i)(computeMetadata|project-id|serviceAccounts)`)
-	linkLocalRe = regexp.MustCompile(`169\.254\.169\.254`)
-)
-
-// DetectSSRFResponse checks for cloud metadata indicators echoed back.
+// DetectSSRFResponse checks for cloud/metadata content echoed back in the response.
 func DetectSSRFResponse(body string) bool {
-	return awsMetaRe.MatchString(body) ||
-		gcpMetaRe.MatchString(body) ||
-		linkLocalRe.MatchString(body)
+	lower := strings.ToLower(body)
+	return strings.Contains(lower, "ami-id") ||
+		strings.Contains(lower, "instance-id") ||
+		strings.Contains(lower, "computemetadata") ||
+		strings.Contains(lower, "169.254.169.254") ||
+		strings.Contains(lower, "iam/security-credentials")
 }

@@ -7,6 +7,7 @@ package sqli
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/bb-agent/mirage/internal/agent/base"
@@ -50,26 +51,138 @@ func (a *Agent) ProcessItem(ctx context.Context, item *queue.Item) ([]*base.Find
 		return nil, fmt.Errorf("missing target URL in work item")
 	}
 
+	// Extract URL parameters
+	u, err := url.Parse(targetURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid target URL: %w", err)
+	}
+
+	params := []string{}
+	if u.RawQuery != "" {
+		q, _ := url.ParseQuery(u.RawQuery)
+		for k := range q {
+			params = append(params, k)
+		}
+	}
+	if len(params) == 0 {
+		params = []string{"inject"}
+	}
+	// Limit to 3 params
+	if len(params) > 3 {
+		params = params[:3]
+	}
+
+	fc := base.NewFuzzClient()
+	// Take baseline timing for time-based detection
+	baseline := fc.Baseline(ctx, targetURL)
+
 	// Determine which SQLi techniques to try based on context
 	techniques := selectTechniques(vulnContext)
+	method := detectMethod(vulnContext)
+	dbmsHint := detectDBMS(vulnContext)
 
 	var findings []*base.Finding
-	for _, technique := range techniques {
-		payloads := generatePayloads(technique)
-		for _, payload := range payloads {
-			f := &base.Finding{
-				Type:       "SQLi",
-				URL:        targetURL,
-				Payload:    payload,
-				Severity:   mapPriorityToSeverity(priority),
-				Confidence: 0.0,
-				Evidence: map[string]interface{}{
-					"sqli_type": string(technique),
-					"dbms_hint": detectDBMS(vulnContext),
-				},
-				Method: detectMethod(vulnContext),
+	const maxPayloadsPerTechnique = 3
+
+	for _, paramName := range params {
+		for _, technique := range techniques {
+			payloadList := generatePayloads(technique)
+			if len(payloadList) > maxPayloadsPerTechnique {
+				payloadList = payloadList[:maxPayloadsPerTechnique]
 			}
-			findings = append(findings, f)
+
+			switch technique {
+			case BooleanBlind:
+				// For BooleanBlind: pair true/false payloads and compare body lengths
+				// payloadList[0] = true condition, payloadList[1] = false condition
+				if len(payloadList) < 2 {
+					break
+				}
+				truePayload := payloadList[0]
+				falsePayload := payloadList[1]
+
+				var trueResult, falseResult base.ProbeResult
+				if method == "POST" {
+					trueResult = fc.ProbePOST(ctx, targetURL, paramName, truePayload)
+					falseResult = fc.ProbePOST(ctx, targetURL, paramName, falsePayload)
+				} else {
+					trueResult = fc.ProbeGET(ctx, targetURL, paramName, truePayload)
+					falseResult = fc.ProbeGET(ctx, targetURL, paramName, falsePayload)
+				}
+
+				if trueResult.Error != nil || falseResult.Error != nil {
+					break
+				}
+
+				diff := len(trueResult.Body) - len(falseResult.Body)
+				if diff < 0 {
+					diff = -diff
+				}
+				if diff > 50 {
+					findings = append(findings, &base.Finding{
+						Type:      "SQLi",
+						URL:       targetURL,
+						Parameter: paramName,
+						Payload:   truePayload,
+						Severity:  mapPriorityToSeverity(priority),
+						Confidence: 0.65,
+						Evidence: map[string]interface{}{
+							"sqli_type":   string(technique),
+							"dbms_hint":   dbmsHint,
+							"body_diff":   diff,
+							"true_len":    len(trueResult.Body),
+							"false_len":   len(falseResult.Body),
+							"status_code": trueResult.StatusCode,
+						},
+						Method: method,
+					})
+				}
+
+			default:
+				// ErrorBased, TimeBlind, UnionBased, OutOfBand
+				for _, payload := range payloadList {
+					var result base.ProbeResult
+					if method == "POST" {
+						result = fc.ProbePOST(ctx, targetURL, paramName, payload)
+					} else {
+						result = fc.ProbeGET(ctx, targetURL, paramName, payload)
+					}
+					if result.Error != nil {
+						continue
+					}
+
+					conf := 0.0
+					evidence := map[string]interface{}{
+						"sqli_type":   string(technique),
+						"dbms_hint":   dbmsHint,
+						"status_code": result.StatusCode,
+						"baseline_ms": baseline.Milliseconds(),
+					}
+
+					if found, dbType := base.DetectSQLError(result.Body); found {
+						conf = 0.85
+						evidence["db_error"] = dbType
+					} else if technique == TimeBlind && result.TimingAnomaly {
+						conf = 0.75
+						evidence["timing_ms"] = result.Duration.Milliseconds()
+					}
+
+					if conf == 0.0 {
+						continue
+					}
+
+					findings = append(findings, &base.Finding{
+						Type:       "SQLi",
+						URL:        targetURL,
+						Parameter:  paramName,
+						Payload:    payload,
+						Severity:   mapPriorityToSeverity(priority),
+						Confidence: conf,
+						Evidence:   evidence,
+						Method:     method,
+					})
+				}
+			}
 		}
 	}
 
