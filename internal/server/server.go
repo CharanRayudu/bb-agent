@@ -416,8 +416,9 @@ type CreateFlowRequest struct {
 	Description  string `json:"description"`
 	Target       string `json:"target"`
 	Model        string `json:"model"`
-	Timeout      int    `json:"timeout"`       // Total scan timeout in minutes
-	AgentTimeout int    `json:"agent_timeout"` // Per-agent timeout in minutes
+	Timeout      int    `json:"timeout"`        // Total scan timeout in minutes
+	AgentTimeout int    `json:"agent_timeout"`  // Per-agent timeout in minutes
+	CavemanMode  bool   `json:"caveman_mode"`   // Skip LLM planning; dispatch all specialists directly
 }
 
 func (s *Server) handleCreateFlow(w http.ResponseWriter, r *http.Request) {
@@ -444,14 +445,14 @@ func (s *Server) handleCreateFlow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Initialize the agent and run the flow asynchronously
-	go s.runAgent(flow.ID, req.Description, req.Model, req.Timeout, req.AgentTimeout)
+	go s.runAgent(flow.ID, req.Description, req.Model, req.Timeout, req.AgentTimeout, req.CavemanMode)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(flow)
 }
 
-func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string, timeout int, agentTimeout int) {
+func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string, timeout int, agentTimeout int, cavemanMode bool) {
 	// Create Docker sandbox
 	sandbox, err := docker.NewSandbox(s.cfg.DockerHost, s.cfg.SandboxImage)
 	if err != nil {
@@ -509,6 +510,10 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 
 	// Create orchestrator
 	orchestrator := agent.NewOrchestrator(provider, registry, s.db, prompts)
+	if cavemanMode {
+		orchestrator.SetCavemanMode(true)
+		log.Println("[CAVEMAN] Caveman mode enabled: bypassing LLM planning")
+	}
 	orchestrator.SetEventHandler(func(event agent.Event) {
 		// Mirage 2.0: Persist events so they survive page refreshes
 		flowIDuuid, err := uuid.Parse(event.FlowID)
