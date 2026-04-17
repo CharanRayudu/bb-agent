@@ -90,6 +90,26 @@ func (m *Memory) ensureTable() {
 	if _, err := m.db.Exec(perfQuery); err != nil {
 		log.Printf("[memory] Warning: could not ensure payload_performance table: %v", err)
 	}
+
+	m.ensureCorrelationTable()
+}
+
+// ensureCorrelationTable creates the target_correlations table if it doesn't exist.
+func (m *Memory) ensureCorrelationTable() {
+	query := `
+	CREATE TABLE IF NOT EXISTS target_correlations (
+		id SERIAL PRIMARY KEY,
+		target1 TEXT NOT NULL,
+		target2 TEXT NOT NULL,
+		vuln_type TEXT NOT NULL,
+		relation TEXT NOT NULL,
+		flow_id UUID,
+		created_at TIMESTAMP DEFAULT NOW()
+	);
+	`
+	if _, err := m.db.Exec(query); err != nil {
+		log.Printf("[memory] Warning: could not ensure target_correlations table: %v", err)
+	}
 }
 
 // SaveInsight persists a learned insight about a target
@@ -328,6 +348,163 @@ func (m *Memory) FormatLongTermContext(target, techStack string) string {
 		))
 	}
 	return sb.String()
+}
+
+// CorrelatedTarget describes a related target found through cross-flow analysis.
+type CorrelatedTarget struct {
+	Target      string
+	Relation    string   // "subdomain", "shared_infra", "same_vuln_class"
+	CommonVulns []string
+	Score       float64 // correlation strength 0-1
+}
+
+// FindCorrelatedTargets looks for other targets in memory that share vulns with this one.
+// It queries target_memory for domains that appear to be related (same base domain or
+// same vulnerability class appearing in multiple targets).
+func (m *Memory) FindCorrelatedTargets(currentTarget string, limit int) []CorrelatedTarget {
+	if m.db == nil {
+		return nil
+	}
+	if limit <= 0 {
+		limit = 10
+	}
+
+	baseDomain := extractBaseDomain(currentTarget)
+
+	// Find targets sharing the same base domain
+	rows, err := m.db.Query(
+		`SELECT DISTINCT target FROM target_memory
+		 WHERE domain LIKE $1 AND target != $2`,
+		"%"+baseDomain, currentTarget,
+	)
+	if err != nil {
+		log.Printf("[memory] FindCorrelatedTargets query error: %v", err)
+		return nil
+	}
+	defer rows.Close()
+
+	var relatedTargets []string
+	for rows.Next() {
+		var t string
+		if err := rows.Scan(&t); err == nil {
+			relatedTargets = append(relatedTargets, t)
+		}
+	}
+
+	if len(relatedTargets) == 0 {
+		return nil
+	}
+
+	// Count known_vuln categories for the current target
+	currentVulns := m.getVulnCategories(currentTarget)
+	totalCurrent := len(currentVulns)
+
+	var results []CorrelatedTarget
+	seen := make(map[string]bool)
+
+	for _, related := range relatedTargets {
+		if seen[related] {
+			continue
+		}
+		seen[related] = true
+
+		relatedVulns := m.getVulnCategories(related)
+		var common []string
+		for v := range relatedVulns {
+			if currentVulns[v] {
+				common = append(common, v)
+			}
+		}
+
+		// Determine relation type
+		relation := "shared_infra"
+		relatedBase := extractBaseDomain(related)
+		if relatedBase == baseDomain {
+			relation = "subdomain"
+		}
+		if len(common) > 0 {
+			relation = "same_vuln_class"
+		}
+
+		// Compute score: shared vuln count / total unique vulns
+		total := totalCurrent + len(relatedVulns) - len(common)
+		var score float64
+		if total > 0 {
+			score = float64(len(common)) / float64(total)
+		} else {
+			score = 0.5 // base score for structural similarity
+		}
+
+		results = append(results, CorrelatedTarget{
+			Target:      related,
+			Relation:    relation,
+			CommonVulns: common,
+			Score:       score,
+		})
+	}
+
+	// Sort by score descending (simple insertion sort for small slices)
+	for i := 1; i < len(results); i++ {
+		for j := i; j > 0 && results[j].Score > results[j-1].Score; j-- {
+			results[j], results[j-1] = results[j-1], results[j]
+		}
+	}
+
+	if len(results) > limit {
+		results = results[:limit]
+	}
+	return results
+}
+
+// getVulnCategories returns a set of known_vuln category strings for a target.
+func (m *Memory) getVulnCategories(target string) map[string]bool {
+	rows, err := m.db.Query(
+		`SELECT insight FROM target_memory WHERE target = $1 AND category = 'known_vuln'`,
+		target,
+	)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	result := make(map[string]bool)
+	for rows.Next() {
+		var insight string
+		if err := rows.Scan(&insight); err == nil {
+			// Extract vuln type from "TYPE: URL (param: PARAM)" format
+			parts := strings.SplitN(insight, ":", 2)
+			if len(parts) > 0 {
+				result[strings.TrimSpace(parts[0])] = true
+			}
+		}
+	}
+	return result
+}
+
+// extractBaseDomain extracts the registrable domain (e.g. api.example.com -> example.com).
+func extractBaseDomain(target string) string {
+	host := extractDomain(target)
+	// Return last two labels of the host as the base domain
+	parts := strings.Split(host, ".")
+	if len(parts) >= 2 {
+		return strings.Join(parts[len(parts)-2:], ".")
+	}
+	return host
+}
+
+// SaveCorrelation records that two targets share a vulnerability pattern.
+func (m *Memory) SaveCorrelation(target1, target2, vulnType, relation string, flowID uuid.UUID) {
+	if m.db == nil {
+		return
+	}
+	_, err := m.db.Exec(
+		`INSERT INTO target_correlations (target1, target2, vuln_type, relation, flow_id)
+		 VALUES ($1, $2, $3, $4, $5)`,
+		target1, target2, vulnType, relation, flowID,
+	)
+	if err != nil {
+		log.Printf("[memory] SaveCorrelation error: %v", err)
+	}
 }
 
 // PersistFlowLearnings saves all relevant learnings from a completed flow

@@ -12,6 +12,7 @@ function NewTask() {
         target: '',
         description: '',
         model: '',
+        additionalTargets: [],
     })
     const [models, setModels] = useState([])
     const [modelsLoading, setModelsLoading] = useState(true)
@@ -155,6 +156,12 @@ function NewTask() {
                         </h3>
 
                         <form onSubmit={handleSubmit} className="space-y-6 relative z-10">
+                            {/* Live Collaboration Badge */}
+                            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-accent-green/10 border border-accent-green/20 w-fit">
+                                <span className="w-2 h-2 rounded-full bg-accent-green animate-pulse" />
+                                <span className="text-xs font-semibold text-accent-green tracking-wide">Live collaboration enabled</span>
+                            </div>
+
                             {/* Model */}
                             <div>
                                 <label className="block text-sm font-semibold text-text-primary mb-2 flex items-center gap-2">

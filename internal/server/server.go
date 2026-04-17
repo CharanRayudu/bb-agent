@@ -21,6 +21,16 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// OperatorAnnotation is a note left by an operator on a flow during live collaboration.
+type OperatorAnnotation struct {
+	ID        string    `json:"id"`
+	FlowID    string    `json:"flow_id"`
+	Operator  string    `json:"operator"` // username or "anonymous"
+	Note      string    `json:"note"`
+	FindingID string    `json:"finding_id,omitempty"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
 // Server is the main HTTP server
 type Server struct {
 	cfg      *config.Config
@@ -40,6 +50,10 @@ type Server struct {
 	// Active scan cancellation tracking
 	activeScans   map[uuid.UUID]context.CancelFunc
 	activeScansMu sync.RWMutex
+
+	// Live operator collaboration
+	operatorAnnotations   map[string][]OperatorAnnotation
+	operatorAnnotationsMu sync.RWMutex
 }
 
 // New creates a new server instance
@@ -52,8 +66,9 @@ func New(cfg *config.Config, db *sql.DB) *Server {
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
-		clients:     make(map[*websocket.Conn]bool),
-		activeScans: make(map[uuid.UUID]context.CancelFunc),
+		clients:             make(map[*websocket.Conn]bool),
+		activeScans:         make(map[uuid.UUID]context.CancelFunc),
+		operatorAnnotations: make(map[string][]OperatorAnnotation),
 	}
 
 	s.setupRoutes()
@@ -174,6 +189,12 @@ func (s *Server) handleFlow(w http.ResponseWriter, r *http.Request) {
 			return
 		} else if subRoute == "/cancel" && r.Method == http.MethodPost {
 			s.handleCancelFlow(w, r, id)
+			return
+		} else if subRoute == "/annotations" && r.Method == http.MethodGet {
+			s.handleGetAnnotations(w, r, id)
+			return
+		} else if subRoute == "/annotate" && r.Method == http.MethodPost {
+			s.handleAnnotateFlow(w, r, id)
 			return
 		}
 
@@ -410,14 +431,79 @@ func (s *Server) handleFlowLedger(w http.ResponseWriter, r *http.Request, id uui
 	json.NewEncoder(w).Encode(ledger)
 }
 
+func (s *Server) handleAnnotateFlow(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	var body struct {
+		Note      string `json:"note"`
+		Operator  string `json:"operator"`
+		FindingID string `json:"finding_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if body.Note == "" {
+		http.Error(w, "note is required", http.StatusBadRequest)
+		return
+	}
+	operator := body.Operator
+	if operator == "" {
+		operator = "anonymous"
+	}
+
+	annotation := OperatorAnnotation{
+		ID:        uuid.New().String(),
+		FlowID:    id.String(),
+		Operator:  operator,
+		Note:      body.Note,
+		FindingID: body.FindingID,
+		Timestamp: time.Now(),
+	}
+
+	s.operatorAnnotationsMu.Lock()
+	s.operatorAnnotations[id.String()] = append(s.operatorAnnotations[id.String()], annotation)
+	s.operatorAnnotationsMu.Unlock()
+
+	// Broadcast to all WebSocket clients
+	s.broadcast(agent.Event{
+		Type:    agent.EventType("operator_annotation"),
+		FlowID:  id.String(),
+		Content: body.Note,
+		Metadata: map[string]interface{}{
+			"id":         annotation.ID,
+			"operator":   annotation.Operator,
+			"finding_id": annotation.FindingID,
+			"timestamp":  annotation.Timestamp,
+		},
+		Timestamp: annotation.Timestamp,
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(annotation)
+}
+
+func (s *Server) handleGetAnnotations(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	s.operatorAnnotationsMu.RLock()
+	annotations := s.operatorAnnotations[id.String()]
+	s.operatorAnnotationsMu.RUnlock()
+
+	if annotations == nil {
+		annotations = []OperatorAnnotation{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(annotations)
+}
+
 // CreateFlowRequest is the JSON body for creating a new flow
 type CreateFlowRequest struct {
-	Name         string `json:"name"`
-	Description  string `json:"description"`
-	Target       string `json:"target"`
-	Model        string `json:"model"`
-	Timeout      int    `json:"timeout"`       // Total scan timeout in minutes
-	AgentTimeout int    `json:"agent_timeout"` // Per-agent timeout in minutes
+	Name              string   `json:"name"`
+	Description       string   `json:"description"`
+	Target            string   `json:"target"`
+	Model             string   `json:"model"`
+	Timeout           int      `json:"timeout"`            // Total scan timeout in minutes
+	AgentTimeout      int      `json:"agent_timeout"`      // Per-agent timeout in minutes
+	AdditionalTargets []string `json:"additional_targets"` // Up to 5 extra targets for multi-target scans
 }
 
 func (s *Server) handleCreateFlow(w http.ResponseWriter, r *http.Request) {
@@ -443,8 +529,26 @@ func (s *Server) handleCreateFlow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Initialize the agent and run the flow asynchronously
+	// Initialize the agent and run the primary flow asynchronously
 	go s.runAgent(flow.ID, req.Description, req.Model, req.Timeout, req.AgentTimeout)
+
+	// Launch additional target flows (multi-target support, max 5)
+	additionalTargets := req.AdditionalTargets
+	if len(additionalTargets) > 5 {
+		additionalTargets = additionalTargets[:5]
+	}
+	for _, additionalTarget := range additionalTargets {
+		additionalTarget := additionalTarget // capture loop variable
+		if additionalTarget == "" {
+			continue
+		}
+		extraFlow, err := s.queries.CreateFlow(req.Name+" ["+additionalTarget+"]", req.Description, additionalTarget)
+		if err != nil {
+			log.Printf("[WARN] Failed to create additional target flow for %s: %v", additionalTarget, err)
+			continue
+		}
+		go s.runAgent(extraFlow.ID, req.Description, req.Model, req.Timeout, req.AgentTimeout)
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)

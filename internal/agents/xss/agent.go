@@ -13,6 +13,7 @@ package xss
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/bb-agent/mirage/internal/agent/base"
@@ -57,35 +58,89 @@ func (a *Agent) ProcessItem(ctx context.Context, item *queue.Item) ([]*base.Find
 	}
 
 	// Phase 1: Context Analysis
-	// Determine the injection context (HTML body, attribute, JS string, URL, etc.)
 	injectionCtx := analyzeContext(vulnContext)
 
 	// Phase 2: Payload Generation
-	// Select payloads based on context
 	payloads := generatePayloads(injectionCtx)
 
-	// Phase 3: Create findings for each viable payload
-	// In the future, this will actually send HTTP requests and validate
+	// Phase 3: Extract URL parameters to inject into
+	params := extractParams(targetURL)
+
+	// Phase 4: Fire real HTTP probes
+	fc := base.NewFuzzClient()
 	var findings []*base.Finding
 
-	for _, payload := range payloads {
-		f := &base.Finding{
-			Type:       "XSS",
-			URL:        targetURL,
-			Payload:    payload,
-			Severity:   mapPriorityToSeverity(priority),
-			Confidence: 0.0, // Will be set by validation phase
-			Evidence: map[string]interface{}{
+	// Limit to top 3 params, top 5 payloads per param
+	maxParams := 3
+	maxPayloads := 5
+	if len(params) == 0 {
+		params = []string{"inject"}
+	}
+	if len(params) > maxParams {
+		params = params[:maxParams]
+	}
+	if len(payloads) > maxPayloads {
+		payloads = payloads[:maxPayloads]
+	}
+
+	for _, paramName := range params {
+		for _, payload := range payloads {
+			result := fc.ProbeGET(ctx, targetURL, paramName, payload)
+			if result.Error != nil {
+				continue
+			}
+
+			confidence := 0.0
+			evidence := map[string]interface{}{
 				"context":       injectionCtx,
 				"xss_type":      string(Reflected),
 				"payload_class": classifyPayload(payload),
-			},
-			Method: "GET",
+				"status_code":   result.StatusCode,
+				"param":         paramName,
+			}
+
+			if base.DetectReflection(result.Body, payload) {
+				confidence = 0.7
+				evidence["reflected"] = true
+			}
+			if base.DetectXSSExecution(result.Body, payload) {
+				confidence = 0.95
+				evidence["executed"] = true
+			}
+
+			if confidence > 0 && result.StatusCode == 200 {
+				findings = append(findings, &base.Finding{
+					Type:       "XSS",
+					URL:        targetURL,
+					Parameter:  paramName,
+					Payload:    payload,
+					Severity:   mapPriorityToSeverity(priority),
+					Confidence: confidence,
+					Evidence:   evidence,
+					Method:     "GET",
+				})
+			}
 		}
-		findings = append(findings, f)
 	}
 
 	return findings, nil
+}
+
+// extractParams returns query parameter names from a URL.
+func extractParams(rawURL string) []string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return nil
+	}
+	q, err := url.ParseQuery(u.RawQuery)
+	if err != nil || len(q) == 0 {
+		return nil
+	}
+	params := make([]string, 0, len(q))
+	for k := range q {
+		params = append(params, k)
+	}
+	return params
 }
 
 // analyzeContext determines the injection context from planner notes.
