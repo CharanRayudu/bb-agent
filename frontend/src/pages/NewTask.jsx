@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Zap, Search, Globe, Network, Shield, Lightbulb, ChevronRight, Server, Database, Terminal, Ghost, Bug, Skull } from 'lucide-react'
+import { Zap, Search, Globe, Network, Shield, Lightbulb, ChevronRight, Server, Database, Terminal, Ghost, Bug } from 'lucide-react'
 
 const API_BASE = '/api'
 
@@ -12,7 +12,6 @@ function NewTask() {
         target: '',
         description: '',
         model: '',
-        cavemanMode: false,
     })
     const [models, setModels] = useState([])
     const [modelsLoading, setModelsLoading] = useState(true)
@@ -48,8 +47,7 @@ function NewTask() {
     }
 
     function handleChange(e) {
-        const { name, type, value, checked } = e.target
-        setForm({ ...form, [name]: type === 'checkbox' ? checked : value })
+        setForm({ ...form, [e.target.name]: e.target.value })
     }
 
     async function handleSubmit(e) {
@@ -72,7 +70,6 @@ function NewTask() {
                     target: form.target,
                     model: form.model,
                     description: form.description || `Perform a comprehensive penetration test against ${form.target}`,
-                    caveman_mode: form.cavemanMode,
                 }),
             })
 
@@ -231,35 +228,6 @@ function NewTask() {
                                     placeholder="Provide explicit instructions. e.g., 'Discover subdomains, then run dirb on all discovered HTTP servers. Avoid DoS tools.' If left blank, default Recon & Scan occurs."
                                     rows={5}
                                 />
-                            </div>
-
-                            {/* Caveman Mode Toggle */}
-                            <div
-                                onClick={() => setForm((prev) => ({ ...prev, cavemanMode: !prev.cavemanMode }))}
-                                className={`group cursor-pointer relative overflow-hidden rounded-2xl border p-4 transition-all duration-300 ${
-                                    form.cavemanMode
-                                        ? 'border-accent-red/60 bg-accent-red/10 shadow-[0_0_20px_rgba(255,80,80,0.15)]'
-                                        : 'border-white/12 bg-white/5 hover:border-white/25'
-                                }`}
-                            >
-                                <div className="flex items-center justify-between gap-4">
-                                    <div className="flex items-center gap-3">
-                                        <div className={`p-2 rounded-lg transition-all duration-300 ${form.cavemanMode ? 'bg-accent-red/20 text-accent-red' : 'bg-white/8 text-text-muted group-hover:text-text-primary'}`}>
-                                            <Skull className="w-5 h-5" />
-                                        </div>
-                                        <div>
-                                            <p className={`font-bold text-sm transition-colors ${form.cavemanMode ? 'text-accent-red' : 'text-text-primary'}`}>
-                                                Caveman Mode
-                                            </p>
-                                            <p className="text-xs text-text-muted mt-0.5">
-                                                Skip LLM planning — dispatch all specialist agents directly against the target
-                                            </p>
-                                        </div>
-                                    </div>
-                                    <div className={`relative w-11 h-6 rounded-full transition-all duration-300 flex-shrink-0 ${form.cavemanMode ? 'bg-accent-red' : 'bg-white/15'}`}>
-                                        <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all duration-300 ${form.cavemanMode ? 'left-[22px]' : 'left-0.5'}`} />
-                                    </div>
-                                </div>
                             </div>
 
                             {error && (
