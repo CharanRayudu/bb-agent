@@ -185,6 +185,11 @@ func (s *Server) setupRoutes() {
 }
 
 // Start runs the HTTP server
+// Handler returns the server's HTTP handler (useful for testing).
+func (s *Server) Handler() http.Handler {
+	return corsMiddleware(s.mux)
+}
+
 func (s *Server) Start(ctx context.Context, addr string) error {
 	srv := &http.Server{
 		Addr:    addr,
