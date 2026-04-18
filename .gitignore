@@ -46,3 +46,4 @@ reference_projects/
 tmp_mirage
 *-release.json
 .claude/
+mirage
