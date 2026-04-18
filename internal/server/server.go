@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/bb-agent/mirage/internal/agent"
+	"github.com/bb-agent/mirage/internal/agent/base"
 	"github.com/bb-agent/mirage/internal/config"
 	"github.com/bb-agent/mirage/internal/database"
 	"github.com/bb-agent/mirage/internal/docker"
@@ -71,6 +72,14 @@ type Server struct {
 
 	// CI/CD webhook HMAC secret (optional)
 	webhookSecret string
+
+	// Authenticated session management
+	authSessions map[string]*base.AuthSession
+	authMu       sync.RWMutex
+
+	// llmProvider is used for stateless LLM API requests (e.g. /api/mutate).
+	// May be nil when no auth is configured.
+	llmProvider llm.Provider
 }
 
 // New creates a new server instance
@@ -89,6 +98,19 @@ func New(cfg *config.Config, db *sql.DB) *Server {
 		}
 	})
 
+	// Build a shared LLM provider for stateless requests (e.g. /api/mutate).
+	// Mirrors the logic in runAgent: prefer Codex OAuth, fall back to API key.
+	var sharedProvider llm.Provider
+	codexAuth := llm.NewCodexTokenProvider(cfg.CodexHome)
+	if codexAuth.IsAvailable() {
+		sharedProvider = llm.NewOpenAIProviderWithCodex(codexAuth, cfg.OpenAIModel, cfg.OpenAITemperature)
+	} else if cfg.OpenAIAPIKey != "" {
+		sharedProvider = llm.NewOpenAIProvider(cfg.OpenAIAPIKey, cfg.OpenAIModel, cfg.OpenAITemperature)
+	}
+	if sharedProvider != nil {
+		sharedProvider = llm.NewResilientProvider(sharedProvider)
+	}
+
 	s = &Server{
 		cfg:     cfg,
 		db:      db,
@@ -100,11 +122,13 @@ func New(cfg *config.Config, db *sql.DB) *Server {
 		clients:             make(map[*websocket.Conn]bool),
 		activeScans:         make(map[uuid.UUID]context.CancelFunc),
 		operatorAnnotations: make(map[string][]OperatorAnnotation),
+		authSessions:        make(map[string]*base.AuthSession),
 		rbac:               rbac,
 		auditLog:           auditLog,
 		scheduler:          scheduler,
 		remediationTracker: remediationTracker,
 		surfaceStore:       surfaceStore,
+		llmProvider:        sharedProvider,
 	}
 
 	s.setupRoutes()
@@ -143,6 +167,9 @@ func (s *Server) setupRoutes() {
 	s.mux.HandleFunc("/api/users", s.handleUsers)
 	s.mux.HandleFunc("/api/audit", s.handleAudit)
 	s.mux.HandleFunc("/api/cicd/trigger", s.handleCICDTrigger)
+
+	// LLM mutation endpoint
+	s.mux.HandleFunc("/api/mutate", s.handleMutate)
 
 	// Extended API routes (knowledge graph, analytics, config, metrics, schedules)
 	s.registerExtendedRoutes()
@@ -275,6 +302,19 @@ func (s *Server) handleFlow(w http.ResponseWriter, r *http.Request) {
 			return
 		} else if subRoute == "/compliance" && r.Method == http.MethodGet {
 			s.handleCompliance(w, r, id)
+			return
+		} else if subRoute == "/screenshots" && r.Method == http.MethodGet {
+			s.handleGetScreenshots(w, r, id)
+			return
+		} else if subRoute == "/screenshots/capture" && r.Method == http.MethodPost {
+			s.handleCaptureScreenshot(w, r, id)
+			return
+		} else if strings.HasPrefix(subRoute, "/screenshots/") && r.Method == http.MethodGet {
+			sid := subRoute[len("/screenshots/"):]
+			s.handleGetScreenshotImage(w, r, id, sid)
+			return
+		} else if subRoute == "/auth" {
+			s.handleFlowAuth(w, r, id)
 			return
 		}
 
@@ -1346,6 +1386,75 @@ func (s *Server) handleCompliance(w http.ResponseWriter, r *http.Request, id uui
 	json.NewEncoder(w).Encode(rows)
 }
 
+// ============ Screenshot Handlers ============
+
+// screenshotMeta is the JSON shape returned for a single screenshot (no data).
+type screenshotMeta struct {
+	ID         string    `json:"id"`
+	URL        string    `json:"url"`
+	Title      string    `json:"title"`
+	CapturedAt time.Time `json:"captured_at"`
+}
+
+func (s *Server) handleGetScreenshots(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	records := agent.GlobalScreenshots.GetByFlow(id.String())
+	out := make([]screenshotMeta, 0, len(records))
+	for _, rec := range records {
+		out = append(out, screenshotMeta{
+			ID:         rec.ID,
+			URL:        rec.URL,
+			Title:      rec.Title,
+			CapturedAt: rec.CapturedAt,
+		})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(out)
+}
+
+func (s *Server) handleGetScreenshotImage(w http.ResponseWriter, r *http.Request, _ uuid.UUID, screenshotID string) {
+	rec, ok := agent.GlobalScreenshots.GetByID(screenshotID)
+	if !ok {
+		http.Error(w, "screenshot not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Write(rec.Data) //nolint:errcheck
+}
+
+func (s *Server) handleCaptureScreenshot(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	var body struct {
+		URL   string `json:"url"`
+		Title string `json:"title"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if body.URL == "" {
+		http.Error(w, "url is required", http.StatusBadRequest)
+		return
+	}
+	if body.Title == "" {
+		body.Title = body.URL
+	}
+
+	rec, err := agent.CaptureAndStore(r.Context(), id.String(), "", body.URL, body.Title)
+	if err != nil {
+		log.Printf("[SCREENSHOT] capture error for flow %s: %v", id, err)
+		http.Error(w, fmt.Sprintf("capture failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(screenshotMeta{
+		ID:         rec.ID,
+		URL:        rec.URL,
+		Title:      rec.Title,
+		CapturedAt: rec.CapturedAt,
+	})
+}
+
 // ============ Middleware ============
 
 func corsMiddleware(next http.Handler) http.Handler {
@@ -1361,4 +1470,106 @@ func corsMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// handleFlowAuth handles POST/GET/DELETE /api/flows/{id}/auth for session management.
+func (s *Server) handleFlowAuth(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	w.Header().Set("Content-Type", "application/json")
+	flowKey := id.String()
+
+	switch r.Method {
+	case http.MethodPost:
+		// Parse request body.
+		var req struct {
+			Type          string `json:"type"`
+			LoginURL      string `json:"login_url"`
+			Username      string `json:"username"`
+			Password      string `json:"password"`
+			UsernameField string `json:"username_field"`
+			PasswordField string `json:"password_field"`
+			Token         string `json:"token"`
+			RawCookies    string `json:"raw_cookies"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, `{"error":"invalid request body"}`, http.StatusBadRequest)
+			return
+		}
+
+		var session *base.AuthSession
+		var sessionErr error
+
+		switch req.Type {
+		case "form_login":
+			usernameField := req.UsernameField
+			if usernameField == "" {
+				usernameField = "username"
+			}
+			passwordField := req.PasswordField
+			if passwordField == "" {
+				passwordField = "password"
+			}
+			session, sessionErr = base.FormLogin(r.Context(), req.LoginURL, usernameField, passwordField, req.Username, req.Password)
+		case "bearer":
+			if req.Token == "" {
+				http.Error(w, `{"error":"token is required for bearer auth"}`, http.StatusBadRequest)
+				return
+			}
+			session = base.BearerSession(req.Token)
+		case "cookie":
+			if req.RawCookies == "" {
+				http.Error(w, `{"error":"raw_cookies is required for cookie auth"}`, http.StatusBadRequest)
+				return
+			}
+			session = base.CookieSession(req.RawCookies)
+		default:
+			http.Error(w, `{"error":"unsupported auth type; use form_login, bearer, or cookie"}`, http.StatusBadRequest)
+			return
+		}
+
+		if sessionErr != nil {
+			log.Printf("[auth] flow %s login failed: %v", flowKey, sessionErr)
+			w.WriteHeader(http.StatusBadGateway)
+			json.NewEncoder(w).Encode(map[string]string{"error": sessionErr.Error()})
+			return
+		}
+
+		s.authMu.Lock()
+		s.authSessions[flowKey] = session
+		s.authMu.Unlock()
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":      "authenticated",
+			"cookies_set": len(session.Cookies),
+		})
+
+	case http.MethodGet:
+		s.authMu.RLock()
+		session, ok := s.authSessions[flowKey]
+		s.authMu.RUnlock()
+
+		if !ok {
+			http.Error(w, `{"error":"no auth session for this flow"}`, http.StatusNotFound)
+			return
+		}
+
+		// Return session info without credentials.
+		info := map[string]interface{}{
+			"type":         session.Type,
+			"is_active":    session.IsActive,
+			"last_refresh": session.LastRefresh,
+			"cookies_set":  len(session.Cookies),
+			"headers_set":  len(session.Headers),
+			"login_url":    session.LoginURL,
+		}
+		json.NewEncoder(w).Encode(info)
+
+	case http.MethodDelete:
+		s.authMu.Lock()
+		delete(s.authSessions, flowKey)
+		s.authMu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
 }

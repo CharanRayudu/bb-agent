@@ -174,6 +174,79 @@ func (pe *PayloadEngine) GetAttemptHistory(target, param string) []PayloadAttemp
 	return pe.history[key]
 }
 
+// PrioritizePayloads reorders a payload list based on detected tech stack and WAF.
+// PHP targets get PHP-specific payloads first, Java targets get Java payloads, etc.
+// WAF-detected targets get bypass variants prepended to the final list.
+func PrioritizePayloads(payloads []string, stack TechStack, waf WAFResult) []string {
+	if len(payloads) == 0 {
+		return payloads
+	}
+
+	lang := strings.ToLower(stack.Lang)
+	var priority []string
+	var rest []string
+
+	// Keywords that indicate a payload is suited to a particular tech stack.
+	techKeywords := techKeywordsForStack(lang)
+
+	for _, p := range payloads {
+		pl := strings.ToLower(p)
+		matched := false
+		for _, kw := range techKeywords {
+			if strings.Contains(pl, kw) {
+				priority = append(priority, p)
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			rest = append(rest, p)
+		}
+	}
+
+	ordered := append(priority, rest...)
+
+	// If a WAF is detected, prepend WAF-specific bypass variants of the first payload.
+	if waf.Vendor != WAFNone && waf.Vendor != "" && len(ordered) > 0 {
+		bypassVariants := WAFBypassPayloads(waf.Vendor, ordered[0])
+		// De-duplicate: only prepend variants that are not already in ordered.
+		existing := make(map[string]bool, len(ordered))
+		for _, p := range ordered {
+			existing[p] = true
+		}
+		var uniqueBypass []string
+		for _, v := range bypassVariants {
+			if !existing[v] {
+				uniqueBypass = append(uniqueBypass, v)
+				existing[v] = true
+			}
+		}
+		ordered = append(uniqueBypass, ordered...)
+	}
+
+	return ordered
+}
+
+// techKeywordsForStack returns payload substrings that indicate stack-specific payloads.
+func techKeywordsForStack(lang string) []string {
+	switch {
+	case strings.Contains(lang, "php"):
+		return []string{"php://", "<?php", "passthru", "system(", "shell_exec", "eval(", "phpinfo"}
+	case strings.Contains(lang, "java"):
+		return []string{"java.lang", "runtime.exec", "processbuilder", "classforname", "ysoserial", "javax"}
+	case strings.Contains(lang, "asp") || strings.Contains(lang, ".net"):
+		return []string{"__viewstate", "response.write", "server.execute", "aspx", "<%=", "system.web"}
+	case strings.Contains(lang, "python"):
+		return []string{"os.system", "subprocess", "eval(", "exec(", "__import__", "open(", "jinja"}
+	case strings.Contains(lang, "ruby"):
+		return []string{"system(", "exec(", "`", "yaml.load", "rails", "erb"}
+	case strings.Contains(lang, "node") || strings.Contains(lang, "express"):
+		return []string{"require(", "child_process", "process.env", "__proto__", "constructor[", "prototype["}
+	default:
+		return nil
+	}
+}
+
 // ============ Encoding helpers ============
 
 func doubleURLEncode(s string) string {

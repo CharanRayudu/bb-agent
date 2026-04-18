@@ -27,6 +27,7 @@ type ProbeResult struct {
 type FuzzClient struct {
 	client    *http.Client
 	baseDelay time.Duration // baseline timing for time-based detection
+	auth      *AuthSession  // optional authenticated session
 }
 
 // NewFuzzClient creates a fuzz client with a 10s timeout and TLS verification disabled.
@@ -71,6 +72,7 @@ func (fc *FuzzClient) ProbeGET(ctx context.Context, targetURL, paramName, payloa
 		return ProbeResult{Error: err, Duration: time.Since(start)}
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; SecurityScanner/1.0)")
+	injectAuth(req, fc.auth)
 
 	resp, err := fc.client.Do(req)
 	dur := time.Since(start)
@@ -104,6 +106,7 @@ func (fc *FuzzClient) ProbePOST(ctx context.Context, targetURL, paramName, paylo
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; SecurityScanner/1.0)")
+	injectAuth(req, fc.auth)
 
 	resp, err := fc.client.Do(req)
 	dur := time.Since(start)
@@ -136,6 +139,7 @@ func (fc *FuzzClient) Baseline(ctx context.Context, targetURL string) time.Durat
 		return 0
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; SecurityScanner/1.0)")
+	injectAuth(req, fc.auth)
 	resp, err := fc.client.Do(req)
 	dur := time.Since(start)
 	if err != nil {

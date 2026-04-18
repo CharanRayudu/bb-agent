@@ -88,8 +88,11 @@ func (a *Agent) ProcessItem(ctx context.Context, item *queue.Item) ([]*base.Find
 		return nil, fmt.Errorf("missing target URL in work item")
 	}
 
+	// Use GlobalOOBServer for live callback detection; fall back to placeholder.
+	token := base.GlobalOOBServer.GenerateToken("log4shell")
+	liveCallback := base.GlobalOOBServer.CallbackURL(token)
 	if callbackURL == "" {
-		callbackURL = callbackPlaceholder
+		callbackURL = liveCallback
 	}
 
 	client := newHTTPClient()
@@ -142,6 +145,26 @@ func (a *Agent) ProcessItem(ctx context.Context, item *queue.Item) ([]*base.Find
 			// One JNDI variant per header is enough
 			break
 		}
+	}
+
+	// Wait up to 5 seconds for an OOB callback confirming Log4Shell RCE.
+	if cb, got := base.GlobalOOBServer.WaitForCallback(ctx, token, 5*time.Second); got {
+		evidence := map[string]interface{}{
+			"oob_callback":  true,
+			"callback_ip":   cb.RemoteIP,
+			"callback_path": cb.Path,
+			"callback_url":  callbackURL,
+		}
+		findings = append(findings, &base.Finding{
+			Type:       "Log4Shell (CVE-2021-44228)",
+			URL:        targetURL,
+			Parameter:  "OOB",
+			Payload:    callbackURL,
+			Severity:   "critical",
+			Confidence: 0.95,
+			Evidence:   evidence,
+			Method:     "GET",
+		})
 	}
 
 	// --- Spring4Shell probe ---

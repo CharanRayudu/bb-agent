@@ -45,6 +45,9 @@ import (
 	"github.com/bb-agent/mirage/internal/agents/rce"
 	reportingagent "github.com/bb-agent/mirage/internal/agents/reporting"
 	"github.com/bb-agent/mirage/internal/agents/resourcehunter"
+	"github.com/bb-agent/mirage/internal/agents/s3enum"
+	"github.com/bb-agent/mirage/internal/agents/saml"
+	"github.com/bb-agent/mirage/internal/agents/secondorder"
 	"github.com/bb-agent/mirage/internal/agents/smuggling"
 	"github.com/bb-agent/mirage/internal/agents/sqli"
 	"github.com/bb-agent/mirage/internal/agents/sqlmap"
@@ -166,7 +169,17 @@ type Orchestrator struct {
 	pauseMu     sync.RWMutex
 }
 
-func buildSpecialists() map[string]Specialist {
+func buildSpecialists(provider llm.Provider) map[string]Specialist {
+	// Build an LLMMutator so the WAF evasion specialist can use LLM-driven mutation.
+	// model is informational; the provider already carries the configured model.
+	var wafAgent Specialist
+	if provider != nil {
+		mutator := base.NewLLMMutator(provider, "")
+		wafAgent = wafevasion.NewWithMutator(mutator)
+	} else {
+		wafAgent = wafevasion.New()
+	}
+
 	return map[string]Specialist{
 		"apisecurity":       apisecurity.New(),
 		"assetdiscovery":    assetdiscovery.New(),
@@ -197,6 +210,9 @@ func buildSpecialists() map[string]Specialist {
 		"rce":               rce.New(),
 		"reporting":         reportingagent.New(),
 		"resourcehunter":    resourcehunter.New(),
+		"s3enum":            s3enum.New(),
+		"saml":              saml.New(),
+		"secondorder":       secondorder.New(),
 		"smuggling":         smuggling.New(),
 		"sqli":              sqli.New(),
 		"sqlmap":            sqlmap.New(),
@@ -205,7 +221,7 @@ func buildSpecialists() map[string]Specialist {
 		"urlmaster":         urlmaster.New(),
 		"validation":        validation.New(),
 		"visualcrawler":     visualcrawler.New(),
-		"wafevasion":        wafevasion.New(),
+		"wafevasion":        wafAgent,
 		"websocket":         websocket.New(),
 		"xss":               xss.New(),
 		"xxe":               xxe.New(),
@@ -459,7 +475,7 @@ func NewOrchestrator(provider llm.Provider, registry *tools.Registry, db *sql.DB
 	o.toolRegistry.AddOOBTools(o.oobManager)
 
 	// Initialize workers only for specialist implementations that exist today.
-	for specialistID, specialist := range buildSpecialists() {
+	for specialistID, specialist := range buildSpecialists(provider) {
 		q := o.queueMgr.Get(specialistID)
 		if q == nil {
 			continue
