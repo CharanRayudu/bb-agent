@@ -1181,6 +1181,49 @@ func (s *Server) handleCICDTrigger(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ============ LLM Mutation ============
+
+// handleMutate accepts a POST request with a payload to mutate and returns LLM-generated variants.
+// Body: {"payload":"...","vuln_type":"xss","tech_stack":"php","waf":"cloudflare"}
+// Response: {"variants":["...","..."]}
+func (s *Server) handleMutate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Payload   string `json:"payload"`
+		VulnType  string `json:"vuln_type"`
+		TechStack string `json:"tech_stack"`
+		WAF       string `json:"waf"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.Payload == "" {
+		http.Error(w, "payload is required", http.StatusBadRequest)
+		return
+	}
+
+	var variants []string
+	if s.llmProvider != nil {
+		mutator := agent.NewLLMMutator(s.llmProvider, s.cfg.OpenAIModel)
+		variants = mutator.Mutate(r.Context(), req.Payload, req.VulnType, strings.TrimSpace(req.TechStack+" "+req.WAF))
+	}
+	// Fallback: if LLM is unavailable or returned nothing, use rule-based mutation
+	if len(variants) == 0 {
+		pe := agent.NewPayloadEngine(nil)
+		variants = pe.MutatePayload(req.Payload, agent.MutationEncode)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"variants": variants,
+	})
+}
+
 // ============ Attack Surface Diff ============
 
 func (s *Server) handleSurfaceDiff(w http.ResponseWriter, r *http.Request, id uuid.UUID) {

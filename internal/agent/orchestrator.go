@@ -392,6 +392,10 @@ func NewOrchestrator(provider llm.Provider, registry *tools.Registry, db *sql.DB
 	// Elite Phase 8 Agents
 	qm.Register("urlmaster", 10, 1.0)
 	qm.Register("visualcrawler", 30, 2.0)
+	// Phase 16: New specialist agents
+	qm.Register("saml", 50, 3.0)
+	qm.Register("s3enum", 50, 5.0)
+	qm.Register("secondorder", 50, 3.0)
 
 	o := &Orchestrator{
 		llmProvider:  provider,
@@ -484,6 +488,12 @@ func NewOrchestrator(provider llm.Provider, registry *tools.Registry, db *sql.DB
 		o.workers[specialistID] = NewWorker(specialist, q, 5, func(f *Finding) {
 			o.bus.Emit(EventFindingDiscovered, cloneFinding(f))
 		}, o)
+	}
+
+	// Start the in-process OOB callback server for blind injection detection.
+	// Uses background context so it lives for the entire process lifetime.
+	if err := GlobalOOBServer.Start(context.Background()); err != nil {
+		log.Printf("warn: OOB server failed to start: %v", err)
 	}
 
 	return o
