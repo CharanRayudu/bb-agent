@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ArrowLeft, Target, Clock, Activity, Cpu, Wrench, MessageSquare, CheckCircle, XCircle, ChevronRight, Terminal, Trash2, AlertTriangle, Shield, Zap, Bug, Eye, FileText, Search, Crosshair, Wifi, Download, Pause, Play } from 'lucide-react'
 import { FlowLedgerPanel, FlowEvidencePanel } from '../components/FlowLedgerPanel'
+import ScreenshotGallery from '../components/ScreenshotGallery'
 
 const API_BASE = '/api'
 
@@ -1161,11 +1162,11 @@ function FlowDetail() {
                         <h3 className="text-sm font-bold text-text-muted tracking-widest uppercase flex items-center gap-2">
                             <Activity className="w-4 h-4 text-accent-cyan" /> Scan Story
                         </h3>
-                        <div className="relative inline-flex items-center rounded-full bg-white/5 border border-white/10 p-1 text-xs font-mono overflow-hidden min-w-[220px]">
+                        <div className="relative inline-flex items-center rounded-full bg-white/5 border border-white/10 p-1 text-xs font-mono overflow-hidden min-w-[260px]">
                             <div
                                 className="absolute inset-y-0 left-0 rounded-full bg-accent-cyan shadow-[0_0_10px_rgba(0,212,255,0.4)] transition-transform duration-500 ease-out"
                                 style={{
-                                    width: `${100 / 5}%`,
+                                    width: `${100 / 6}%`,
                                     transform:
                                         activeTab === 'timeline'
                                             ? 'translateX(0%)'
@@ -1175,10 +1176,12 @@ function FlowDetail() {
                                                     ? 'translateX(200%)'
                                                     : activeTab === 'graph'
                                                         ? 'translateX(300%)'
-                                                        : 'translateX(400%)',
+                                                        : activeTab === 'raw'
+                                                            ? 'translateX(400%)'
+                                                            : 'translateX(500%)',
                                 }}
                             />
-                            {['timeline', 'ledger', 'findings', 'graph', 'raw'].map((tab) => (
+                            {['timeline', 'ledger', 'findings', 'graph', 'raw', 'screenshots'].map((tab) => (
                                 <button
                                     key={tab}
                                     type="button"
@@ -1191,6 +1194,7 @@ function FlowDetail() {
                                     {tab === 'findings' && 'Findings'}
                                     {tab === 'graph' && 'Evidence Graph'}
                                     {tab === 'raw' && 'Raw Logs'}
+                                    {tab === 'screenshots' && 'Screenshots'}
                                 </button>
                             ))}
                         </div>
@@ -1285,6 +1289,9 @@ function FlowDetail() {
                                             return `[${time}] (${event.type})${tool} ${event.content}\n\n`
                                         })}
                                     </pre>
+                                )}
+                                {activeTab === 'screenshots' && (
+                                    <ScreenshotGallery flowId={id} />
                                 )}
                             </motion.div>
                         </AnimatePresence>
