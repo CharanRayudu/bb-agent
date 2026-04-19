@@ -161,6 +161,9 @@ type Orchestrator struct {
 	oobManager *OOBManager
 	validator  *base.VisualValidator
 
+	// Mythos: Pre-dispatch hypothesis reasoning engine
+	hypothesisEngine *HypothesisEngine
+
 	// Phase 14: The Phoenix Pivot & WAF Strategist
 	strategist *WAFStrategist
 
@@ -402,22 +405,38 @@ func NewOrchestrator(provider llm.Provider, registry *tools.Registry, db *sql.DB
 	qm.Register("saml", 50, 3.0)
 	qm.Register("s3enum", 50, 5.0)
 	qm.Register("secondorder", 50, 3.0)
+	// Agents added without queue registration — fixed
+	qm.Register("blindoracle", 30, 2.0)
+	qm.Register("cachepoisoning", 50, 3.0)
+	qm.Register("cors", 100, 5.0)
+	qm.Register("deserialization", 30, 2.0)
+	qm.Register("graphql", 50, 5.0)
+	qm.Register("hostheader", 50, 5.0)
+	qm.Register("k8s", 30, 2.0)
+	qm.Register("log4shell", 30, 2.0)
+	qm.Register("oauth", 50, 3.0)
+	qm.Register("postexploit", 20, 1.0)
+	qm.Register("racecondition", 30, 2.0)
+	qm.Register("smuggling", 30, 2.0)
+	qm.Register("ssti", 50, 3.0)
+	qm.Register("websocket", 30, 2.0)
 
 	o := &Orchestrator{
-		llmProvider:  provider,
-		toolRegistry: registry,
-		onEvent:      func(e Event) {}, // no-op default
-		prompts:      prompts,
-		bus:          NewEventBus(),
-		queueMgr:     qm,
-		memory:       NewMemory(db),
-		rateLimiter:  NewAdaptiveRateLimiter(20.0), // Start with 20 req/s
-		reporter:     NewReportGenerator(),
-		oobManager:   NewOOBManager(""), // Default Interactsh server
-		validator:    base.NewVisualValidator(),
-		strategist:   NewWAFStrategist(),
-		workers:      make(map[string]*Worker),
-		pausedFlows:  make(map[uuid.UUID]context.CancelFunc),
+		llmProvider:      provider,
+		toolRegistry:     registry,
+		onEvent:          func(e Event) {}, // no-op default
+		prompts:          prompts,
+		bus:              NewEventBus(),
+		queueMgr:         qm,
+		memory:           NewMemory(db),
+		rateLimiter:      NewAdaptiveRateLimiter(20.0), // Start with 20 req/s
+		reporter:         NewReportGenerator(),
+		oobManager:       NewOOBManager(""), // Default Interactsh server
+		validator:        base.NewVisualValidator(),
+		strategist:       NewWAFStrategist(),
+		workers:          make(map[string]*Worker),
+		pausedFlows:      make(map[uuid.UUID]context.CancelFunc),
+		hypothesisEngine: NewHypothesisEngine(provider, ""),
 	}
 
 	if db != nil {
@@ -1113,6 +1132,43 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 			o.conductor.RegisterAgent(plannerSubtask.ID, "Thinking & Consolidation", flow.Target, cancelPlanner)
 			defer o.conductor.DeregisterAgent(plannerSubtask.ID, StatusComplete)
 		}
+
+		// ── Mythos: Generate pre-dispatch attack hypotheses ────────────────
+		brainMu.Lock()
+		hyps, hypErr := o.hypothesisEngine.Generate(plannerCtx, flow.Target, brain.Leads, brain.Tech, brain.Findings)
+		brainMu.Unlock()
+		if hypErr == nil && len(hyps) > 0 {
+			hypJSON, _ := json.Marshal(hyps)
+			o.emit(flowID.String(), Event{
+				Type:     EventMessage,
+				FlowID:   flowID.String(),
+				TaskID:   task.ID.String(),
+				Content:  fmt.Sprintf("[HYPOTHESIS] Generated %d attack hypotheses (top priority: %s → %s)", len(hyps), hyps[0].VulnClass, hyps[0].Title),
+				Metadata: map[string]interface{}{"hypotheses": json.RawMessage(hypJSON)},
+			})
+			plannerInput += "\n\n[HYPOTHESIS ENGINE] PRIORITIZED ATTACK HYPOTHESES:\n" + string(hypJSON)
+		}
+		// ────────────────────────────────────────────────────────────────────
+
+		// ── Mythos: Zero-day pattern enrichment ─────────────────────────────
+		brainMu.Lock()
+		zdPatterns := MatchPatterns(brain.Leads, brain.Tech)
+		brainMu.Unlock()
+		if len(zdPatterns) > 0 {
+			zdNames := make([]string, 0, len(zdPatterns))
+			for _, p := range zdPatterns {
+				zdNames = append(zdNames, p.Name)
+			}
+			o.emit(flowID.String(), Event{
+				Type:    EventMessage,
+				FlowID:  flowID.String(),
+				TaskID:  task.ID.String(),
+				Content: fmt.Sprintf("[0-DAY] Matched %d zero-day patterns: %v", len(zdPatterns), zdNames),
+			})
+			zdJSON, _ := json.Marshal(zdNames)
+			plannerInput += "\n\n[ZERO-DAY PATTERNS TO PROBE]: " + string(zdJSON)
+		}
+		// ────────────────────────────────────────────────────────────────────
 
 		plannerResult := o.runAgentLoop(plannerCtx, flowID, task.ID, plannerSubtask.ID, plannerPrompt, "Consolidate these leads and dispatch specialists:\n"+plannerInput, &brain, &brainMu)
 
@@ -2171,7 +2227,6 @@ func normalizeSpecialistName(name string) string {
 		"IDOR":                "idor",
 		"idor":                "idor",
 		"CSTI":                "csti",
-		"SSTI":                "csti",
 		"Template Injection":  "csti",
 		"Header Injection":    "header_injection",
 		"CRLF":                "header_injection",
@@ -2218,9 +2273,58 @@ func normalizeSpecialistName(name string) string {
 		"urlmaster":           "urlmaster",
 		"Visual Crawler":      "visualcrawler",
 		"visualcrawler":       "visualcrawler",
+		// Previously missing entries
+		"blindoracle":         "blindoracle",
+		"Blind Oracle":        "blindoracle",
+		"cachepoisoning":      "cachepoisoning",
+		"Cache Poisoning":     "cachepoisoning",
+		"cors":                "cors",
+		"CORS":                "cors",
+		"deserialization":     "deserialization",
+		"Deserialization":     "deserialization",
+		"graphql":             "graphql",
+		"GraphQL":             "graphql",
+		"hostheader":          "hostheader",
+		"Host Header":         "hostheader",
+		"Host Header Injection": "hostheader",
+		"k8s":                 "k8s",
+		"K8s":                 "k8s",
+		"Kubernetes":          "k8s",
+		"log4shell":           "log4shell",
+		"Log4Shell":           "log4shell",
+		"Log4j":               "log4shell",
+		"oauth":               "oauth",
+		"OAuth":               "oauth",
+		"postexploit":         "postexploit",
+		"Post Exploit":        "postexploit",
+		"Post-Exploitation":   "postexploit",
+		"racecondition":       "racecondition",
+		"Race Condition":      "racecondition",
+		"s3enum":              "s3enum",
+		"S3 Enum":             "s3enum",
+		"Bucket Enum":         "s3enum",
+		"saml":                "saml",
+		"SAML":                "saml",
+		"secondorder":         "secondorder",
+		"Second Order":        "secondorder",
+		"Second-Order":        "secondorder",
+		"smuggling":           "smuggling",
+		"Smuggling":           "smuggling",
+		"HTTP Smuggling":      "smuggling",
+		"Request Smuggling":   "smuggling",
+		"ssti":                "ssti",
+		"SSTI":                "ssti",
+		"Server-Side Template Injection": "ssti",
+		"websocket":           "websocket",
+		"WebSocket":           "websocket",
 	}
 	if q, ok := nameMap[name]; ok {
 		return q
+	}
+	// Last-resort: try lowercase direct match against registered agents
+	lower := strings.ToLower(name)
+	if _, ok := nameMap[lower]; ok {
+		return nameMap[lower]
 	}
 	return "xss" // Fallback
 }

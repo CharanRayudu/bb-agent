@@ -321,6 +321,9 @@ func (s *Server) handleFlow(w http.ResponseWriter, r *http.Request) {
 		} else if subRoute == "/auth" {
 			s.handleFlowAuth(w, r, id)
 			return
+		} else if subRoute == "/hypotheses" && r.Method == http.MethodGet {
+			s.handleFlowHypotheses(w, r, id)
+			return
 		}
 
 		http.Error(w, "Endpoint or method not supported", http.StatusNotFound)
@@ -432,6 +435,42 @@ func (s *Server) handleCancelFlow(w http.ResponseWriter, r *http.Request, id uui
 	s.auditLog.Record(actor, "scan_cancelled", id.String(), nil, r.RemoteAddr)
 
 	w.WriteHeader(http.StatusOK)
+}
+
+// handleFlowHypotheses returns the attack hypotheses generated for a flow,
+// extracted from the event stream metadata emitted by the HypothesisEngine.
+func (s *Server) handleFlowHypotheses(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	events, err := s.queries.GetFlowEvents(id)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]interface{}{})
+		return
+	}
+
+	// Extract hypotheses from event metadata — the orchestrator emits them as
+	// {"hypotheses": [...]} in the metadata field of [HYPOTHESIS] events.
+	var hypotheses []interface{}
+	for _, ev := range events {
+		if !strings.HasPrefix(ev.Content, "[HYPOTHESIS]") {
+			continue
+		}
+		meta, _ := ev.Metadata.(map[string]interface{})
+		if meta == nil {
+			continue
+		}
+		if hyps, ok := meta["hypotheses"]; ok {
+			if list, ok := hyps.([]interface{}); ok {
+				hypotheses = list
+				break
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if hypotheses == nil {
+		hypotheses = []interface{}{}
+	}
+	json.NewEncoder(w).Encode(hypotheses)
 }
 
 func (s *Server) handleFlowByID(w http.ResponseWriter, r *http.Request, id uuid.UUID) {

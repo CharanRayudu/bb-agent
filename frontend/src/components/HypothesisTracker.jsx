@@ -189,11 +189,10 @@ export default function HypothesisTracker({ flowId, hypotheses: propHyps }) {
 
         async function load() {
             try {
-                const res = await fetch(`/api/flows/${flowId}`)
+                const res = await fetch(`/api/flows/${flowId}/hypotheses`)
                 if (res.ok) {
                     const data = await res.json()
-                    const hyps = data?.brain?.hypotheses || data?.hypotheses || []
-                    setHypotheses(hyps)
+                    setHypotheses(Array.isArray(data) ? data : [])
                 }
             } catch (e) {
                 console.error('Failed to load hypotheses', e)
