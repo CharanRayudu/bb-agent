@@ -134,23 +134,24 @@ function CommandPalette() {
 }
 
 // ============================================================
-// Page transition wrapper
+// Page transition wrapper (respects prefers-reduced-motion)
 // ============================================================
-const pageVariants = {
-    initial: { opacity: 0, y: 6 },
-    animate: { opacity: 1, y: 0 },
-    exit: { opacity: 0, y: -6 },
-}
-const pageTransition = { duration: 0.2, ease: 'easeOut' }
-
 function PageWrapper({ children }) {
+    const reducedMotion = typeof window !== 'undefined' &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+    const variants = reducedMotion
+        ? { initial: {}, animate: {}, exit: {} }
+        : { initial: { opacity: 0, y: 6 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0, y: -6 } }
+    const transition = reducedMotion ? { duration: 0 } : { duration: 0.2, ease: 'easeOut' }
+
     return (
         <motion.div
-            variants={pageVariants}
+            variants={variants}
             initial="initial"
             animate="animate"
             exit="exit"
-            transition={pageTransition}
+            transition={transition}
         >
             {children}
         </motion.div>

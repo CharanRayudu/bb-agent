@@ -488,6 +488,7 @@ function FlowDetail() {
     const [causalEdges, setCausalEdges] = useState([])
     const eventsEndRef = useRef(null)
     const wsRef = useRef(null)
+    const wsReconnectAttempt = useRef(0)
 
     // Pipeline phase tracking - derive from events
     const currentPhase = useMemo(() => {
@@ -509,6 +510,7 @@ function FlowDetail() {
         connectWebSocket()
 
         return () => {
+            wsReconnectAttempt.current = 0
             if (wsRef.current) {
                 // Ensure we clean up the websocket fully on unmount or re-render
                 wsRef.current.onclose = null; // Prevent reconnect loop on unmount
@@ -661,11 +663,16 @@ function FlowDetail() {
         ws.onclose = () => {
             setConnected(false)
             wsRef.current = null
-            console.log('WebSocket disconnected — reconnecting with backoff')
+            wsReconnectAttempt.current += 1
+            const attempt = wsReconnectAttempt.current
+            const MAX_RECONNECT = 10
+            if (attempt > MAX_RECONNECT) {
+                console.warn('WebSocket: max reconnect attempts reached, giving up')
+                return
+            }
             // Exponential backoff: 2s, 4s, 8s, 16s, 30s max
-            const attempt = (wsRef._attempt || 0) + 1
-            wsRef._attempt = attempt
             const delay = Math.min(2000 * Math.pow(2, attempt - 1), 30000)
+            console.log(`WebSocket disconnected — reconnecting in ${delay}ms (attempt ${attempt}/${MAX_RECONNECT})`)
             setTimeout(() => {
                 if (wsRef.current === null) connectWebSocket()
             }, delay)
@@ -673,7 +680,7 @@ function FlowDetail() {
 
         ws.onopen = () => {
             setConnected(true)
-            wsRef._attempt = 0
+            wsReconnectAttempt.current = 0
             console.log('WebSocket connected')
         }
 

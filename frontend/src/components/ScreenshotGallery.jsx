@@ -36,19 +36,22 @@ function ScreenshotGallery({ flowId }) {
     }, [fetchScreenshots])
 
     async function openModal(shot) {
-        setModal({ ...shot, imgSrc: null })
+        // Revoke previous blob URL to free memory
+        setModal((prev) => {
+            if (prev?.imgSrc?.startsWith('blob:')) URL.revokeObjectURL(prev.imgSrc)
+            return { ...shot, imgSrc: null }
+        })
         setModalLoading(true)
         try {
             const res = await fetch(`${API_BASE}/flows/${flowId}/screenshots/${shot.id}`)
             if (!res.ok) throw new Error(`HTTP ${res.status}`)
             const blob = await res.blob()
-            const reader = new FileReader()
-            reader.onloadend = () => {
-                setModal((prev) => prev && { ...prev, imgSrc: reader.result })
-                setModalLoading(false)
-            }
-            reader.readAsDataURL(blob)
+            // Use blob URL instead of base64 data URI — avoids large string allocation
+            const blobUrl = URL.createObjectURL(blob)
+            setModal((prev) => prev && { ...prev, imgSrc: blobUrl })
         } catch (err) {
+            console.error('Failed to load screenshot:', err)
+        } finally {
             setModalLoading(false)
         }
     }
@@ -169,7 +172,10 @@ function ScreenshotGallery({ flowId }) {
             {modal && (
                 <div
                     className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
-                    onClick={() => setModal(null)}
+                    onClick={() => {
+                        if (modal?.imgSrc?.startsWith('blob:')) URL.revokeObjectURL(modal.imgSrc)
+                        setModal(null)
+                    }}
                 >
                     <div
                         className="relative max-w-5xl w-full max-h-[90vh] overflow-auto rounded-2xl border border-white/15 bg-[#0b1121] shadow-[0_20px_80px_rgba(0,0,0,0.9)]"
@@ -183,7 +189,10 @@ function ScreenshotGallery({ flowId }) {
                             </div>
                             <button
                                 type="button"
-                                onClick={() => setModal(null)}
+                                onClick={() => {
+                                    if (modal?.imgSrc?.startsWith('blob:')) URL.revokeObjectURL(modal.imgSrc)
+                                    setModal(null)
+                                }}
                                 className="flex-shrink-0 ml-3 p-1.5 rounded-lg hover:bg-white/10 text-text-muted hover:text-text-primary transition-colors"
                             >
                                 <X className="w-4 h-4" />

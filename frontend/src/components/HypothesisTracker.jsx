@@ -177,6 +177,7 @@ function HypothesisCard({ hyp, index }) {
 export default function HypothesisTracker({ flowId, hypotheses: propHyps }) {
     const [hypotheses, setHypotheses] = useState(propHyps || [])
     const [loading, setLoading] = useState(!propHyps)
+    const [fetchError, setFetchError] = useState(null)
     const [filter, setFilter] = useState('all')
 
     useEffect(() => {
@@ -188,14 +189,15 @@ export default function HypothesisTracker({ flowId, hypotheses: propHyps }) {
         if (!flowId) return
 
         async function load() {
+            setFetchError(null)
             try {
                 const res = await fetch(`/api/flows/${flowId}/hypotheses`)
-                if (res.ok) {
-                    const data = await res.json()
-                    setHypotheses(Array.isArray(data) ? data : [])
-                }
+                if (!res.ok) throw new Error(`HTTP ${res.status}`)
+                const data = await res.json()
+                setHypotheses(Array.isArray(data) ? data : [])
             } catch (e) {
                 console.error('Failed to load hypotheses', e)
+                setFetchError(e.message || 'Failed to load hypotheses')
             } finally {
                 setLoading(false)
             }
@@ -218,6 +220,16 @@ export default function HypothesisTracker({ flowId, hypotheses: propHyps }) {
                 {Array.from({ length: 3 }).map((_, i) => (
                     <div key={i} className="h-16 rounded-lg border border-[#1e2535] bg-[#111318] animate-pulse" />
                 ))}
+            </div>
+        )
+    }
+
+    if (fetchError) {
+        return (
+            <div className="flex flex-col items-center justify-center py-10 text-center">
+                <XCircle className="w-8 h-8 text-red-400/60 mb-3" />
+                <p className="text-[13px] text-red-400">Failed to load hypotheses</p>
+                <p className="text-[11px] text-[#4b5675] mt-1 font-mono">{fetchError}</p>
             </div>
         )
     }
