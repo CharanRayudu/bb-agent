@@ -1155,18 +1155,35 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		zdPatterns := MatchPatterns(brain.Leads, brain.Tech)
 		brainMu.Unlock()
 		if len(zdPatterns) > 0 {
+			type zdProbeEntry struct {
+				Pattern   string   `json:"pattern"`
+				Category  string   `json:"category"`
+				CWE       string   `json:"cwe"`
+				Impact    string   `json:"impact"`
+				ProbeURLs []string `json:"probe_urls"`
+			}
+			zdEntries := make([]zdProbeEntry, 0, len(zdPatterns))
 			zdNames := make([]string, 0, len(zdPatterns))
 			for _, p := range zdPatterns {
 				zdNames = append(zdNames, p.Name)
+				probeURLs := BuildZeroDayProbeURLs(p, flow.Target)
+				zdEntries = append(zdEntries, zdProbeEntry{
+					Pattern:   p.Name,
+					Category:  p.Category,
+					CWE:       p.CWE,
+					Impact:    p.Impact,
+					ProbeURLs: probeURLs,
+				})
 			}
+			zdJSON, _ := json.Marshal(zdEntries)
 			o.emit(flowID.String(), Event{
-				Type:    EventMessage,
-				FlowID:  flowID.String(),
-				TaskID:  task.ID.String(),
-				Content: fmt.Sprintf("[0-DAY] Matched %d zero-day patterns: %v", len(zdPatterns), zdNames),
+				Type:     EventMessage,
+				FlowID:   flowID.String(),
+				TaskID:   task.ID.String(),
+				Content:  fmt.Sprintf("[0-DAY] Matched %d zero-day patterns: %v", len(zdPatterns), zdNames),
+				Metadata: map[string]interface{}{"zero_day_probes": json.RawMessage(zdJSON)},
 			})
-			zdJSON, _ := json.Marshal(zdNames)
-			plannerInput += "\n\n[ZERO-DAY PATTERNS TO PROBE]: " + string(zdJSON)
+			plannerInput += "\n\n[ZERO-DAY PATTERNS WITH PROBE URLs]: " + string(zdJSON)
 		}
 		// ────────────────────────────────────────────────────────────────────
 
