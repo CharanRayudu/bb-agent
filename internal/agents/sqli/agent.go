@@ -72,6 +72,14 @@ func (a *Agent) ProcessItem(ctx context.Context, item *queue.Item) ([]*base.Find
 		params = params[:3]
 	}
 
+	// Extract KG/adaptive suggested payloads to prepend to ErrorBased technique
+	var suggestedPayloads []string
+	if raw, ok := item.Payload["suggested_payloads"]; ok {
+		if sp, ok := raw.([]string); ok {
+			suggestedPayloads = sp
+		}
+	}
+
 	fc := base.NewFuzzClient()
 	// Take baseline timing for time-based detection
 	baseline := fc.Baseline(ctx, targetURL)
@@ -87,8 +95,12 @@ func (a *Agent) ProcessItem(ctx context.Context, item *queue.Item) ([]*base.Find
 	for _, paramName := range params {
 		for _, technique := range techniques {
 			payloadList := generatePayloads(technique)
-			if len(payloadList) > maxPayloadsPerTechnique {
-				payloadList = payloadList[:maxPayloadsPerTechnique]
+			// Prepend KG/adaptive suggested payloads to ErrorBased (highest signal first)
+			if technique == ErrorBased && len(suggestedPayloads) > 0 {
+				payloadList = append(suggestedPayloads, payloadList...)
+			}
+			if len(payloadList) > maxPayloadsPerTechnique+len(suggestedPayloads) {
+				payloadList = payloadList[:maxPayloadsPerTechnique+len(suggestedPayloads)]
 			}
 
 			switch technique {

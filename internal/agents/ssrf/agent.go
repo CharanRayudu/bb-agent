@@ -74,6 +74,23 @@ func (a *Agent) ProcessItem(ctx context.Context, item *queue.Item) ([]*base.Find
 	// Generate SSRF payloads based on context
 	ssrfPayloads := generatePayloads(vulnContext)
 
+	// Prepend suggested_payloads (KG-proven + adaptive + WAF-bypass) so they run first
+	if raw, ok := item.Payload["suggested_payloads"]; ok {
+		if sp, ok := raw.([]string); ok && len(sp) > 0 {
+			suggested := make([]ssrfPayload, 0, len(sp))
+			for _, s := range sp {
+				suggested = append(suggested, ssrfPayload{payload: s, ssrfType: BasicSSRF, targetHost: "suggested"})
+			}
+			ssrfPayloads = append(suggested, ssrfPayloads...)
+		}
+	}
+
+	// Limit to top 12 payloads (KG payloads are high-signal, run them all)
+	const maxPayloads = 12
+	if len(ssrfPayloads) > maxPayloads {
+		ssrfPayloads = ssrfPayloads[:maxPayloads]
+	}
+
 	fc := base.NewFuzzClient()
 	var findings []*base.Finding
 

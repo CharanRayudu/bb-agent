@@ -60,8 +60,14 @@ func (a *Agent) ProcessItem(ctx context.Context, item *queue.Item) ([]*base.Find
 	// Phase 1: Context Analysis
 	injectionCtx := analyzeContext(vulnContext)
 
-	// Phase 2: Payload Generation
+	// Phase 2: Payload Generation — KG/adaptive payloads tested first
 	payloads := generatePayloads(injectionCtx)
+	// Prepend suggested_payloads (from KG + WAF bypass + adaptive engine) so they run first
+	if raw, ok := item.Payload["suggested_payloads"]; ok {
+		if sp, ok := raw.([]string); ok && len(sp) > 0 {
+			payloads = append(sp, payloads...)
+		}
+	}
 
 	// Phase 3: Extract URL parameters to inject into
 	params := extractParams(targetURL)
@@ -70,9 +76,9 @@ func (a *Agent) ProcessItem(ctx context.Context, item *queue.Item) ([]*base.Find
 	fc := base.NewFuzzClient()
 	var findings []*base.Finding
 
-	// Limit to top 3 params, top 5 payloads per param
+	// Limit to top 3 params, top 8 payloads per param (increased since KG payloads are high-signal)
 	maxParams := 3
-	maxPayloads := 5
+	maxPayloads := 8
 	if len(params) == 0 {
 		params = []string{"inject"}
 	}

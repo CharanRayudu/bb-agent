@@ -237,3 +237,22 @@ func DetectSSRFResponse(body string) bool {
 		strings.Contains(lower, "169.254.169.254") ||
 		strings.Contains(lower, "iam/security-credentials")
 }
+
+var (
+	rceUnixRe = regexp.MustCompile(`uid=\d+\(\w+\)\s+gid=\d+`)
+	rcePasswdRe = regexp.MustCompile(`root:x?:0:0:`)
+	rceWindowsRe = regexp.MustCompile(`(?i)(nt authority\\system|windows\s+ip\s+configuration|volume\s+serial\s+number)`)
+	rceHostnameRe = regexp.MustCompile(`(?i)([a-z0-9\-]{3,63}\.(local|internal|corp|lan)\b)`)
+)
+
+// DetectRCEOutput scans a response body for command execution output markers.
+// Returns a confidence float64: 0.95 for hard markers (uid=, passwd), 0.7 for softer signals.
+func DetectRCEOutput(body string) float64 {
+	if rceUnixRe.MatchString(body) || rcePasswdRe.MatchString(body) || rceWindowsRe.MatchString(body) {
+		return 0.95
+	}
+	if rceHostnameRe.MatchString(body) {
+		return 0.7
+	}
+	return 0.0
+}
