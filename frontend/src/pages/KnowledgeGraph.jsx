@@ -9,6 +9,7 @@ function KnowledgeGraph() {
     const [edges, setEdges] = useState([])
     const [selectedNode, setSelectedNode] = useState(null)
     const [loading, setLoading] = useState(true)
+    const [error, setError] = useState(null)
     const [filter, setFilter] = useState({ type: 'all', search: '' })
 
     useEffect(() => {
@@ -17,15 +18,16 @@ function KnowledgeGraph() {
 
     async function fetchGraph() {
         setLoading(true)
+        setError(null)
         try {
             const resp = await fetch(`${API_BASE}/knowledge/graph`)
-            if (resp.ok) {
-                const data = await resp.json()
-                setNodes(data.nodes || [])
-                setEdges(data.edges || [])
-            }
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+            const data = await resp.json()
+            setNodes(data.nodes || [])
+            setEdges(data.edges || [])
         } catch (err) {
             console.error('Failed to fetch knowledge graph:', err)
+            setError(err.message || 'Failed to load knowledge graph')
         }
         setLoading(false)
     }
@@ -37,13 +39,22 @@ function KnowledgeGraph() {
         return true
     })
 
-    const typeColors = {
-        Host: 'accent-cyan',
-        Service: 'accent-purple',
-        Vulnerability: 'accent-red',
-        Technique: 'accent-orange',
-        Payload: 'accent-yellow',
-        TechStack: 'accent-green',
+    // Hardcoded class maps — dynamic `bg-${var}` strings are stripped by Tailwind's purger
+    const typeTextClass = {
+        Host: 'text-accent-cyan',
+        Service: 'text-accent-purple',
+        Vulnerability: 'text-accent-red',
+        Technique: 'text-accent-orange',
+        Payload: 'text-accent-yellow',
+        TechStack: 'text-accent-green',
+    }
+    const typeDotClass = {
+        Host: 'bg-accent-cyan',
+        Service: 'bg-accent-purple',
+        Vulnerability: 'bg-accent-red',
+        Technique: 'bg-accent-orange',
+        Payload: 'bg-accent-yellow',
+        TechStack: 'bg-accent-green',
     }
 
     return (
@@ -100,11 +111,11 @@ function KnowledgeGraph() {
 
             {/* Stats */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {Object.entries(typeColors).map(([type, color]) => {
+                {Object.entries(typeTextClass).map(([type, textCls]) => {
                     const count = nodes.filter(n => n.type === type).length
                     return (
                         <div key={type} className="rounded-xl bg-white/4 border border-white/10 p-3">
-                            <div className={`text-[10px] font-mono uppercase tracking-wider text-${color}`}>{type}</div>
+                            <div className={`text-[10px] font-mono uppercase tracking-wider ${textCls}`}>{type}</div>
                             <div className="text-xl font-bold text-text-primary mt-1">{count}</div>
                         </div>
                     )
@@ -116,6 +127,10 @@ function KnowledgeGraph() {
                 <div className="lg:col-span-2 space-y-2 max-h-[600px] overflow-y-auto pr-2">
                     {loading ? (
                         <div className="text-center py-12 text-text-muted text-sm">Loading knowledge graph...</div>
+                    ) : error ? (
+                        <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400 font-mono">
+                            {error}
+                        </div>
                     ) : filteredNodes.length === 0 ? (
                         <div className="text-center py-12 text-text-muted text-sm">
                             No nodes found. Run scans to build the knowledge graph.
@@ -132,7 +147,7 @@ function KnowledgeGraph() {
                                 }`}
                             >
                                 <div className="flex items-center gap-2">
-                                    <span className={`inline-block w-2 h-2 rounded-full bg-${typeColors[node.type] || 'white/30'}`} />
+                                    <span className={`inline-block w-2 h-2 rounded-full ${typeDotClass[node.type] || 'bg-white/30'}`} />
                                     <span className="font-mono text-[10px] text-text-muted uppercase">{node.type}</span>
                                     <span className="text-text-primary truncate">{node.label}</span>
                                 </div>

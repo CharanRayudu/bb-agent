@@ -1,122 +1,33 @@
 import React, { useEffect, useState } from 'react'
-import { BrowserRouter, Routes, Route, Link, useLocation, useNavigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Shield, LayoutDashboard, Zap, Activity, Database, Settings } from 'lucide-react'
+import { LayoutDashboard, Zap, Database, Settings } from 'lucide-react'
+import Sidebar from './components/Sidebar'
 import Dashboard from './pages/Dashboard'
 import NewTask from './pages/NewTask'
 import FlowDetail from './pages/FlowDetail'
 import KnowledgeGraph from './pages/KnowledgeGraph'
 import SettingsPage from './pages/Settings'
 
-function Navbar() {
-    const location = useLocation()
-    const onDashboard = location.pathname === '/'
-    const onNew = location.pathname.startsWith('/new')
-    const [scrolled, setScrolled] = useState(false)
-
-    useEffect(() => {
-        const onScroll = () => {
-            setScrolled(window.scrollY > 8)
-        }
-        onScroll()
-        window.addEventListener('scroll', onScroll)
-        return () => window.removeEventListener('scroll', onScroll)
-    }, [])
-
-    return (
-        <nav className="sticky top-0 z-50 w-full pointer-events-none">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4">
-                <div
-                    className={`relative overflow-hidden rounded-3xl border backdrop-blur-2xl px-4 sm:px-6 h-14 flex items-center justify-between pointer-events-auto transition-all duration-300 ${
-                        scrolled
-                            ? 'bg-white/12 border-white/25 shadow-[0_12px_40px_rgba(0,0,0,0.9)]'
-                            : 'bg-white/8 border-white/15 shadow-[0_18px_80px_rgba(15,23,42,0.95)]'
-                    }`}
-                >
-                    {/* Glass light streak */}
-                    <div className="pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500">
-                        <div className="absolute -inset-x-20 -top-10 h-20 bg-gradient-to-r from-white/40 via-white/5 to-transparent blur-2xl mix-blend-screen" />
-                    </div>
-
-                    {/* Brand */}
-                    <Link to="/" className="flex items-center gap-3 group">
-                        <div className="p-2 bg-white/5 rounded-xl border border-white/10 group-hover:bg-white/10 transition-colors duration-300">
-                            <Shield className="w-6 h-6 text-accent-cyan" />
-                        </div>
-                        <div>
-                            <div className="text-xl font-display font-bold text-text-primary tracking-tight">Mirage</div>
-                            <div className="text-xs text-accent-cyan/80 font-mono tracking-widest uppercase">Agentic Security</div>
-                        </div>
-                    </Link>
-
-                    {/* Navigation */}
-                    <div className="flex items-center gap-4 sm:gap-6">
-                        {/* Segmented control for desktop with sliding pill */}
-                        <div className="hidden sm:flex items-center relative rounded-full bg-white/5 border border-white/10 p-0.5 overflow-hidden">
-                            <div
-                                className={`absolute inset-y-0 left-0 w-1/2 rounded-full bg-gradient-to-r from-accent-cyan to-accent-green shadow-[0_0_16px_rgba(0,212,255,0.45)] transition-transform duration-500 ease-out ${
-                                    onNew ? 'translate-x-full' : 'translate-x-0'
-                                }`}
-                            />
-                            <Link
-                                to="/"
-                                className={`relative z-10 flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-medium transition-colors duration-200 ${
-                                    onDashboard ? 'text-primary-bg' : 'text-text-muted hover:text-text-primary'
-                                }`}
-                            >
-                                <LayoutDashboard className="w-4 h-4" />
-                                Dashboard
-                            </Link>
-
-                            <Link
-                                to="/new"
-                                className={`relative z-10 flex items-center gap-2 px-5 py-1.5 rounded-full text-xs font-medium transition-colors duration-200 ${
-                                    onNew ? 'text-primary-bg' : 'text-text-muted hover:text-text-primary'
-                                }`}
-                            >
-                                <Zap className="w-4 h-4" />
-                                <span>Launch Scan</span>
-                            </Link>
-                        </div>
-
-                        {/* Compact controls for small screens */}
-                        <div className="flex sm:hidden items-center gap-2">
-                            <Link
-                                to="/"
-                                className={`px-2 py-1 rounded-full text-xs font-medium transition-colors ${
-                                    onDashboard ? 'text-accent-cyan bg-white/10' : 'text-text-muted hover:text-text-primary'
-                                }`}
-                            >
-                                Dash
-                            </Link>
-                            <Link
-                                to="/new"
-                                className={`px-2 py-1 rounded-full text-xs font-medium transition-colors ${
-                                    onNew ? 'text-accent-cyan bg-white/10' : 'text-text-muted hover:text-text-primary'
-                                }`}
-                            >
-                                New
-                            </Link>
-                        </div>
-
-                        <div className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-[10px] font-mono uppercase tracking-[0.16em]">
-                            <span className="relative flex h-2.5 w-2.5">
-                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-accent-green"></span>
-                            </span>
-                            <span className="text-accent-green">SYSTEM ONLINE</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </nav>
-    )
-}
-
+// ============================================================
+// Command Palette
+// ============================================================
 function CommandPalette() {
     const navigate = useNavigate()
     const [open, setOpen] = useState(false)
     const [query, setQuery] = useState('')
     const [activeIndex, setActiveIndex] = useState(0)
+
+    const options = [
+        { label: 'Go to Dashboard', action: () => navigate('/'), icon: LayoutDashboard },
+        { label: 'Start New Scan', action: () => navigate('/new'), icon: Zap },
+        { label: 'Knowledge Graph', action: () => navigate('/graph'), icon: Database },
+        { label: 'Settings', action: () => navigate('/settings'), icon: Settings },
+    ]
+
+    const filtered = options.filter((opt) =>
+        opt.label.toLowerCase().includes(query.toLowerCase())
+    )
 
     useEffect(() => {
         function handler(e) {
@@ -124,19 +35,24 @@ function CommandPalette() {
                 e.preventDefault()
                 setOpen((prev) => !prev)
                 setActiveIndex(0)
+                setQuery('')
             }
             if (!open) return
+            if (e.key === 'Escape') {
+                setOpen(false)
+                setQuery('')
+            }
             if (e.key === 'ArrowDown') {
                 e.preventDefault()
-                setActiveIndex((prev) => (prev + 1) % options.length)
+                setActiveIndex((prev) => (prev + 1) % filtered.length)
             }
             if (e.key === 'ArrowUp') {
                 e.preventDefault()
-                setActiveIndex((prev) => (prev - 1 + options.length) % options.length)
+                setActiveIndex((prev) => (prev - 1 + filtered.length) % filtered.length)
             }
             if (e.key === 'Enter') {
                 e.preventDefault()
-                const opt = options[activeIndex]
+                const opt = filtered[activeIndex]
                 if (opt) {
                     opt.action()
                     setOpen(false)
@@ -147,40 +63,45 @@ function CommandPalette() {
         window.addEventListener('keydown', handler)
         return () => window.removeEventListener('keydown', handler)
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [open, activeIndex])
+    }, [open, activeIndex, filtered])
 
     if (!open) return null
 
-    const options = [
-        { label: 'Go to Dashboard', action: () => navigate('/'), icon: LayoutDashboard },
-        { label: 'Start New Scan', action: () => navigate('/new'), icon: Zap },
-        { label: 'Knowledge Graph', action: () => navigate('/knowledge'), icon: Database },
-        { label: 'Settings', action: () => navigate('/settings'), icon: Settings },
-    ]
-
-    const filtered = options.filter((opt) => opt.label.toLowerCase().includes(query.toLowerCase()))
-
     return (
-        <div className="fixed inset-0 z-[70] flex items-start justify-center pt-24 bg-black/40 backdrop-blur-sm">
-            <div className="w-full max-w-lg rounded-2xl border border-white/15 bg-white/10 backdrop-blur-2xl shadow-[0_24px_80px_rgba(15,23,42,0.95)] overflow-hidden">
-                <div className="border-b border-white/10 px-4 py-3">
+        <div
+            className="fixed inset-0 z-[70] flex items-start justify-center pt-24 bg-black/50 backdrop-blur-sm"
+            onClick={() => { setOpen(false); setQuery('') }}
+        >
+            <motion.div
+                initial={{ opacity: 0, scale: 0.96, y: -8 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.96, y: -8 }}
+                transition={{ duration: 0.15 }}
+                className="w-full max-w-lg rounded-xl border border-[#1e2535] bg-[#111318] shadow-[0_24px_80px_rgba(0,0,0,0.8)] overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div className="flex items-center gap-3 border-b border-[#1e2535] px-4 py-3">
+                    <svg className="w-4 h-4 text-[#4b5675]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
                     <input
                         autoFocus
                         value={query}
-                        onChange={(e) => setQuery(e.target.value)}
-                        placeholder="Jump to a screen... (Ctrl+K)"
-                        className="w-full bg-transparent text-sm text-text-primary placeholder:text-text-muted/70 outline-none"
+                        onChange={(e) => { setQuery(e.target.value); setActiveIndex(0) }}
+                        placeholder="Search commands..."
+                        className="flex-1 bg-transparent text-sm text-[#e2e8f0] placeholder:text-[#4b5675] outline-none"
                     />
+                    <kbd className="text-[10px] text-[#4b5675] font-mono bg-[#161b24] border border-[#1e2535] rounded px-1.5 py-0.5">ESC</kbd>
                 </div>
-                <div className="max-h-64 overflow-y-auto">
+                <div className="max-h-64 overflow-y-auto py-1">
                     {filtered.length === 0 ? (
-                        <div className="px-4 py-3 text-xs text-text-muted">No results.</div>
+                        <div className="px-4 py-6 text-sm text-[#4b5675] text-center">No results found</div>
                     ) : (
                         filtered.map((opt, idx) => {
                             const Icon = opt.icon
                             const isActive = idx === activeIndex
                             return (
-                            <button
+                                <button
                                     key={opt.label}
                                     type="button"
                                     onClick={() => {
@@ -188,100 +109,115 @@ function CommandPalette() {
                                         setOpen(false)
                                         setQuery('')
                                     }}
-                                    className={`w-full flex items-center gap-3 px-4 py-2 text-sm transition-colors ${
-                                        isActive ? 'bg-white/15 text-text-primary' : 'text-text-primary hover:bg-white/10'
+                                    onMouseEnter={() => setActiveIndex(idx)}
+                                    className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
+                                        isActive
+                                            ? 'bg-[#06b6d4]/10 text-[#06b6d4]'
+                                            : 'text-[#e2e8f0] hover:bg-white/[0.03]'
                                     }`}
                                 >
-                                    {Icon && <Icon className="w-4 h-4 text-accent-cyan flex-shrink-0" />}
+                                    {Icon && <Icon className="w-4 h-4 flex-shrink-0 opacity-70" />}
                                     <span>{opt.label}</span>
                                 </button>
                             )
                         })
                     )}
                 </div>
-            </div>
+                <div className="border-t border-[#1e2535] px-4 py-2 flex items-center gap-4 text-[10px] text-[#4b5675] font-mono">
+                    <span><kbd className="bg-[#161b24] border border-[#1e2535] rounded px-1">↑↓</kbd> navigate</span>
+                    <span><kbd className="bg-[#161b24] border border-[#1e2535] rounded px-1">↵</kbd> select</span>
+                    <span><kbd className="bg-[#161b24] border border-[#1e2535] rounded px-1">⌘K</kbd> toggle</span>
+                </div>
+            </motion.div>
         </div>
     )
 }
 
+// ============================================================
+// Page transition wrapper (respects prefers-reduced-motion)
+// ============================================================
+function PageWrapper({ children }) {
+    const reducedMotion = typeof window !== 'undefined' &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+    const variants = reducedMotion
+        ? { initial: {}, animate: {}, exit: {} }
+        : { initial: { opacity: 0, y: 6 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0, y: -6 } }
+    const transition = reducedMotion ? { duration: 0 } : { duration: 0.2, ease: 'easeOut' }
+
+    return (
+        <motion.div
+            variants={variants}
+            initial="initial"
+            animate="animate"
+            exit="exit"
+            transition={transition}
+        >
+            {children}
+        </motion.div>
+    )
+}
+
+// ============================================================
+// App Shell — sidebar + main area
+// ============================================================
 function AppShell() {
     const location = useLocation()
 
     return (
-        <div className="min-h-screen bg-primary-bg bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:60px_60px] animate-grid-move font-display text-text-primary">
-            <Navbar />
-            <CommandPalette />
-            <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative">
+        <div className="app-layout font-display text-text-primary">
+            <Sidebar />
+            <main className="main-area min-h-screen">
                 <AnimatePresence mode="wait">
                     <Routes location={location} key={location.pathname}>
                         <Route
                             path="/"
                             element={
-                                <motion.div
-                                    initial={{ opacity: 0, y: 8 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    exit={{ opacity: 0, y: -8 }}
-                                    transition={{ duration: 0.25, ease: 'easeOut' }}
-                                >
-                                    <Dashboard />
-                                </motion.div>
+                                <PageWrapper><Dashboard /></PageWrapper>
                             }
                         />
                         <Route
                             path="/new"
                             element={
-                                <motion.div
-                                    initial={{ opacity: 0, y: 8 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    exit={{ opacity: 0, y: -8 }}
-                                    transition={{ duration: 0.25, ease: 'easeOut' }}
-                                >
-                                    <NewTask />
-                                </motion.div>
+                                <PageWrapper><NewTask /></PageWrapper>
                             }
                         />
                         <Route
                             path="/flow/:id"
                             element={
-                                <motion.div
-                                    initial={{ opacity: 0, y: 8 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    exit={{ opacity: 0, y: -8 }}
-                                    transition={{ duration: 0.25, ease: 'easeOut' }}
-                                >
-                                    <FlowDetail />
-                                </motion.div>
+                                <PageWrapper><FlowDetail /></PageWrapper>
+                            }
+                        />
+                        {/* Legacy route */}
+                        <Route
+                            path="/flows/:id"
+                            element={
+                                <PageWrapper><FlowDetail /></PageWrapper>
                             }
                         />
                         <Route
+                            path="/graph"
+                            element={
+                                <PageWrapper><KnowledgeGraph /></PageWrapper>
+                            }
+                        />
+                        {/* Legacy route */}
+                        <Route
                             path="/knowledge"
                             element={
-                                <motion.div
-                                    initial={{ opacity: 0, y: 8 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    exit={{ opacity: 0, y: -8 }}
-                                    transition={{ duration: 0.25, ease: 'easeOut' }}
-                                >
-                                    <KnowledgeGraph />
-                                </motion.div>
+                                <PageWrapper><KnowledgeGraph /></PageWrapper>
                             }
                         />
                         <Route
                             path="/settings"
                             element={
-                                <motion.div
-                                    initial={{ opacity: 0, y: 8 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    exit={{ opacity: 0, y: -8 }}
-                                    transition={{ duration: 0.25, ease: 'easeOut' }}
-                                >
-                                    <SettingsPage />
-                                </motion.div>
+                                <PageWrapper><SettingsPage /></PageWrapper>
                             }
                         />
                     </Routes>
                 </AnimatePresence>
             </main>
+            <CommandPalette />
         </div>
     )
 }

@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { ArrowLeft, Target, Clock, Activity, Cpu, Wrench, MessageSquare, CheckCircle, XCircle, ChevronRight, Terminal, Trash2, AlertTriangle, Shield, Zap, Bug, Eye, FileText, Search, Crosshair, Wifi } from 'lucide-react'
+import { ArrowLeft, Target, Clock, Activity, Cpu, Wrench, MessageSquare, CheckCircle, XCircle, ChevronRight, Terminal, Trash2, AlertTriangle, Shield, Zap, Bug, Eye, FileText, Search, Crosshair, Wifi, Download, Pause, Play } from 'lucide-react'
 import { FlowLedgerPanel, FlowEvidencePanel } from '../components/FlowLedgerPanel'
+import ScreenshotGallery from '../components/ScreenshotGallery'
+import HypothesisTracker from '../components/HypothesisTracker'
+import ErrorBoundary from '../components/ErrorBoundary'
 
 const API_BASE = '/api'
 
@@ -485,6 +488,7 @@ function FlowDetail() {
     const [causalEdges, setCausalEdges] = useState([])
     const eventsEndRef = useRef(null)
     const wsRef = useRef(null)
+    const wsReconnectAttempt = useRef(0)
 
     // Pipeline phase tracking - derive from events
     const currentPhase = useMemo(() => {
@@ -506,6 +510,7 @@ function FlowDetail() {
         connectWebSocket()
 
         return () => {
+            wsReconnectAttempt.current = 0
             if (wsRef.current) {
                 // Ensure we clean up the websocket fully on unmount or re-render
                 wsRef.current.onclose = null; // Prevent reconnect loop on unmount
@@ -610,11 +615,6 @@ function FlowDetail() {
         const ws = new WebSocket(wsUrl)
         wsRef.current = ws
 
-        ws.onopen = () => {
-            setConnected(true)
-            console.log('WebSocket connected')
-        }
-
         ws.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data)
@@ -662,12 +662,31 @@ function FlowDetail() {
 
         ws.onclose = () => {
             setConnected(false)
-            console.log('WebSocket disconnected')
-            setTimeout(connectWebSocket, 3000)
+            wsRef.current = null
+            wsReconnectAttempt.current += 1
+            const attempt = wsReconnectAttempt.current
+            const MAX_RECONNECT = 10
+            if (attempt > MAX_RECONNECT) {
+                console.warn('WebSocket: max reconnect attempts reached, giving up')
+                return
+            }
+            // Exponential backoff: 2s, 4s, 8s, 16s, 30s max
+            const delay = Math.min(2000 * Math.pow(2, attempt - 1), 30000)
+            console.log(`WebSocket disconnected — reconnecting in ${delay}ms (attempt ${attempt}/${MAX_RECONNECT})`)
+            setTimeout(() => {
+                if (wsRef.current === null) connectWebSocket()
+            }, delay)
+        }
+
+        ws.onopen = () => {
+            setConnected(true)
+            wsReconnectAttempt.current = 0
+            console.log('WebSocket connected')
         }
 
         ws.onerror = () => {
             setConnected(false)
+            wsRef.current = null
         }
     }
 
@@ -770,7 +789,6 @@ function FlowDetail() {
         try {
             const res = await fetch(`${API_BASE}/flows/${id}/cancel`, { method: 'POST' });
             if (res.ok) {
-                // Optimistically update
                 setFlow(prev => ({ ...prev, status: 'failed' }));
             }
         } catch (err) {
@@ -778,6 +796,28 @@ function FlowDetail() {
         } finally {
             setStopping(false);
         }
+    }
+
+    async function handlePause() {
+        try {
+            await fetch(`${API_BASE}/flows/${id}/pause`, { method: 'POST' });
+            setFlow(prev => ({ ...prev, status: 'paused' }));
+        } catch (err) {
+            console.error('Failed to pause scan:', err);
+        }
+    }
+
+    async function handleResume() {
+        try {
+            await fetch(`${API_BASE}/flows/${id}/resume`, { method: 'POST' });
+            setFlow(prev => ({ ...prev, status: 'active' }));
+        } catch (err) {
+            console.error('Failed to resume scan:', err);
+        }
+    }
+
+    function downloadReport(type) {
+        window.open(`${API_BASE}/flows/${id}/report/${type}`, '_blank');
     }
 
     function openDeleteConfirm() {
@@ -904,14 +944,57 @@ function FlowDetail() {
                     </span>
 
                     {isActive && (
+                        <>
+                            <button
+                                onClick={handlePause}
+                                className="flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-mono font-bold tracking-widest uppercase border backdrop-blur-md shadow-sm transition-all bg-accent-cyan/10 text-accent-cyan border-accent-cyan/30 hover:bg-accent-cyan/20 hover:scale-105"
+                            >
+                                <Pause className="w-3 h-3" /> Pause
+                            </button>
+                            <button
+                                onClick={handleStopScan}
+                                disabled={stopping}
+                                className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-mono font-bold tracking-widest uppercase border backdrop-blur-md shadow-sm transition-all
+                                    ${stopping ? 'bg-text-muted/10 text-text-muted border-text-muted/30 cursor-not-allowed' : 'bg-accent-red/10 text-accent-red border-accent-red/30 hover:bg-accent-red/20 hover:scale-105'}`}
+                            >
+                                {stopping ? 'Stopping...' : <><XCircle className="w-3 h-3" /> Stop Scan</>}
+                            </button>
+                        </>
+                    )}
+
+                    {flow.status === 'paused' && (
                         <button
-                            onClick={handleStopScan}
-                            disabled={stopping}
-                            className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-mono font-bold tracking-widest uppercase border backdrop-blur-md shadow-sm transition-all
-                                ${stopping ? 'bg-text-muted/10 text-text-muted border-text-muted/30 cursor-not-allowed' : 'bg-accent-red/10 text-accent-red border-accent-red/30 hover:bg-accent-red/20 hover:scale-105'}`}
+                            onClick={handleResume}
+                            className="flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-mono font-bold tracking-widest uppercase border backdrop-blur-md shadow-sm transition-all bg-accent-green/10 text-accent-green border-accent-green/30 hover:bg-accent-green/20 hover:scale-105"
                         >
-                            {stopping ? 'Stopping...' : <><XCircle className="w-3 h-3" /> Stop Scan</>}
+                            <Play className="w-3 h-3" /> Resume
                         </button>
+                    )}
+
+                    {!isActive && flow.status !== 'paused' && (
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => downloadReport('html')}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-mono font-bold tracking-widest uppercase border backdrop-blur-md shadow-sm transition-all bg-accent-purple/10 text-accent-purple border-accent-purple/30 hover:bg-accent-purple/20 hover:scale-105"
+                                title="Download HTML report"
+                            >
+                                <Download className="w-3 h-3" /> HTML
+                            </button>
+                            <button
+                                onClick={() => downloadReport('burp')}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-mono font-bold tracking-widest uppercase border backdrop-blur-md shadow-sm transition-all bg-accent-orange/10 text-accent-orange border-accent-orange/30 hover:bg-accent-orange/20 hover:scale-105"
+                                title="Download Burp Suite XML"
+                            >
+                                <Download className="w-3 h-3" /> Burp
+                            </button>
+                            <button
+                                onClick={() => downloadReport('nuclei')}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-mono font-bold tracking-widest uppercase border backdrop-blur-md shadow-sm transition-all bg-accent-cyan/10 text-accent-cyan border-accent-cyan/30 hover:bg-accent-cyan/20 hover:scale-105"
+                                title="Download Nuclei templates (ZIP)"
+                            >
+                                <Download className="w-3 h-3" /> Nuclei
+                            </button>
+                        </div>
                     )}
 
                     <button
@@ -1097,11 +1180,11 @@ function FlowDetail() {
                         <h3 className="text-sm font-bold text-text-muted tracking-widest uppercase flex items-center gap-2">
                             <Activity className="w-4 h-4 text-accent-cyan" /> Scan Story
                         </h3>
-                        <div className="relative inline-flex items-center rounded-full bg-white/5 border border-white/10 p-1 text-xs font-mono overflow-hidden min-w-[220px]">
+                        <div className="relative inline-flex items-center rounded-full bg-white/5 border border-white/10 p-1 text-xs font-mono overflow-hidden min-w-[260px]">
                             <div
                                 className="absolute inset-y-0 left-0 rounded-full bg-accent-cyan shadow-[0_0_10px_rgba(0,212,255,0.4)] transition-transform duration-500 ease-out"
                                 style={{
-                                    width: `${100 / 5}%`,
+                                    width: `${100 / 7}%`,
                                     transform:
                                         activeTab === 'timeline'
                                             ? 'translateX(0%)'
@@ -1111,10 +1194,14 @@ function FlowDetail() {
                                                     ? 'translateX(200%)'
                                                     : activeTab === 'graph'
                                                         ? 'translateX(300%)'
-                                                        : 'translateX(400%)',
+                                                        : activeTab === 'raw'
+                                                            ? 'translateX(400%)'
+                                                            : activeTab === 'screenshots'
+                                                                ? 'translateX(500%)'
+                                                                : 'translateX(600%)',
                                 }}
                             />
-                            {['timeline', 'ledger', 'findings', 'graph', 'raw'].map((tab) => (
+                            {['timeline', 'ledger', 'findings', 'graph', 'raw', 'screenshots', 'hypotheses'].map((tab) => (
                                 <button
                                     key={tab}
                                     type="button"
@@ -1127,6 +1214,8 @@ function FlowDetail() {
                                     {tab === 'findings' && 'Findings'}
                                     {tab === 'graph' && 'Evidence Graph'}
                                     {tab === 'raw' && 'Raw Logs'}
+                                    {tab === 'screenshots' && 'Screenshots'}
+                                    {tab === 'hypotheses' && '🧠 Hypotheses'}
                                 </button>
                             ))}
                         </div>
@@ -1192,26 +1281,32 @@ function FlowDetail() {
                                     </>
                                 )}
                                 {activeTab === 'ledger' && (
-                                    <FlowLedgerPanel ledger={ledger} formatTime={formatTime} />
+                                    <ErrorBoundary>
+                                        <FlowLedgerPanel ledger={ledger} formatTime={formatTime} />
+                                    </ErrorBoundary>
                                 )}
                                 {activeTab === 'findings' && (
-                                    <>
-                                        {findings.length === 0 ? (
-                                            <FlowEvidencePanel evidence={ledger?.evidence || []} formatTime={formatTime} />
-                                        ) : (
-                                            <div className="space-y-4">
+                                    <ErrorBoundary>
+                                        <>
+                                            {findings.length === 0 ? (
                                                 <FlowEvidencePanel evidence={ledger?.evidence || []} formatTime={formatTime} />
-                                                <div className="pt-2 border-t border-border/40">
-                                                    <FindingList findings={findings} formatTime={formatTime} />
+                                            ) : (
+                                                <div className="space-y-4">
+                                                    <FlowEvidencePanel evidence={ledger?.evidence || []} formatTime={formatTime} />
+                                                    <div className="pt-2 border-t border-border/40">
+                                                        <FindingList findings={findings} formatTime={formatTime} />
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        )}
-                                    </>
+                                            )}
+                                        </>
+                                    </ErrorBoundary>
                                 )}
                                 {activeTab === 'graph' && (
-                                    <div className="h-full flex flex-col">
-                                        <CausalGraph nodes={causalNodes} edges={causalEdges} />
-                                    </div>
+                                    <ErrorBoundary>
+                                        <div className="h-full flex flex-col">
+                                            <CausalGraph nodes={causalNodes} edges={causalEdges} />
+                                        </div>
+                                    </ErrorBoundary>
                                 )}
                                 {activeTab === 'raw' && (
                                     <pre className="text-[11px] font-mono text-text-muted whitespace-pre-wrap">
@@ -1221,6 +1316,16 @@ function FlowDetail() {
                                             return `[${time}] (${event.type})${tool} ${event.content}\n\n`
                                         })}
                                     </pre>
+                                )}
+                                {activeTab === 'screenshots' && (
+                                    <ErrorBoundary>
+                                        <ScreenshotGallery flowId={id} />
+                                    </ErrorBoundary>
+                                )}
+                                {activeTab === 'hypotheses' && (
+                                    <ErrorBoundary>
+                                        <HypothesisTracker flowId={id} />
+                                    </ErrorBoundary>
                                 )}
                             </motion.div>
                         </AnimatePresence>

@@ -45,3 +45,5 @@ docker-compose.override.yml
 reference_projects/
 tmp_mirage
 *-release.json
+.claude/
+mirage

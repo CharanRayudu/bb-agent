@@ -7,6 +7,7 @@ package ssrf
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/bb-agent/mirage/internal/agent/base"
@@ -49,24 +50,88 @@ func (a *Agent) ProcessItem(ctx context.Context, item *queue.Item) ([]*base.Find
 		return nil, fmt.Errorf("missing target URL in work item")
 	}
 
-	// Generate SSRF payloads based on context
-	payloads := generatePayloads(vulnContext)
+	// Extract URL parameters
+	u, err := url.Parse(targetURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid target URL: %w", err)
+	}
 
+	params := []string{}
+	if u.RawQuery != "" {
+		q, _ := url.ParseQuery(u.RawQuery)
+		for k := range q {
+			params = append(params, k)
+		}
+	}
+	if len(params) == 0 {
+		params = []string{"url"}
+	}
+	// Limit to 3 params
+	if len(params) > 3 {
+		params = params[:3]
+	}
+
+	// Generate SSRF payloads based on context
+	ssrfPayloads := generatePayloads(vulnContext)
+
+	// Prepend suggested_payloads (KG-proven + adaptive + WAF-bypass) so they run first
+	if raw, ok := item.Payload["suggested_payloads"]; ok {
+		if sp, ok := raw.([]string); ok && len(sp) > 0 {
+			suggested := make([]ssrfPayload, 0, len(sp))
+			for _, s := range sp {
+				suggested = append(suggested, ssrfPayload{payload: s, ssrfType: BasicSSRF, targetHost: "suggested"})
+			}
+			ssrfPayloads = append(suggested, ssrfPayloads...)
+		}
+	}
+
+	// Limit to top 12 payloads (KG payloads are high-signal, run them all)
+	const maxPayloads = 12
+	if len(ssrfPayloads) > maxPayloads {
+		ssrfPayloads = ssrfPayloads[:maxPayloads]
+	}
+
+	fc := base.NewFuzzClient()
 	var findings []*base.Finding
-	for _, p := range payloads {
-		f := &base.Finding{
-			Type:       "SSRF",
-			URL:        targetURL,
-			Payload:    p.payload,
-			Severity:   mapPriorityToSeverity(priority),
-			Confidence: 0.0,
-			Evidence: map[string]interface{}{
+
+	for _, paramName := range params {
+		for _, p := range ssrfPayloads {
+			result := fc.ProbeURL(ctx, targetURL, paramName, p.payload)
+			if result.Error != nil {
+				continue
+			}
+
+			conf := 0.0
+			evidence := map[string]interface{}{
 				"ssrf_type":   string(p.ssrfType),
 				"target_host": p.targetHost,
-			},
-			Method: "GET",
+				"status_code": result.StatusCode,
+			}
+
+			if base.DetectSSRFResponse(result.Body) {
+				conf = 0.9
+				evidence["metadata_detected"] = true
+			} else if result.StatusCode == 200 && len(result.Body) > 50 {
+				conf = 0.5
+				evidence["possible_blind"] = true
+				evidence["body_length"] = len(result.Body)
+			}
+
+			if conf == 0.0 {
+				continue
+			}
+
+			findings = append(findings, &base.Finding{
+				Type:       "SSRF",
+				URL:        targetURL,
+				Parameter:  paramName,
+				Payload:    p.payload,
+				Severity:   mapPriorityToSeverity(priority),
+				Confidence: conf,
+				Evidence:   evidence,
+				Method:     "GET",
+			})
 		}
-		findings = append(findings, f)
 	}
 
 	return findings, nil

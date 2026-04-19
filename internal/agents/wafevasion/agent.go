@@ -13,9 +13,23 @@ import (
 	"github.com/bb-agent/mirage/internal/queue"
 )
 
-type Agent struct{ systemPrompt string }
+// Agent is the WAF evasion specialist. It generates rule-based bypass variants
+// and, when a mutator is provided, also appends LLM-generated variants.
+type Agent struct {
+	systemPrompt string
+	mutator      *base.LLMMutator
+}
 
+// New creates a WAF Evasion Agent with rule-based mutation only.
 func New() *Agent { return &Agent{systemPrompt: defaultSystemPrompt} }
+
+// NewWithMutator creates a WAF Evasion Agent that also uses LLM-driven mutation.
+func NewWithMutator(m *base.LLMMutator) *Agent {
+	return &Agent{
+		systemPrompt: defaultSystemPrompt,
+		mutator:      m,
+	}
+}
 
 func (a *Agent) Name() string         { return "WAF Evasion Agent" }
 func (a *Agent) ID() string           { return "wafevasion" }
@@ -26,12 +40,15 @@ func (a *Agent) ProcessItem(ctx context.Context, item *queue.Item) ([]*base.Find
 	blockedPayload, _ := item.Payload["blocked_payload"].(string)
 	vulnType, _ := item.Payload["vuln_type"].(string)
 	wafName, _ := item.Payload["waf"].(string)
+	techStack, _ := item.Payload["tech_stack"].(string)
 
 	if targetURL == "" {
 		return nil, fmt.Errorf("missing target URL")
 	}
 
-	// Select evasion techniques based on WAF + vuln type
+	method, _ := item.Payload["method"].(string)
+
+	// Select evasion techniques based on WAF + vuln type (rule-based)
 	mutations := generateMutations(blockedPayload, vulnType, wafName)
 
 	var findings []*base.Finding
@@ -47,10 +64,38 @@ func (a *Agent) ProcessItem(ctx context.Context, item *queue.Item) ([]*base.Find
 				"technique":        m.technique,
 				"waf":              wafName,
 				"vuln_type":        vulnType,
+				"source":           "rule-based",
 			},
-			Method: item.Payload["method"].(string),
+			Method: method,
 		})
 	}
+
+	// Append LLM-generated variants if a mutator is available
+	if a.mutator != nil {
+		contextHint := wafName
+		if techStack != "" {
+			contextHint = techStack + " " + wafName
+		}
+		llmVariants := a.mutator.Mutate(ctx, blockedPayload, vulnType, strings.TrimSpace(contextHint))
+		for _, variant := range llmVariants {
+			findings = append(findings, &base.Finding{
+				Type:       "WAF Bypass",
+				URL:        targetURL,
+				Payload:    variant,
+				Severity:   "high",
+				Confidence: 0.0,
+				Evidence: map[string]interface{}{
+					"original_payload": blockedPayload,
+					"technique":        "llm_generated",
+					"waf":              wafName,
+					"vuln_type":        vulnType,
+					"source":           "llm",
+				},
+				Method: method,
+			})
+		}
+	}
+
 	return findings, nil
 }
 

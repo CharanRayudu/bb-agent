@@ -12,6 +12,8 @@ function NewTask() {
         target: '',
         description: '',
         model: '',
+        profile: 'full',
+        additionalTargets: [],
     })
     const [models, setModels] = useState([])
     const [modelsLoading, setModelsLoading] = useState(true)
@@ -69,7 +71,9 @@ function NewTask() {
                     name: form.name,
                     target: form.target,
                     model: form.model,
+                    profile: form.profile,
                     description: form.description || `Perform a comprehensive penetration test against ${form.target}`,
+                    additional_targets: form.additionalTargets.filter((t) => t.trim()),
                 }),
             })
 
@@ -155,6 +159,12 @@ function NewTask() {
                         </h3>
 
                         <form onSubmit={handleSubmit} className="space-y-6 relative z-10">
+                            {/* Live Collaboration Badge */}
+                            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-accent-green/10 border border-accent-green/20 w-fit">
+                                <span className="w-2 h-2 rounded-full bg-accent-green animate-pulse" />
+                                <span className="text-xs font-semibold text-accent-green tracking-wide">Live collaboration enabled</span>
+                            </div>
+
                             {/* Model */}
                             <div>
                                 <label className="block text-sm font-semibold text-text-primary mb-2 flex items-center gap-2">
@@ -218,6 +228,53 @@ function NewTask() {
                                 </div>
                             </div>
 
+                            {/* Additional Targets */}
+                            <div>
+                                <div className="flex items-center justify-between mb-2">
+                                    <label className="block text-sm font-semibold text-text-primary">Additional Targets</label>
+                                    {form.additionalTargets.length < 5 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setForm((prev) => ({ ...prev, additionalTargets: [...prev.additionalTargets, ''] }))}
+                                            className="text-xs font-bold text-accent-cyan hover:text-white border border-accent-cyan/30 hover:border-accent-cyan/70 px-3 py-1 rounded-lg transition-all"
+                                        >
+                                            + Add Target
+                                        </button>
+                                    )}
+                                </div>
+                                {form.additionalTargets.length === 0 && (
+                                    <p className="text-xs text-text-muted/60 italic">No additional targets. Click &ldquo;Add Target&rdquo; to run parallel scans.</p>
+                                )}
+                                <div className="space-y-2">
+                                    {form.additionalTargets.map((t, idx) => (
+                                        <div key={idx} className="flex items-center gap-2">
+                                            <input
+                                                type="text"
+                                                value={t}
+                                                onChange={(e) => {
+                                                    const updated = [...form.additionalTargets]
+                                                    updated[idx] = e.target.value
+                                                    setForm((prev) => ({ ...prev, additionalTargets: updated }))
+                                                }}
+                                                className="flex-1 bg-[#0d1321] text-text-primary border border-border rounded-xl p-3 outline-none transition-all duration-300 focus:border-accent-cyan focus:ring-1 focus:ring-accent-cyan focus:shadow-[0_0_15px_rgba(0,212,255,0.15)] placeholder-text-muted/50 text-sm"
+                                                placeholder={`Additional target ${idx + 1} (IP, Domain, or CIDR)`}
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const updated = form.additionalTargets.filter((_, i) => i !== idx)
+                                                    setForm((prev) => ({ ...prev, additionalTargets: updated }))
+                                                }}
+                                                className="w-8 h-8 flex items-center justify-center rounded-lg border border-accent-red/30 text-accent-red hover:bg-accent-red/10 transition-all text-sm font-bold shrink-0"
+                                                title="Remove target"
+                                            >
+                                                ×
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
                             <div>
                                 <label className="block text-sm font-semibold text-text-primary mb-2">Agent Instructions / Context</label>
                                 <textarea
@@ -228,6 +285,34 @@ function NewTask() {
                                     placeholder="Provide explicit instructions. e.g., 'Discover subdomains, then run dirb on all discovered HTTP servers. Avoid DoS tools.' If left blank, default Recon & Scan occurs."
                                     rows={5}
                                 />
+                            </div>
+
+                            {/* Scan Profile */}
+                            <div>
+                                <label className="block text-sm font-semibold text-text-primary mb-2 flex items-center gap-2">
+                                    <Shield className="w-4 h-4 text-accent-cyan" />
+                                    Scan Profile
+                                </label>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {[
+                                        { id: 'quick', label: 'Quick', desc: 'Fast recon + top vulns' },
+                                        { id: 'owasp', label: 'OWASP', desc: 'OWASP Top 10 coverage' },
+                                        { id: 'api', label: 'API', desc: 'API security focused' },
+                                        { id: 'pci', label: 'PCI-DSS', desc: 'PCI compliance checks' },
+                                        { id: 'stealth', label: 'Stealth', desc: 'Low-noise, slow checks' },
+                                        { id: 'full', label: 'Full', desc: 'Everything, max depth' },
+                                    ].map((p) => (
+                                        <button
+                                            key={p.id}
+                                            type="button"
+                                            onClick={() => setForm((prev) => ({ ...prev, profile: p.id }))}
+                                            className={`p-3 rounded-xl border text-left transition-all ${form.profile === p.id ? 'border-accent-cyan bg-accent-cyan/10 text-accent-cyan' : 'border-border bg-[#0d1321] text-text-muted hover:border-border-focus'}`}
+                                        >
+                                            <div className="font-bold text-xs">{p.label}</div>
+                                            <div className="text-[10px] opacity-70 mt-0.5">{p.desc}</div>
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
 
                             {error && (

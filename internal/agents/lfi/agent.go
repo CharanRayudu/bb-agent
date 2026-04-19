@@ -4,6 +4,7 @@ package lfi
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/bb-agent/mirage/internal/agent/base"
@@ -25,18 +26,70 @@ func (a *Agent) ProcessItem(ctx context.Context, item *queue.Item) ([]*base.Find
 		return nil, fmt.Errorf("missing target URL")
 	}
 
-	var findings []*base.Finding
-	for _, p := range payloads {
-		findings = append(findings, &base.Finding{
-			Type:       "LFI",
-			URL:        targetURL,
-			Payload:    p.payload,
-			Severity:   mapSeverity(priority),
-			Confidence: 0.0,
-			Evidence:   map[string]interface{}{"technique": p.technique, "target_file": p.targetFile},
-			Method:     "GET",
-		})
+	// Extract URL parameters
+	u, err := url.Parse(targetURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid target URL: %w", err)
 	}
+
+	params := []string{}
+	if u.RawQuery != "" {
+		q, _ := url.ParseQuery(u.RawQuery)
+		for k := range q {
+			params = append(params, k)
+		}
+	}
+	if len(params) == 0 {
+		params = []string{"file"}
+	}
+	// Limit to 3 params
+	if len(params) > 3 {
+		params = params[:3]
+	}
+
+	fc := base.NewFuzzClient()
+	var findings []*base.Finding
+
+	for _, paramName := range params {
+		for _, p := range payloads {
+			result := fc.ProbeGET(ctx, targetURL, paramName, p.payload)
+			if result.Error != nil {
+				continue
+			}
+
+			conf := 0.0
+			evidence := map[string]interface{}{
+				"technique":   p.technique,
+				"target_file": p.targetFile,
+				"status_code": result.StatusCode,
+			}
+
+			if base.DetectPathTraversal(result.Body) {
+				conf = 0.9
+				evidence["traversal_confirmed"] = true
+			} else if result.StatusCode == 200 && len(result.Body) > 500 {
+				conf = 0.4
+				evidence["possible_lfi"] = true
+				evidence["body_length"] = len(result.Body)
+			}
+
+			if conf == 0.0 {
+				continue
+			}
+
+			findings = append(findings, &base.Finding{
+				Type:       "LFI",
+				URL:        targetURL,
+				Parameter:  paramName,
+				Payload:    p.payload,
+				Severity:   mapSeverity(priority),
+				Confidence: conf,
+				Evidence:   evidence,
+				Method:     "GET",
+			})
+		}
+	}
+
 	return findings, nil
 }
 

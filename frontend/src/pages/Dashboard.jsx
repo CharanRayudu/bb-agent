@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Search, Zap, Clock, Activity, Target, ArrowRight, Trash2, X, ExternalLink } from 'lucide-react'
+import { Search, Zap, Clock, Activity, Target, ArrowRight, Trash2, X, ExternalLink, ChevronDown, ChevronUp, TrendingUp } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
+import TrendChart from '../components/TrendChart'
+import StatsRow from '../components/StatsRow'
 import remarkGfm from 'remark-gfm'
 
 const API_BASE = '/api'
@@ -19,7 +21,9 @@ function Dashboard() {
     const [findingsFilter, setFindingsFilter] = useState('all')
     const [activeTab, setActiveTab] = useState('scans') // 'scans' or 'findings'
     const [deleteConfirm, setDeleteConfirm] = useState(null)
+    const [deleteError, setDeleteError] = useState(null)
     const [selectedFinding, setSelectedFinding] = useState(null)
+    const [trendOpen, setTrendOpen] = useState(true)
 
     useEffect(() => {
         fetchFlows()
@@ -73,6 +77,7 @@ function Dashboard() {
     async function confirmDeleteFlow(flowId) {
         if (!flowId) return
         setDeleteConfirm(null)
+        setDeleteError(null)
         try {
             const res = await fetch(`${API_BASE}/flows/${flowId}`, { method: 'DELETE' })
             if (res.ok) {
@@ -80,11 +85,13 @@ function Dashboard() {
                 setFindings((prev) => prev.filter((f) => f.flowId !== flowId))
             } else {
                 const text = await res.text()
-                window.alert(text || 'Failed to delete flow.')
+                setDeleteError(text || 'Failed to delete flow.')
+                setTimeout(() => setDeleteError(null), 5000)
             }
         } catch (err) {
             console.error('Failed to delete flow:', err)
-            window.alert('Failed to delete flow: ' + (err.message || 'network error'))
+            setDeleteError('Failed to delete flow: ' + (err.message || 'network error'))
+            setTimeout(() => setDeleteError(null), 5000)
         }
     }
 
@@ -187,6 +194,16 @@ function Dashboard() {
 
     return (
         <div className="relative pb-12">
+            {/* In-UI error toast (replaces window.alert) */}
+            {deleteError && (
+                <div className="fixed top-4 right-4 z-[150] flex items-center gap-3 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-400 font-mono shadow-xl backdrop-blur-sm max-w-sm">
+                    <span className="flex-1">{deleteError}</span>
+                    <button type="button" onClick={() => setDeleteError(null)} className="text-red-400/60 hover:text-red-400 transition-colors">
+                        <X className="w-4 h-4" />
+                    </button>
+                </div>
+            )}
+
             {/* Delete confirmation modal - in-app so it can't be closed by navigation */}
             {deleteConfirm && (
                 <div
@@ -268,6 +285,11 @@ function Dashboard() {
                         </motion.div>
                     </div>
                 </div>
+            </div>
+
+            {/* Stats Row */}
+            <div className="relative z-10">
+                <StatsRow flows={flows} findings={findings} />
             </div>
 
             {/* Top Level Tabs */}
@@ -502,6 +524,37 @@ function Dashboard() {
                         </motion.div>
                     )}
                 </>
+            )}
+
+            {/* Scan Trends Section */}
+            {activeTab === 'scans' && flows.length > 0 && (
+                <div className="relative z-10 mt-8">
+                    <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl shadow-[0_14px_50px_rgba(15,23,42,0.9)]">
+                        <button
+                            type="button"
+                            onClick={() => setTrendOpen((o) => !o)}
+                            className="w-full flex items-center justify-between px-5 py-4 text-sm font-semibold text-text-muted hover:text-text-primary transition-colors"
+                        >
+                            <div className="flex items-center gap-2">
+                                <TrendingUp className="w-4 h-4 text-accent-cyan" />
+                                <span className="uppercase tracking-widest text-[11px] font-mono font-bold text-text-muted">Scan Trends</span>
+                            </div>
+                            {trendOpen ? (
+                                <ChevronUp className="w-4 h-4 text-text-muted/60" />
+                            ) : (
+                                <ChevronDown className="w-4 h-4 text-text-muted/60" />
+                            )}
+                        </button>
+                        {trendOpen && (
+                            <div className="px-5 pb-5 border-t border-white/8">
+                                <p className="text-[10px] font-mono text-text-muted/50 mt-3 mb-3 uppercase tracking-wider">
+                                    Findings per scan · last {Math.min(flows.length, 10)} scans · colored by max severity
+                                </p>
+                                <TrendChart flows={flows} />
+                            </div>
+                        )}
+                    </div>
+                </div>
             )}
 
             {/* Finding Detail Modal */}

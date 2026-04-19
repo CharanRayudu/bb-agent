@@ -7,44 +7,62 @@ import (
 	"fmt"
 	"hash/fnv"
 	"log"
+	"net"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/bb-agent/mirage/internal/agent/schema"
+	"github.com/bb-agent/mirage/internal/knowledge"
 
 	"github.com/bb-agent/mirage/internal/agent/base"
 	"github.com/bb-agent/mirage/internal/agents/apisecurity"
 	"github.com/bb-agent/mirage/internal/agents/assetdiscovery"
 	"github.com/bb-agent/mirage/internal/agents/authdiscovery"
+	"github.com/bb-agent/mirage/internal/agents/blindoracle"
 	"github.com/bb-agent/mirage/internal/agents/businesslogic"
+	"github.com/bb-agent/mirage/internal/agents/cachepoisoning"
 	"github.com/bb-agent/mirage/internal/agents/chaindiscovery"
 	"github.com/bb-agent/mirage/internal/agents/cloudhunter"
 	"github.com/bb-agent/mirage/internal/agents/consolidation"
+	"github.com/bb-agent/mirage/internal/agents/cors"
 	"github.com/bb-agent/mirage/internal/agents/csti"
 	"github.com/bb-agent/mirage/internal/agents/dastysast"
+	"github.com/bb-agent/mirage/internal/agents/deserialization"
 	"github.com/bb-agent/mirage/internal/agents/fileupload"
 	"github.com/bb-agent/mirage/internal/agents/gospider"
 	"github.com/bb-agent/mirage/internal/agents/headerinjection"
 	"github.com/bb-agent/mirage/internal/agents/idor"
 	"github.com/bb-agent/mirage/internal/agents/jwt"
+	k8sagent "github.com/bb-agent/mirage/internal/agents/k8s"
 	"github.com/bb-agent/mirage/internal/agents/lfi"
+	"github.com/bb-agent/mirage/internal/agents/log4shell"
 	"github.com/bb-agent/mirage/internal/agents/massassignment"
+	graphqlagent "github.com/bb-agent/mirage/internal/agents/graphql"
+	"github.com/bb-agent/mirage/internal/agents/hostheader"
 	"github.com/bb-agent/mirage/internal/agents/nuclei"
+	"github.com/bb-agent/mirage/internal/agents/oauth"
 	"github.com/bb-agent/mirage/internal/agents/openredirect"
 	"github.com/bb-agent/mirage/internal/agents/postexploit"
 	"github.com/bb-agent/mirage/internal/agents/protopollution"
 	"github.com/bb-agent/mirage/internal/agents/rce"
 	reportingagent "github.com/bb-agent/mirage/internal/agents/reporting"
 	"github.com/bb-agent/mirage/internal/agents/resourcehunter"
+	"github.com/bb-agent/mirage/internal/agents/s3enum"
+	"github.com/bb-agent/mirage/internal/agents/saml"
+	"github.com/bb-agent/mirage/internal/agents/secondorder"
+	"github.com/bb-agent/mirage/internal/agents/racecondition"
+	"github.com/bb-agent/mirage/internal/agents/smuggling"
 	"github.com/bb-agent/mirage/internal/agents/sqli"
 	"github.com/bb-agent/mirage/internal/agents/sqlmap"
 	"github.com/bb-agent/mirage/internal/agents/ssrf"
+	"github.com/bb-agent/mirage/internal/agents/ssti"
 	"github.com/bb-agent/mirage/internal/agents/urlmaster"
 	"github.com/bb-agent/mirage/internal/agents/validation"
 	"github.com/bb-agent/mirage/internal/agents/visualcrawler"
 	"github.com/bb-agent/mirage/internal/agents/wafevasion"
+	"github.com/bb-agent/mirage/internal/agents/websocket"
 	"github.com/bb-agent/mirage/internal/agents/xss"
 	"github.com/bb-agent/mirage/internal/agents/xxe"
 	"github.com/bb-agent/mirage/internal/config"
@@ -107,6 +125,8 @@ type Brain struct {
 	Tech         *TechStack          `json:"tech"`                  // Inferred technology stack
 	Auth         *AuthState          `json:"auth,omitempty"`        // Authentication context for auth-aware scanning
 	CausalGraph  *models.CausalGraph `json:"causalGraph,omitempty"` // DAG for non-monotonic evidence reasoning
+	// Mythos: refined attack hypotheses — included in next planner iteration for adaptive prioritization
+	Hypotheses []AttackHypothesis `json:"hypotheses,omitempty"`
 }
 
 // SwarmAgentSpec is a richer agent dispatch format from the Planner
@@ -145,46 +165,89 @@ type Orchestrator struct {
 	oobManager *OOBManager
 	validator  *base.VisualValidator
 
+	// Mythos: Pre-dispatch hypothesis reasoning engine
+	hypothesisEngine *HypothesisEngine
+
+	// Mythos: Cross-session knowledge graph for payload effectiveness learning
+	knowledgeGraph knowledge.Graph
+
+	// Mythos: Feedback-driven adaptive payload engine
+	payloadEngine *PayloadEngine
+
+	// Mythos: Active WAF fingerprint per target (shared across all agents)
+	wafResult   WAFResult
+	wafResultMu sync.RWMutex
+
 	// Phase 14: The Phoenix Pivot & WAF Strategist
 	strategist *WAFStrategist
 
 	// Phase 15: The Mirage Singularity (Performance & Precision)
 	workers map[string]*Worker
+
+	// Pause/Resume support
+	pausedFlows map[uuid.UUID]context.CancelFunc
+	pauseMu     sync.RWMutex
 }
 
-func buildSpecialists() map[string]Specialist {
+func buildSpecialists(provider llm.Provider) map[string]Specialist {
+	// Build an LLMMutator so the WAF evasion specialist can use LLM-driven mutation.
+	// model is informational; the provider already carries the configured model.
+	var wafAgent Specialist
+	if provider != nil {
+		mutator := base.NewLLMMutator(provider, "")
+		wafAgent = wafevasion.NewWithMutator(mutator)
+	} else {
+		wafAgent = wafevasion.New()
+	}
+
 	return map[string]Specialist{
-		"apisecurity":      apisecurity.New(),
-		"assetdiscovery":   assetdiscovery.New(),
-		"authdiscovery":    authdiscovery.New(),
-		"businesslogic":    businesslogic.New(),
-		"chaindiscovery":   chaindiscovery.New(),
-		"cloudhunter":      cloudhunter.New(),
-		"consolidation":    consolidation.New(),
-		"csti":             csti.New(),
-		"dastysast":        dastysast.New(),
-		"fileupload":       fileupload.New(),
-		"gospider":         gospider.New(),
-		"header_injection": headerinjection.New(),
-		"idor":             idor.New(),
-		"jwt":              jwt.New(),
-		"lfi":              lfi.New(),
-		"massassignment":   massassignment.New(),
-		"nuclei":           nuclei.New(),
-		"openredirect":     openredirect.New(),
-		"protopollution":   protopollution.New(),
-		"rce":              rce.New(),
-		"reporting":        reportingagent.New(),
-		"resourcehunter":   resourcehunter.New(),
-		"sqli":             sqli.New(),
-		"sqlmap":           sqlmap.New(),
-		"ssrf":             ssrf.New(),
-		"urlmaster":        urlmaster.New(),
-		"validation":       validation.New(),
-		"visualcrawler":    visualcrawler.New(),
-		"wafevasion":       wafevasion.New(),
-		"xss":              xss.New(),
-		"xxe":              xxe.New(),
+		"apisecurity":       apisecurity.New(),
+		"assetdiscovery":    assetdiscovery.New(),
+		"authdiscovery":     authdiscovery.New(),
+		"blindoracle":       blindoracle.New(),
+		"businesslogic":     businesslogic.New(),
+		"cachepoisoning":    cachepoisoning.New(),
+		"chaindiscovery":    chaindiscovery.New(),
+		"cloudhunter":       cloudhunter.New(),
+		"consolidation":     consolidation.New(),
+		"cors":              cors.New(),
+		"csti":              csti.New(),
+		"dastysast":         dastysast.New(),
+		"deserialization":   deserialization.New(),
+		"fileupload":        fileupload.New(),
+		"gospider":          gospider.New(),
+		"graphql":           graphqlagent.New(),
+		"header_injection":  headerinjection.New(),
+		"hostheader":        hostheader.New(),
+		"idor":              idor.New(),
+		"jwt":               jwt.New(),
+		"k8s":               k8sagent.New(),
+		"lfi":               lfi.New(),
+		"log4shell":         log4shell.New(),
+		"massassignment":    massassignment.New(),
+		"nuclei":            nuclei.New(),
+		"oauth":             oauth.New(),
+		"openredirect":      openredirect.New(),
+		"protopollution":    protopollution.New(),
+		"rce":               rce.New(),
+		"reporting":         reportingagent.New(),
+		"resourcehunter":    resourcehunter.New(),
+		"s3enum":            s3enum.New(),
+		"racecondition":     racecondition.New(),
+		"saml":              saml.New(),
+		"secondorder":       secondorder.New(),
+		"smuggling":         smuggling.New(),
+		"sqli":              sqli.New(),
+		"sqlmap":            sqlmap.New(),
+		"ssrf":              ssrf.New(),
+		"ssti":              ssti.New(),
+		"urlmaster":         urlmaster.New(),
+		"validation":        validation.New(),
+		"visualcrawler":     visualcrawler.New(),
+		"wafevasion":        wafAgent,
+		"websocket":         websocket.New(),
+		"xss":               xss.New(),
+		"xxe":               xxe.New(),
 	}
 }
 
@@ -352,21 +415,44 @@ func NewOrchestrator(provider llm.Provider, registry *tools.Registry, db *sql.DB
 	// Elite Phase 8 Agents
 	qm.Register("urlmaster", 10, 1.0)
 	qm.Register("visualcrawler", 30, 2.0)
+	// Phase 16: New specialist agents
+	qm.Register("saml", 50, 3.0)
+	qm.Register("s3enum", 50, 5.0)
+	qm.Register("secondorder", 50, 3.0)
+	// Agents added without queue registration — fixed
+	qm.Register("blindoracle", 30, 2.0)
+	qm.Register("cachepoisoning", 50, 3.0)
+	qm.Register("cors", 100, 5.0)
+	qm.Register("deserialization", 30, 2.0)
+	qm.Register("graphql", 50, 5.0)
+	qm.Register("hostheader", 50, 5.0)
+	qm.Register("k8s", 30, 2.0)
+	qm.Register("log4shell", 30, 2.0)
+	qm.Register("oauth", 50, 3.0)
+	qm.Register("postexploit", 20, 1.0)
+	qm.Register("racecondition", 30, 2.0)
+	qm.Register("smuggling", 30, 2.0)
+	qm.Register("ssti", 50, 3.0)
+	qm.Register("websocket", 30, 2.0)
 
 	o := &Orchestrator{
-		llmProvider:  provider,
-		toolRegistry: registry,
-		onEvent:      func(e Event) {}, // no-op default
-		prompts:      prompts,
-		bus:          NewEventBus(),
-		queueMgr:     qm,
-		memory:       NewMemory(db),
-		rateLimiter:  NewAdaptiveRateLimiter(20.0), // Start with 20 req/s
-		reporter:     NewReportGenerator(),
-		oobManager:   NewOOBManager(""), // Default Interactsh server
-		validator:    base.NewVisualValidator(),
-		strategist:   NewWAFStrategist(),
-		workers:      make(map[string]*Worker),
+		llmProvider:      provider,
+		toolRegistry:     registry,
+		onEvent:          func(e Event) {}, // no-op default
+		prompts:          prompts,
+		bus:              NewEventBus(),
+		queueMgr:         qm,
+		memory:           NewMemory(db),
+		rateLimiter:      NewAdaptiveRateLimiter(20.0), // Start with 20 req/s
+		reporter:         NewReportGenerator(),
+		oobManager:       NewOOBManager(""), // Default Interactsh server
+		validator:        base.NewVisualValidator(),
+		strategist:       NewWAFStrategist(),
+		workers:          make(map[string]*Worker),
+		pausedFlows:      make(map[uuid.UUID]context.CancelFunc),
+		hypothesisEngine: NewHypothesisEngine(provider, ""),
+		knowledgeGraph:   knowledge.NewInMemoryGraph(),
+		payloadEngine:    NewPayloadEngine(provider),
 	}
 
 	if db != nil {
@@ -434,7 +520,7 @@ func NewOrchestrator(provider llm.Provider, registry *tools.Registry, db *sql.DB
 	o.toolRegistry.AddOOBTools(o.oobManager)
 
 	// Initialize workers only for specialist implementations that exist today.
-	for specialistID, specialist := range buildSpecialists() {
+	for specialistID, specialist := range buildSpecialists(provider) {
 		q := o.queueMgr.Get(specialistID)
 		if q == nil {
 			continue
@@ -443,6 +529,12 @@ func NewOrchestrator(provider llm.Provider, registry *tools.Registry, db *sql.DB
 		o.workers[specialistID] = NewWorker(specialist, q, 5, func(f *Finding) {
 			o.bus.Emit(EventFindingDiscovered, cloneFinding(f))
 		}, o)
+	}
+
+	// Start the in-process OOB callback server for blind injection detection.
+	// Uses background context so it lives for the entire process lifetime.
+	if err := GlobalOOBServer.Start(context.Background()); err != nil {
+		log.Printf("warn: OOB server failed to start: %v", err)
 	}
 
 	return o
@@ -471,6 +563,61 @@ func (o *Orchestrator) SetConductor(c *Conductor) {
 // GetEventBus returns the internal event bus
 func (o *Orchestrator) GetEventBus() *EventBus {
 	return o.bus
+}
+
+// PauseFlow cancels the running context for the given flow and marks it as paused.
+// The cancel function must have been registered via RegisterFlowCancel before calling this.
+func (o *Orchestrator) PauseFlow(flowID uuid.UUID) error {
+	o.pauseMu.Lock()
+	defer o.pauseMu.Unlock()
+
+	cancel, ok := o.pausedFlows[flowID]
+	if !ok {
+		return fmt.Errorf("flow %s is not active or already paused", flowID)
+	}
+	cancel()
+	// Keep the entry so ResumeFlow knows about it until a fresh cancel is registered.
+	delete(o.pausedFlows, flowID)
+
+	if o.queries != nil {
+		o.queries.UpdateFlowStatus(flowID, models.FlowStatusPaused)
+	}
+	return nil
+}
+
+// ResumeFlow restarts a paused flow by launching a new scan goroutine.
+// The caller is responsible for wiring the new cancel func back via RegisterFlowCancel.
+func (o *Orchestrator) ResumeFlow(flowID uuid.UUID, target string) error {
+	if o.queries == nil {
+		return fmt.Errorf("queries not initialised")
+	}
+
+	flow, err := o.queries.GetFlow(flowID)
+	if err != nil {
+		return fmt.Errorf("flow %s not found: %w", flowID, err)
+	}
+	if flow.Status != models.FlowStatusPaused {
+		return fmt.Errorf("flow %s is not paused (status: %s)", flowID, flow.Status)
+	}
+
+	if err := o.queries.UpdateFlowStatus(flowID, models.FlowStatusActive); err != nil {
+		return fmt.Errorf("failed to update flow status: %w", err)
+	}
+	return nil
+}
+
+// RegisterFlowCancel stores a cancel function so PauseFlow can use it.
+func (o *Orchestrator) RegisterFlowCancel(flowID uuid.UUID, cancel context.CancelFunc) {
+	o.pauseMu.Lock()
+	defer o.pauseMu.Unlock()
+	o.pausedFlows[flowID] = cancel
+}
+
+// UnregisterFlowCancel removes the cancel function when a flow ends naturally.
+func (o *Orchestrator) UnregisterFlowCancel(flowID uuid.UUID) {
+	o.pauseMu.Lock()
+	defer o.pauseMu.Unlock()
+	delete(o.pausedFlows, flowID)
 }
 
 // RunFlow executes a complete penetration testing flow using concurrent agents
@@ -526,6 +673,30 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 
 	// Initialize scope guardrails for this flow
 	o.scope = NewScopeEngine(flow.Target)
+
+	// ── Mythos: Scope + private-IP validation ─────────────────────────────
+	if err := validateScanTarget(flow.Target); err != nil {
+		return fmt.Errorf("scope validation: %w", err)
+	}
+
+	// ── Mythos: Register this host in the cross-session knowledge graph ───
+	techStr := ""
+	if _, err := knowledge.RecordHost(o.knowledgeGraph, flow.Target, techStr, flowID.String()); err != nil {
+		log.Printf("[kg] RecordHost failed: %v", err)
+	}
+
+	// ── Mythos: WAF fingerprint at scan start (shared across all agents) ──
+	{
+		wafCtx, cancelWAF := context.WithTimeout(ctx, 10*time.Second)
+		wafRes := FingerprintWAF(wafCtx, flow.Target)
+		cancelWAF()
+		o.wafResultMu.Lock()
+		o.wafResult = wafRes
+		o.wafResultMu.Unlock()
+		if wafRes.Vendor != WAFNone && wafRes.Vendor != WAFUnknown {
+			log.Printf("[waf] Detected WAF: %s (confidence=%.2f)", wafRes.Vendor, wafRes.Confidence)
+		}
+	}
 
 	// Fetch historical insights from cross-flow memory
 	historicalCtx := o.memory.FormatInsightsForPrompt(flow.Target)
@@ -708,6 +879,22 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		promotedFindingMu.Unlock()
 
 		brainMu.Lock()
+		// ── Mythos: Auto-compute CVSS score on promotion ──────────────────
+		cvss := ScoreFinding(finding)
+		if finding.Evidence == nil {
+			finding.Evidence = make(map[string]interface{})
+		}
+		finding.Evidence["cvss_score"] = cvss.Score
+		finding.Evidence["cvss_vector"] = cvss.Vector
+		finding.Evidence["cvss_severity"] = cvss.Severity
+		finding.Evidence["cvss_exploitable"] = cvss.Exploitable
+		// Auto-upgrade severity to match CVSS if CVSS is higher
+		if cvss.Severity == "Critical" && strings.ToLower(finding.Severity) != "critical" {
+			finding.Severity = "critical"
+		}
+		rem := RemediationFor(finding.Type)
+		finding.Evidence["remediation_summary"] = rem.Summary
+		finding.Evidence["remediation_priority"] = rem.Priority
 		brain.Findings = append(brain.Findings, finding)
 		updateFindingAttackGraph(&brain, flow.Target, finding)
 		brainMu.Unlock()
@@ -850,6 +1037,11 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		}
 	}()
 
+	// ── Mythos: Adaptive convergence tracking ──────────────────────────────
+	prevFindingCount := 0
+	stableLoops := 0
+	const maxStableLoops = 2 // Stop after 2 loops with no new high-confidence findings
+
 	for loopCount := 1; loopCount <= maxLoops; loopCount++ {
 		// Reset trigger for each loop iteration until it's set again
 		resetMu.Lock()
@@ -893,7 +1085,8 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 
 		reconPrompt := o.prompts.BuildPhasePrompt("RECONNAISSANCE", o.prompts.Phases.Recon, flow.Target, userPrompt, historicalCtx)
 
-		reconCtx, cancelRecon := context.WithCancel(ctx)
+		// ── Mythos: Per-phase timeout — Recon capped at 25 minutes ──────────
+		reconCtx, cancelRecon := context.WithTimeout(ctx, 25*time.Minute)
 		defer cancelRecon()
 		if o.conductor != nil {
 			o.conductor.RegisterAgent(reconSubtask.ID, "Reconnaissance", flow.Target, cancelRecon)
@@ -995,12 +1188,69 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 
 		plannerPrompt := o.prompts.BuildPhasePrompt("THINKING & CONSOLIDATION", o.prompts.Phases.Planner, flow.Target, userPrompt, "")
 
-		plannerCtx, cancelPlanner := context.WithCancel(ctx)
+		// ── Mythos: Per-phase timeout — Planner capped at 10 minutes ─────────
+		plannerCtx, cancelPlanner := context.WithTimeout(ctx, 10*time.Minute)
 		defer cancelPlanner()
 		if o.conductor != nil {
 			o.conductor.RegisterAgent(plannerSubtask.ID, "Thinking & Consolidation", flow.Target, cancelPlanner)
 			defer o.conductor.DeregisterAgent(plannerSubtask.ID, StatusComplete)
 		}
+
+		// ── Mythos: Generate pre-dispatch attack hypotheses ────────────────
+		brainMu.Lock()
+		hyps, hypErr := o.hypothesisEngine.Generate(plannerCtx, flow.Target, brain.Leads, brain.Tech, brain.Findings)
+		brainMu.Unlock()
+		// Track hypotheses for this loop iteration so they can be refined post-exploitation
+		currentHypotheses := hyps
+		if hypErr == nil && len(hyps) > 0 {
+			hypJSON, _ := json.Marshal(hyps)
+			o.emit(flowID.String(), Event{
+				Type:     EventMessage,
+				FlowID:   flowID.String(),
+				TaskID:   task.ID.String(),
+				Content:  fmt.Sprintf("[HYPOTHESIS] Generated %d attack hypotheses (top priority: %s → %s)", len(hyps), hyps[0].VulnClass, hyps[0].Title),
+				Metadata: map[string]interface{}{"hypotheses": json.RawMessage(hypJSON)},
+			})
+			plannerInput += "\n\n[HYPOTHESIS ENGINE] PRIORITIZED ATTACK HYPOTHESES:\n" + string(hypJSON)
+		}
+		// ────────────────────────────────────────────────────────────────────
+
+		// ── Mythos: Zero-day pattern enrichment ─────────────────────────────
+		brainMu.Lock()
+		zdPatterns := MatchPatterns(brain.Leads, brain.Tech)
+		brainMu.Unlock()
+		if len(zdPatterns) > 0 {
+			type zdProbeEntry struct {
+				Pattern   string   `json:"pattern"`
+				Category  string   `json:"category"`
+				CWE       string   `json:"cwe"`
+				Impact    string   `json:"impact"`
+				ProbeURLs []string `json:"probe_urls"`
+			}
+			zdEntries := make([]zdProbeEntry, 0, len(zdPatterns))
+			zdNames := make([]string, 0, len(zdPatterns))
+			for _, p := range zdPatterns {
+				zdNames = append(zdNames, p.Name)
+				probeURLs := BuildZeroDayProbeURLs(p, flow.Target)
+				zdEntries = append(zdEntries, zdProbeEntry{
+					Pattern:   p.Name,
+					Category:  p.Category,
+					CWE:       p.CWE,
+					Impact:    p.Impact,
+					ProbeURLs: probeURLs,
+				})
+			}
+			zdJSON, _ := json.Marshal(zdEntries)
+			o.emit(flowID.String(), Event{
+				Type:     EventMessage,
+				FlowID:   flowID.String(),
+				TaskID:   task.ID.String(),
+				Content:  fmt.Sprintf("[0-DAY] Matched %d zero-day patterns: %v", len(zdPatterns), zdNames),
+				Metadata: map[string]interface{}{"zero_day_probes": json.RawMessage(zdJSON)},
+			})
+			plannerInput += "\n\n[ZERO-DAY PATTERNS WITH PROBE URLs]: " + string(zdJSON)
+		}
+		// ────────────────────────────────────────────────────────────────────
 
 		plannerResult := o.runAgentLoop(plannerCtx, flowID, task.ID, plannerSubtask.ID, plannerPrompt, "Consolidate these leads and dispatch specialists:\n"+plannerInput, &brain, &brainMu)
 
@@ -1084,6 +1334,66 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 				})
 			}
 
+			// ── Mythos: KG effective-payload injection ──────────────────────────
+			// Build a concrete []string of proven payloads that agents can use directly.
+			brainMu.Lock()
+			techStackStr := ""
+			if brain.Tech != nil {
+				techStackStr = brain.Tech.Lang
+			}
+			brainMu.Unlock()
+			var suggestedPayloads []string
+			if kgPayloads, kgErr := o.knowledgeGraph.GetEffectivePayloads(techStackStr, spec.Type); kgErr == nil && len(kgPayloads) > 0 {
+				kgContext := "\n\n[KNOWLEDGE GRAPH] PROVEN PAYLOADS FROM PREVIOUS SCANS (high success rate):\n"
+				for i, p := range kgPayloads {
+					if i >= 5 {
+						break
+					}
+					if pl, ok := p.Properties["payload"].(string); ok && pl != "" {
+						kgContext += "- " + pl + "\n"
+						suggestedPayloads = append(suggestedPayloads, pl)
+					}
+				}
+				enhancedContext += kgContext
+			}
+
+			// ── Mythos: PayloadEngine adaptive generation for high-priority specs ─
+			if spec.Priority == "critical" || spec.Priority == "high" {
+				if o.payloadEngine != nil && o.llmProvider != nil {
+					brainMu.Lock()
+					ts := brain.Tech
+					brainMu.Unlock()
+					peCtx, cancelPE := context.WithTimeout(ctx, 8*time.Second)
+					if adaptivePayloads, peErr := o.payloadEngine.GenerateNextPayloads(peCtx, resolveDispatchTarget(flow.Target, spec.Target), "", spec.Type, ts); peErr == nil && len(adaptivePayloads) > 0 {
+						suggestedPayloads = append(adaptivePayloads, suggestedPayloads...)
+						enhancedContext += "\n\n[ADAPTIVE PAYLOADS] LLM-generated bypass variants:\n"
+						for _, ap := range adaptivePayloads {
+							enhancedContext += "- " + ap + "\n"
+						}
+					}
+					cancelPE()
+				}
+			}
+
+			// ── Mythos: WAF fingerprint injection ──────────────────────────────
+			o.wafResultMu.RLock()
+			wafSnap := o.wafResult
+			o.wafResultMu.RUnlock()
+			if wafSnap.Vendor != WAFNone && wafSnap.Vendor != WAFUnknown && wafSnap.Vendor != "" {
+				// Use first suggested payload (or generic) as base for WAF-specific bypass mutation
+				basePayloadForWAF := ""
+				if len(suggestedPayloads) > 0 {
+					basePayloadForWAF = suggestedPayloads[0]
+				}
+				bypassPayloads := WAFBypassPayloads(wafSnap.Vendor, basePayloadForWAF)
+				if len(bypassPayloads) > 0 {
+					suggestedPayloads = append(bypassPayloads[:min(5, len(bypassPayloads))], suggestedPayloads...)
+				}
+				wafCtx := fmt.Sprintf("\n\n[WAF DETECTED: %s (confidence=%.0f%%)] Vendor-specific bypass payloads prepended to suggested_payloads.",
+					wafSnap.Vendor, wafSnap.Confidence*100)
+				enhancedContext += wafCtx
+			}
+
 			var authSnapshot *AuthState
 			brainMu.Lock()
 			spec.Context = enhancedContext
@@ -1132,6 +1442,10 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 			payload["_task_id"] = task.ID.String()
 			payload["_subtask_id"] = specialistSubTask.ID.String()
 			payload["_dispatch_fingerprint"] = dispatchKey
+			// ── Mythos: inject concrete payload slice so agents can use it directly ──
+			if len(suggestedPayloads) > 0 {
+				payload["suggested_payloads"] = suggestedPayloads
+			}
 			if err := o.queueMgr.Route(queueName, payload, flowID.String()); err != nil {
 				log.Printf("[queue] Route to %s failed: %v", queueName, err)
 				o.updateLedgerSubTask(
@@ -1164,7 +1478,78 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 			continue
 		}
 
+		// ── Mythos: Convergence detection — stop early if no new findings ───
+		brainMu.Lock()
+		currentFindingCount := len(brain.Findings)
+		brainMu.Unlock()
+		if currentFindingCount <= prevFindingCount {
+			stableLoops++
+			if stableLoops >= maxStableLoops && loopCount > 1 {
+				o.emit(flowID.String(), Event{
+					Type:    EventMessage,
+					FlowID:  flowID.String(),
+					TaskID:  task.ID.String(),
+					Content: fmt.Sprintf("[CONVERGENCE] No new findings in %d consecutive loops. Attack surface exhausted — advancing to reporting.", stableLoops),
+				})
+				// Skip to reporting by not continuing the loop
+			}
+		} else {
+			stableLoops = 0
+		}
+		prevFindingCount = currentFindingCount
+		// ─────────────────────────────────────────────────────────────────────
+
 		var swarmResults string = "Asynchronous swarm analysis completed."
+
+		// ── Mythos: Hypothesis Refinement ──────────────────────────────────────
+		// After each exploitation round, refine hypothesis confidence based on
+		// whether the corresponding vuln class was actually confirmed in findings.
+		brainMu.Lock()
+		confirmedTypes := make(map[string]bool)
+		for _, f := range brain.Findings {
+			confirmedTypes[strings.ToLower(f.Type)] = true
+		}
+		for i, hyp := range currentHypotheses {
+			vulnLower := strings.ToLower(hyp.VulnClass)
+			if confirmedTypes[vulnLower] {
+				currentHypotheses[i] = o.hypothesisEngine.RefineSingle(ctx, hyp, "specialist confirmed "+hyp.VulnClass, true)
+			} else {
+				currentHypotheses[i] = o.hypothesisEngine.RefineSingle(ctx, hyp, "specialist found no "+hyp.VulnClass, false)
+			}
+		}
+		// Record confirmed findings into the knowledge graph for cross-session learning
+		for _, f := range brain.Findings {
+			ts := ""
+			if brain.Tech != nil {
+				ts = brain.Tech.Lang
+			}
+			hostID := "host:" + strings.ReplaceAll(strings.ReplaceAll(flow.Target, "://", "-"), "/", "-")
+			if kgErr := knowledge.RecordFinding(o.knowledgeGraph, hostID, flowID.String(), f.Type, f.URL, f.Payload, ts, f.Confidence); kgErr != nil {
+				log.Printf("[kg] RecordFinding error: %v", kgErr)
+			}
+		}
+		// ── Feed refined hypotheses back into Brain so next planner sees them ──
+		// Keep only hypotheses with confidence > 0.2 (prune exhausted ones)
+		var activeHyps []AttackHypothesis
+		for _, h := range currentHypotheses {
+			if h.Confidence > 0.2 {
+				activeHyps = append(activeHyps, h)
+			}
+		}
+		brain.Hypotheses = activeHyps
+		brainMu.Unlock()
+
+		if len(currentHypotheses) > 0 {
+			refinedJSON, _ := json.Marshal(currentHypotheses)
+			o.emit(flowID.String(), Event{
+				Type:     EventMessage,
+				FlowID:   flowID.String(),
+				TaskID:   task.ID.String(),
+				Content:  fmt.Sprintf("[HYPOTHESIS] Refined %d hypotheses post-exploitation (%d still active)", len(currentHypotheses), len(activeHyps)),
+				Metadata: map[string]interface{}{"hypotheses": json.RawMessage(refinedJSON)},
+			})
+		}
+		// ────────────────────────────────────────────────────────────────────────
 
 		// ==========================================
 		// PIPELINE: EXPLOITATION -> VALIDATION (PoC Generator)
@@ -2059,7 +2444,6 @@ func normalizeSpecialistName(name string) string {
 		"IDOR":                "idor",
 		"idor":                "idor",
 		"CSTI":                "csti",
-		"SSTI":                "csti",
 		"Template Injection":  "csti",
 		"Header Injection":    "header_injection",
 		"CRLF":                "header_injection",
@@ -2106,9 +2490,58 @@ func normalizeSpecialistName(name string) string {
 		"urlmaster":           "urlmaster",
 		"Visual Crawler":      "visualcrawler",
 		"visualcrawler":       "visualcrawler",
+		// Previously missing entries
+		"blindoracle":         "blindoracle",
+		"Blind Oracle":        "blindoracle",
+		"cachepoisoning":      "cachepoisoning",
+		"Cache Poisoning":     "cachepoisoning",
+		"cors":                "cors",
+		"CORS":                "cors",
+		"deserialization":     "deserialization",
+		"Deserialization":     "deserialization",
+		"graphql":             "graphql",
+		"GraphQL":             "graphql",
+		"hostheader":          "hostheader",
+		"Host Header":         "hostheader",
+		"Host Header Injection": "hostheader",
+		"k8s":                 "k8s",
+		"K8s":                 "k8s",
+		"Kubernetes":          "k8s",
+		"log4shell":           "log4shell",
+		"Log4Shell":           "log4shell",
+		"Log4j":               "log4shell",
+		"oauth":               "oauth",
+		"OAuth":               "oauth",
+		"postexploit":         "postexploit",
+		"Post Exploit":        "postexploit",
+		"Post-Exploitation":   "postexploit",
+		"racecondition":       "racecondition",
+		"Race Condition":      "racecondition",
+		"s3enum":              "s3enum",
+		"S3 Enum":             "s3enum",
+		"Bucket Enum":         "s3enum",
+		"saml":                "saml",
+		"SAML":                "saml",
+		"secondorder":         "secondorder",
+		"Second Order":        "secondorder",
+		"Second-Order":        "secondorder",
+		"smuggling":           "smuggling",
+		"Smuggling":           "smuggling",
+		"HTTP Smuggling":      "smuggling",
+		"Request Smuggling":   "smuggling",
+		"ssti":                "ssti",
+		"SSTI":                "ssti",
+		"Server-Side Template Injection": "ssti",
+		"websocket":           "websocket",
+		"WebSocket":           "websocket",
 	}
 	if q, ok := nameMap[name]; ok {
 		return q
+	}
+	// Last-resort: try lowercase direct match against registered agents
+	lower := strings.ToLower(name)
+	if _, ok := nameMap[lower]; ok {
+		return nameMap[lower]
 	}
 	return "xss" // Fallback
 }
@@ -2373,6 +2806,41 @@ func (o *Orchestrator) AddCausalNode(brain *Brain, brainMu *sync.Mutex, node mod
 	// Create a copy to store in the map
 	n := node
 	brain.CausalGraph.Nodes[node.ID] = &n
+}
+
+// validateScanTarget rejects private/loopback/link-local targets to prevent SSRF misuse.
+func validateScanTarget(target string) error {
+	u, err := url.Parse(target)
+	if err != nil {
+		return fmt.Errorf("invalid target URL: %w", err)
+	}
+	hostname := u.Hostname()
+	if hostname == "" {
+		return fmt.Errorf("target URL has no host")
+	}
+	// Resolve hostname to IPs
+	addrs, err := net.LookupHost(hostname)
+	if err != nil {
+		// DNS failure is non-fatal — target may be unreachable but we still allow it.
+		return nil
+	}
+	for _, addr := range addrs {
+		ip := net.ParseIP(addr)
+		if ip == nil {
+			continue
+		}
+		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+			return fmt.Errorf("target %s resolves to reserved/loopback address %s — refusing scan", target, addr)
+		}
+		// Block RFC-1918 private ranges
+		for _, cidr := range []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "fc00::/7"} {
+			_, privateNet, _ := net.ParseCIDR(cidr)
+			if privateNet != nil && privateNet.Contains(ip) {
+				return fmt.Errorf("target %s resolves to private address %s — refusing scan (configure allowlist to override)", target, addr)
+			}
+		}
+	}
+	return nil
 }
 
 // AddCausalEdge safely links two nodes in the Brain's CausalGraph
