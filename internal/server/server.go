@@ -117,7 +117,25 @@ func New(cfg *config.Config, db *sql.DB) *Server {
 		queries: database.NewQueries(db),
 		mux:     http.NewServeMux(),
 		upgrader: websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool { return true },
+			ReadBufferSize:  4096,
+			WriteBufferSize: 4096,
+			CheckOrigin: func(r *http.Request) bool {
+				origin := r.Header.Get("Origin")
+				if origin == "" {
+					return true // Same-origin requests have no Origin header
+				}
+				// Allow localhost and same-host origins
+				host := r.Host
+				if strings.HasPrefix(origin, "http://localhost") ||
+					strings.HasPrefix(origin, "https://localhost") ||
+					strings.HasPrefix(origin, "http://127.0.0.1") ||
+					strings.HasPrefix(origin, "https://127.0.0.1") ||
+					strings.Contains(origin, host) {
+					return true
+				}
+				log.Printf("[ws] Rejected WebSocket from origin: %s (host: %s)", origin, host)
+				return false
+			},
 		},
 		clients:             make(map[*websocket.Conn]bool),
 		activeScans:         make(map[uuid.UUID]context.CancelFunc),

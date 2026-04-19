@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"hash/fnv"
 	"log"
+	"net"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/bb-agent/mirage/internal/agent/schema"
+	"github.com/bb-agent/mirage/internal/knowledge"
 
 	"github.com/bb-agent/mirage/internal/agent/base"
 	"github.com/bb-agent/mirage/internal/agents/apisecurity"
@@ -163,6 +165,16 @@ type Orchestrator struct {
 
 	// Mythos: Pre-dispatch hypothesis reasoning engine
 	hypothesisEngine *HypothesisEngine
+
+	// Mythos: Cross-session knowledge graph for payload effectiveness learning
+	knowledgeGraph knowledge.Graph
+
+	// Mythos: Feedback-driven adaptive payload engine
+	payloadEngine *PayloadEngine
+
+	// Mythos: Active WAF fingerprint per target (shared across all agents)
+	wafResult   WAFResult
+	wafResultMu sync.RWMutex
 
 	// Phase 14: The Phoenix Pivot & WAF Strategist
 	strategist *WAFStrategist
@@ -437,6 +449,8 @@ func NewOrchestrator(provider llm.Provider, registry *tools.Registry, db *sql.DB
 		workers:          make(map[string]*Worker),
 		pausedFlows:      make(map[uuid.UUID]context.CancelFunc),
 		hypothesisEngine: NewHypothesisEngine(provider, ""),
+		knowledgeGraph:   knowledge.NewInMemoryGraph(),
+		payloadEngine:    NewPayloadEngine(provider),
 	}
 
 	if db != nil {
@@ -658,6 +672,30 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 	// Initialize scope guardrails for this flow
 	o.scope = NewScopeEngine(flow.Target)
 
+	// ── Mythos: Scope + private-IP validation ─────────────────────────────
+	if err := validateScanTarget(flow.Target); err != nil {
+		return fmt.Errorf("scope validation: %w", err)
+	}
+
+	// ── Mythos: Register this host in the cross-session knowledge graph ───
+	techStr := ""
+	if _, err := knowledge.RecordHost(o.knowledgeGraph, flow.Target, techStr, flowID.String()); err != nil {
+		log.Printf("[kg] RecordHost failed: %v", err)
+	}
+
+	// ── Mythos: WAF fingerprint at scan start (shared across all agents) ──
+	{
+		wafCtx, cancelWAF := context.WithTimeout(ctx, 10*time.Second)
+		wafRes := FingerprintWAF(wafCtx, flow.Target)
+		cancelWAF()
+		o.wafResultMu.Lock()
+		o.wafResult = wafRes
+		o.wafResultMu.Unlock()
+		if wafRes.Vendor != WAFNone && wafRes.Vendor != WAFUnknown {
+			log.Printf("[waf] Detected WAF: %s (confidence=%.2f)", wafRes.Vendor, wafRes.Confidence)
+		}
+	}
+
 	// Fetch historical insights from cross-flow memory
 	historicalCtx := o.memory.FormatInsightsForPrompt(flow.Target)
 	if historicalCtx == "" {
@@ -839,6 +877,22 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		promotedFindingMu.Unlock()
 
 		brainMu.Lock()
+		// ── Mythos: Auto-compute CVSS score on promotion ──────────────────
+		cvss := ScoreFinding(finding)
+		if finding.Evidence == nil {
+			finding.Evidence = make(map[string]interface{})
+		}
+		finding.Evidence["cvss_score"] = cvss.Score
+		finding.Evidence["cvss_vector"] = cvss.Vector
+		finding.Evidence["cvss_severity"] = cvss.Severity
+		finding.Evidence["cvss_exploitable"] = cvss.Exploitable
+		// Auto-upgrade severity to match CVSS if CVSS is higher
+		if cvss.Severity == "Critical" && strings.ToLower(finding.Severity) != "critical" {
+			finding.Severity = "critical"
+		}
+		rem := RemediationFor(finding.Type)
+		finding.Evidence["remediation_summary"] = rem.Summary
+		finding.Evidence["remediation_priority"] = rem.Priority
 		brain.Findings = append(brain.Findings, finding)
 		updateFindingAttackGraph(&brain, flow.Target, finding)
 		brainMu.Unlock()
@@ -981,6 +1035,11 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		}
 	}()
 
+	// ── Mythos: Adaptive convergence tracking ──────────────────────────────
+	prevFindingCount := 0
+	stableLoops := 0
+	const maxStableLoops = 2 // Stop after 2 loops with no new high-confidence findings
+
 	for loopCount := 1; loopCount <= maxLoops; loopCount++ {
 		// Reset trigger for each loop iteration until it's set again
 		resetMu.Lock()
@@ -1024,7 +1083,8 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 
 		reconPrompt := o.prompts.BuildPhasePrompt("RECONNAISSANCE", o.prompts.Phases.Recon, flow.Target, userPrompt, historicalCtx)
 
-		reconCtx, cancelRecon := context.WithCancel(ctx)
+		// ── Mythos: Per-phase timeout — Recon capped at 25 minutes ──────────
+		reconCtx, cancelRecon := context.WithTimeout(ctx, 25*time.Minute)
 		defer cancelRecon()
 		if o.conductor != nil {
 			o.conductor.RegisterAgent(reconSubtask.ID, "Reconnaissance", flow.Target, cancelRecon)
@@ -1126,7 +1186,8 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 
 		plannerPrompt := o.prompts.BuildPhasePrompt("THINKING & CONSOLIDATION", o.prompts.Phases.Planner, flow.Target, userPrompt, "")
 
-		plannerCtx, cancelPlanner := context.WithCancel(ctx)
+		// ── Mythos: Per-phase timeout — Planner capped at 10 minutes ─────────
+		plannerCtx, cancelPlanner := context.WithTimeout(ctx, 10*time.Minute)
 		defer cancelPlanner()
 		if o.conductor != nil {
 			o.conductor.RegisterAgent(plannerSubtask.ID, "Thinking & Consolidation", flow.Target, cancelPlanner)
@@ -1137,6 +1198,8 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		brainMu.Lock()
 		hyps, hypErr := o.hypothesisEngine.Generate(plannerCtx, flow.Target, brain.Leads, brain.Tech, brain.Findings)
 		brainMu.Unlock()
+		// Track hypotheses for this loop iteration so they can be refined post-exploitation
+		currentHypotheses := hyps
 		if hypErr == nil && len(hyps) > 0 {
 			hypJSON, _ := json.Marshal(hyps)
 			o.emit(flowID.String(), Event{
@@ -1269,6 +1332,37 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 				})
 			}
 
+			// ── Mythos: KG effective-payload injection ──────────────────────────
+			brainMu.Lock()
+			techStackStr := ""
+			if brain.Tech != nil {
+				techStackStr = brain.Tech.Lang
+			}
+			brainMu.Unlock()
+			if kgPayloads, kgErr := o.knowledgeGraph.GetEffectivePayloads(techStackStr, spec.Type); kgErr == nil && len(kgPayloads) > 0 {
+				kgContext := "\n\n[KNOWLEDGE GRAPH] PROVEN PAYLOADS FROM PREVIOUS SCANS (high success rate):\n"
+				for i, p := range kgPayloads {
+					if i >= 5 {
+						break
+					}
+					if pl, ok := p.Properties["payload"].(string); ok && pl != "" {
+						kgContext += "- " + pl + "\n"
+					}
+				}
+				enhancedContext += kgContext
+			}
+
+			// ── Mythos: WAF fingerprint injection ──────────────────────────────
+			o.wafResultMu.RLock()
+			wafSnap := o.wafResult
+			o.wafResultMu.RUnlock()
+			if wafSnap.Vendor != WAFNone && wafSnap.Vendor != WAFUnknown && wafSnap.Vendor != "" {
+				bypassPayloads := WAFBypassPayloads(wafSnap.Vendor, "")
+				wafCtx := fmt.Sprintf("\n\n[WAF DETECTED: %s (confidence=%.0f%%)] Use these bypass techniques: %s",
+					wafSnap.Vendor, wafSnap.Confidence*100, strings.Join(bypassPayloads[:min(3, len(bypassPayloads))], " | "))
+				enhancedContext += wafCtx
+			}
+
 			var authSnapshot *AuthState
 			brainMu.Lock()
 			spec.Context = enhancedContext
@@ -1349,7 +1443,69 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 			continue
 		}
 
+		// ── Mythos: Convergence detection — stop early if no new findings ───
+		brainMu.Lock()
+		currentFindingCount := len(brain.Findings)
+		brainMu.Unlock()
+		if currentFindingCount <= prevFindingCount {
+			stableLoops++
+			if stableLoops >= maxStableLoops && loopCount > 1 {
+				o.emit(flowID.String(), Event{
+					Type:    EventMessage,
+					FlowID:  flowID.String(),
+					TaskID:  task.ID.String(),
+					Content: fmt.Sprintf("[CONVERGENCE] No new findings in %d consecutive loops. Attack surface exhausted — advancing to reporting.", stableLoops),
+				})
+				// Skip to reporting by not continuing the loop
+			}
+		} else {
+			stableLoops = 0
+		}
+		prevFindingCount = currentFindingCount
+		// ─────────────────────────────────────────────────────────────────────
+
 		var swarmResults string = "Asynchronous swarm analysis completed."
+
+		// ── Mythos: Hypothesis Refinement ──────────────────────────────────────
+		// After each exploitation round, refine hypothesis confidence based on
+		// whether the corresponding vuln class was actually confirmed in findings.
+		brainMu.Lock()
+		confirmedTypes := make(map[string]bool)
+		for _, f := range brain.Findings {
+			confirmedTypes[strings.ToLower(f.Type)] = true
+		}
+		for i, hyp := range currentHypotheses {
+			vulnLower := strings.ToLower(hyp.VulnClass)
+			if confirmedTypes[vulnLower] {
+				currentHypotheses[i] = o.hypothesisEngine.RefineSingle(ctx, hyp, "specialist confirmed "+hyp.VulnClass, true)
+			} else {
+				currentHypotheses[i] = o.hypothesisEngine.RefineSingle(ctx, hyp, "specialist found no "+hyp.VulnClass, false)
+			}
+		}
+		// Record confirmed findings into the knowledge graph for cross-session learning
+		for _, f := range brain.Findings {
+			ts := ""
+			if brain.Tech != nil {
+				ts = brain.Tech.Lang
+			}
+			hostID := "host:" + strings.ReplaceAll(strings.ReplaceAll(flow.Target, "://", "-"), "/", "-")
+			if kgErr := knowledge.RecordFinding(o.knowledgeGraph, hostID, flowID.String(), f.Type, f.URL, f.Payload, ts, f.Confidence); kgErr != nil {
+				log.Printf("[kg] RecordFinding error: %v", kgErr)
+			}
+		}
+		brainMu.Unlock()
+
+		if len(currentHypotheses) > 0 {
+			refinedJSON, _ := json.Marshal(currentHypotheses)
+			o.emit(flowID.String(), Event{
+				Type:     EventMessage,
+				FlowID:   flowID.String(),
+				TaskID:   task.ID.String(),
+				Content:  fmt.Sprintf("[HYPOTHESIS] Refined %d hypotheses post-exploitation", len(currentHypotheses)),
+				Metadata: map[string]interface{}{"hypotheses": json.RawMessage(refinedJSON)},
+			})
+		}
+		// ────────────────────────────────────────────────────────────────────────
 
 		// ==========================================
 		// PIPELINE: EXPLOITATION -> VALIDATION (PoC Generator)
@@ -2606,6 +2762,41 @@ func (o *Orchestrator) AddCausalNode(brain *Brain, brainMu *sync.Mutex, node mod
 	// Create a copy to store in the map
 	n := node
 	brain.CausalGraph.Nodes[node.ID] = &n
+}
+
+// validateScanTarget rejects private/loopback/link-local targets to prevent SSRF misuse.
+func validateScanTarget(target string) error {
+	u, err := url.Parse(target)
+	if err != nil {
+		return fmt.Errorf("invalid target URL: %w", err)
+	}
+	hostname := u.Hostname()
+	if hostname == "" {
+		return fmt.Errorf("target URL has no host")
+	}
+	// Resolve hostname to IPs
+	addrs, err := net.LookupHost(hostname)
+	if err != nil {
+		// DNS failure is non-fatal — target may be unreachable but we still allow it.
+		return nil
+	}
+	for _, addr := range addrs {
+		ip := net.ParseIP(addr)
+		if ip == nil {
+			continue
+		}
+		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+			return fmt.Errorf("target %s resolves to reserved/loopback address %s — refusing scan", target, addr)
+		}
+		// Block RFC-1918 private ranges
+		for _, cidr := range []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "fc00::/7"} {
+			_, privateNet, _ := net.ParseCIDR(cidr)
+			if privateNet != nil && privateNet.Contains(ip) {
+				return fmt.Errorf("target %s resolves to private address %s — refusing scan (configure allowlist to override)", target, addr)
+			}
+		}
+	}
+	return nil
 }
 
 // AddCausalEdge safely links two nodes in the Brain's CausalGraph

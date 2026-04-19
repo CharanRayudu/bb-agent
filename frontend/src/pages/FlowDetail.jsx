@@ -5,6 +5,7 @@ import { ArrowLeft, Target, Clock, Activity, Cpu, Wrench, MessageSquare, CheckCi
 import { FlowLedgerPanel, FlowEvidencePanel } from '../components/FlowLedgerPanel'
 import ScreenshotGallery from '../components/ScreenshotGallery'
 import HypothesisTracker from '../components/HypothesisTracker'
+import ErrorBoundary from '../components/ErrorBoundary'
 
 const API_BASE = '/api'
 
@@ -612,11 +613,6 @@ function FlowDetail() {
         const ws = new WebSocket(wsUrl)
         wsRef.current = ws
 
-        ws.onopen = () => {
-            setConnected(true)
-            console.log('WebSocket connected')
-        }
-
         ws.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data)
@@ -664,12 +660,26 @@ function FlowDetail() {
 
         ws.onclose = () => {
             setConnected(false)
-            console.log('WebSocket disconnected')
-            setTimeout(connectWebSocket, 3000)
+            wsRef.current = null
+            console.log('WebSocket disconnected — reconnecting with backoff')
+            // Exponential backoff: 2s, 4s, 8s, 16s, 30s max
+            const attempt = (wsRef._attempt || 0) + 1
+            wsRef._attempt = attempt
+            const delay = Math.min(2000 * Math.pow(2, attempt - 1), 30000)
+            setTimeout(() => {
+                if (wsRef.current === null) connectWebSocket()
+            }, delay)
+        }
+
+        ws.onopen = () => {
+            setConnected(true)
+            wsRef._attempt = 0
+            console.log('WebSocket connected')
         }
 
         ws.onerror = () => {
             setConnected(false)
+            wsRef.current = null
         }
     }
 
@@ -1264,26 +1274,32 @@ function FlowDetail() {
                                     </>
                                 )}
                                 {activeTab === 'ledger' && (
-                                    <FlowLedgerPanel ledger={ledger} formatTime={formatTime} />
+                                    <ErrorBoundary>
+                                        <FlowLedgerPanel ledger={ledger} formatTime={formatTime} />
+                                    </ErrorBoundary>
                                 )}
                                 {activeTab === 'findings' && (
-                                    <>
-                                        {findings.length === 0 ? (
-                                            <FlowEvidencePanel evidence={ledger?.evidence || []} formatTime={formatTime} />
-                                        ) : (
-                                            <div className="space-y-4">
+                                    <ErrorBoundary>
+                                        <>
+                                            {findings.length === 0 ? (
                                                 <FlowEvidencePanel evidence={ledger?.evidence || []} formatTime={formatTime} />
-                                                <div className="pt-2 border-t border-border/40">
-                                                    <FindingList findings={findings} formatTime={formatTime} />
+                                            ) : (
+                                                <div className="space-y-4">
+                                                    <FlowEvidencePanel evidence={ledger?.evidence || []} formatTime={formatTime} />
+                                                    <div className="pt-2 border-t border-border/40">
+                                                        <FindingList findings={findings} formatTime={formatTime} />
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        )}
-                                    </>
+                                            )}
+                                        </>
+                                    </ErrorBoundary>
                                 )}
                                 {activeTab === 'graph' && (
-                                    <div className="h-full flex flex-col">
-                                        <CausalGraph nodes={causalNodes} edges={causalEdges} />
-                                    </div>
+                                    <ErrorBoundary>
+                                        <div className="h-full flex flex-col">
+                                            <CausalGraph nodes={causalNodes} edges={causalEdges} />
+                                        </div>
+                                    </ErrorBoundary>
                                 )}
                                 {activeTab === 'raw' && (
                                     <pre className="text-[11px] font-mono text-text-muted whitespace-pre-wrap">
@@ -1295,10 +1311,14 @@ function FlowDetail() {
                                     </pre>
                                 )}
                                 {activeTab === 'screenshots' && (
-                                    <ScreenshotGallery flowId={id} />
+                                    <ErrorBoundary>
+                                        <ScreenshotGallery flowId={id} />
+                                    </ErrorBoundary>
                                 )}
                                 {activeTab === 'hypotheses' && (
-                                    <HypothesisTracker flowId={id} />
+                                    <ErrorBoundary>
+                                        <HypothesisTracker flowId={id} />
+                                    </ErrorBoundary>
                                 )}
                             </motion.div>
                         </AnimatePresence>
