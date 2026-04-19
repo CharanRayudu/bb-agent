@@ -4,6 +4,7 @@ import { motion } from 'framer-motion'
 import { Search, Zap, Clock, Activity, Target, ArrowRight, Trash2, X, ExternalLink, ChevronDown, ChevronUp, TrendingUp } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import TrendChart from '../components/TrendChart'
+import StatsRow from '../components/StatsRow'
 import remarkGfm from 'remark-gfm'
 
 const API_BASE = '/api'
@@ -270,6 +271,11 @@ function Dashboard() {
                         </motion.div>
                     </div>
                 </div>
+            </div>
+
+            {/* Stats Row */}
+            <div className="relative z-10">
+                <StatsRow flows={flows} findings={findings} />
             </div>
 
             {/* Top Level Tabs */}

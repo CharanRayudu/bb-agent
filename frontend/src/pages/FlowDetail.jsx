@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { ArrowLeft, Target, Clock, Activity, Cpu, Wrench, MessageSquare, CheckCircle, XCircle, ChevronRight, Terminal, Trash2, AlertTriangle, Shield, Zap, Bug, Eye, FileText, Search, Crosshair, Wifi, Download, Pause, Play } from 'lucide-react'
 import { FlowLedgerPanel, FlowEvidencePanel } from '../components/FlowLedgerPanel'
 import ScreenshotGallery from '../components/ScreenshotGallery'
+import HypothesisTracker from '../components/HypothesisTracker'
 
 const API_BASE = '/api'
 
@@ -1166,7 +1167,7 @@ function FlowDetail() {
                             <div
                                 className="absolute inset-y-0 left-0 rounded-full bg-accent-cyan shadow-[0_0_10px_rgba(0,212,255,0.4)] transition-transform duration-500 ease-out"
                                 style={{
-                                    width: `${100 / 6}%`,
+                                    width: `${100 / 7}%`,
                                     transform:
                                         activeTab === 'timeline'
                                             ? 'translateX(0%)'
@@ -1178,10 +1179,12 @@ function FlowDetail() {
                                                         ? 'translateX(300%)'
                                                         : activeTab === 'raw'
                                                             ? 'translateX(400%)'
-                                                            : 'translateX(500%)',
+                                                            : activeTab === 'screenshots'
+                                                                ? 'translateX(500%)'
+                                                                : 'translateX(600%)',
                                 }}
                             />
-                            {['timeline', 'ledger', 'findings', 'graph', 'raw', 'screenshots'].map((tab) => (
+                            {['timeline', 'ledger', 'findings', 'graph', 'raw', 'screenshots', 'hypotheses'].map((tab) => (
                                 <button
                                     key={tab}
                                     type="button"
@@ -1195,6 +1198,7 @@ function FlowDetail() {
                                     {tab === 'graph' && 'Evidence Graph'}
                                     {tab === 'raw' && 'Raw Logs'}
                                     {tab === 'screenshots' && 'Screenshots'}
+                                    {tab === 'hypotheses' && '🧠 Hypotheses'}
                                 </button>
                             ))}
                         </div>
@@ -1292,6 +1296,9 @@ function FlowDetail() {
                                 )}
                                 {activeTab === 'screenshots' && (
                                     <ScreenshotGallery flowId={id} />
+                                )}
+                                {activeTab === 'hypotheses' && (
+                                    <HypothesisTracker flowId={id} />
                                 )}
                             </motion.div>
                         </AnimatePresence>

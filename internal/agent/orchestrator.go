@@ -37,6 +37,8 @@ import (
 	"github.com/bb-agent/mirage/internal/agents/lfi"
 	"github.com/bb-agent/mirage/internal/agents/log4shell"
 	"github.com/bb-agent/mirage/internal/agents/massassignment"
+	graphqlagent "github.com/bb-agent/mirage/internal/agents/graphql"
+	"github.com/bb-agent/mirage/internal/agents/hostheader"
 	"github.com/bb-agent/mirage/internal/agents/nuclei"
 	"github.com/bb-agent/mirage/internal/agents/oauth"
 	"github.com/bb-agent/mirage/internal/agents/openredirect"
@@ -48,6 +50,7 @@ import (
 	"github.com/bb-agent/mirage/internal/agents/s3enum"
 	"github.com/bb-agent/mirage/internal/agents/saml"
 	"github.com/bb-agent/mirage/internal/agents/secondorder"
+	"github.com/bb-agent/mirage/internal/agents/racecondition"
 	"github.com/bb-agent/mirage/internal/agents/smuggling"
 	"github.com/bb-agent/mirage/internal/agents/sqli"
 	"github.com/bb-agent/mirage/internal/agents/sqlmap"
@@ -196,7 +199,9 @@ func buildSpecialists(provider llm.Provider) map[string]Specialist {
 		"deserialization":   deserialization.New(),
 		"fileupload":        fileupload.New(),
 		"gospider":          gospider.New(),
+		"graphql":           graphqlagent.New(),
 		"header_injection":  headerinjection.New(),
+		"hostheader":        hostheader.New(),
 		"idor":              idor.New(),
 		"jwt":               jwt.New(),
 		"k8s":               k8sagent.New(),
@@ -211,6 +216,7 @@ func buildSpecialists(provider llm.Provider) map[string]Specialist {
 		"reporting":         reportingagent.New(),
 		"resourcehunter":    resourcehunter.New(),
 		"s3enum":            s3enum.New(),
+		"racecondition":     racecondition.New(),
 		"saml":              saml.New(),
 		"secondorder":       secondorder.New(),
 		"smuggling":         smuggling.New(),
