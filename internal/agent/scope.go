@@ -180,7 +180,7 @@ func (se *ScopeEngine) validateTargets(targets []string) (bool, string) {
 		}
 
 		if !se.IsInScope(normalized) {
-			return false, fmt.Sprintf("BLOCKED: Target '%s' is out of scope. Allowed scope: %v", normalized, se.AllowedDomains)
+			return false, fmt.Sprintf("BLOCKED: Target '%s' is out of scope. %s", normalized, se.String())
 		}
 	}
 	return true, ""
@@ -247,7 +247,9 @@ func extractTargetsFromText(text string) []string {
 	targets := make([]string, 0, len(matches))
 	for _, match := range matches {
 		cleaned := strings.Trim(match, "\"'()[]{}<>,")
-		if cleaned == "" {
+		// Skip shell variable expansions (e.g. http://host$p, http://host${var}) —
+		// these are loop variables in bash commands, not real targets.
+		if cleaned == "" || strings.Contains(cleaned, "$") {
 			continue
 		}
 		targets = append(targets, cleaned)

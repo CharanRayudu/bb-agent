@@ -26,7 +26,7 @@ phase_template: |
 
   AVAILABLE SANDBOX TOOLS:
   - Recon and assets: subfinder, amass, puredns, waybackurls, gau
-  - Ports and services: naabu, nmap, masscan
+  - Ports and services: naabu (outputs ip:port lines; extract ports with: naabu -silent | awk -F: '{print $2}' | paste -sd,)
   - HTTP probing and crawling: httpx, hakrawler, katana, curl
   - Content discovery and fuzzing: feroxbuster, gobuster, ffuf, dirsearch
   - Parameters and reflection: arjun, paramspider, x8, qsreplace, kxss
