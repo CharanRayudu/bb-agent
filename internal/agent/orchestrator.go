@@ -565,6 +565,16 @@ func (o *Orchestrator) GetEventBus() *EventBus {
 	return o.bus
 }
 
+// SetKnowledgeGraph replaces the orchestrator's knowledge graph with a shared instance.
+func (o *Orchestrator) SetKnowledgeGraph(g knowledge.Graph) {
+	o.knowledgeGraph = g
+}
+
+// GetKnowledgeGraph returns the orchestrator's knowledge graph.
+func (o *Orchestrator) GetKnowledgeGraph() knowledge.Graph {
+	return o.knowledgeGraph
+}
+
 // PauseFlow cancels the running context for the given flow and marks it as paused.
 // The cancel function must have been registered via RegisterFlowCancel before calling this.
 func (o *Orchestrator) PauseFlow(flowID uuid.UUID) error {
