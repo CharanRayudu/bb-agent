@@ -1479,10 +1479,19 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		o.queueMgr.DrainAll(30 * time.Minute)
 
 		resetMu.Lock()
-		shouldLoop := loopTriggered && len(brain.Findings) == 0
+		triggered := loopTriggered
 		resetMu.Unlock()
+		brainMu.Lock()
+		newLeads := len(brain.Leads)
+		brainMu.Unlock()
+		dedupeMu.Lock()
+		dispatchedCount := len(dispatchedSpecs)
+		dedupeMu.Unlock()
+		// Only restart recon if a genuine pivot arrived AND we have unexplored leads
+		// AND we haven't already dispatched everything we know about.
+		shouldLoop := triggered && len(brain.Findings) == 0 && newLeads > dispatchedCount
 
-		// If a specialist found a credential, break immediate phase and restart loop
+		// If a specialist found a credential/pivot, restart loop to re-recon with auth context
 		if shouldLoop {
 			o.emit(flowID.String(), Event{Type: EventMessage, FlowID: flowID.String(), TaskID: task.ID.String(), Content: "[WARN] Interrupting current validation phase to start new Iterative Recon loop."})
 			continue
@@ -1501,7 +1510,7 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 					TaskID:  task.ID.String(),
 					Content: fmt.Sprintf("[CONVERGENCE] No new findings in %d consecutive loops. Attack surface exhausted — advancing to reporting.", stableLoops),
 				})
-				// Skip to reporting by not continuing the loop
+				break // exit iterative loop; reporting phase runs after
 			}
 		} else {
 			stableLoops = 0
@@ -2722,26 +2731,50 @@ func buildFallbackAgentSpecs(baseTarget string, brain *Brain) []SwarmAgentSpec {
 		}
 	}
 
-	if len(specs) == 0 {
-		addSpec(SwarmAgentSpec{
-			Type:     "Auth Discovery",
-			Target:   baseTarget,
-			Context:  "Planner fallback: prioritize authenticated paths and session handling before broad rediscovery.",
-			Priority: "high",
-		})
-		addSpec(SwarmAgentSpec{
-			Type:     "API Security",
-			Target:   baseTarget,
-			Context:  "Planner fallback: inspect discovered routes for API and parameter attack surface.",
-			Priority: "medium",
-		})
-		addSpec(SwarmAgentSpec{
-			Type:     "URLMaster",
-			Target:   baseTarget,
-			Context:  "Planner fallback: consolidate known routes instead of restarting full recon.",
-			Priority: "medium",
-		})
-	}
+	// Always guarantee a minimum attack swarm even when leads are sparse.
+	// These cover the highest-impact vuln classes universally applicable to any web app.
+	addSpec(SwarmAgentSpec{
+		Type:     "Auth Bypass",
+		Target:   baseTarget,
+		Context:  "Test authentication mechanisms for logic flaws, trusted-header injection (X-Forwarded-For, X-Original-URL), and weak session management.",
+		Priority: "high",
+		Hypothesis: "Authentication boundary can be bypassed via trusted header injection or session fixation.",
+	})
+	addSpec(SwarmAgentSpec{
+		Type:     "Reflected XSS",
+		Target:   baseTarget,
+		Context:  "Fuzz all URL parameters and form fields for reflected XSS. Test Angular/React SPA routes for DOM-based injection.",
+		Priority: "high",
+		Hypothesis: "User-controlled parameters are reflected in responses without adequate encoding.",
+	})
+	addSpec(SwarmAgentSpec{
+		Type:     "Time-based SQLi",
+		Target:   baseTarget,
+		Context:  "Test numeric/string parameters for time-based blind SQL injection using SLEEP() and WAITFOR. Prioritize login forms and search endpoints.",
+		Priority: "high",
+		Hypothesis: "Database-backed query parameters are injectable via time-delay inference.",
+	})
+	addSpec(SwarmAgentSpec{
+		Type:     "IDOR",
+		Target:   baseTarget,
+		Context:  "Test object reference parameters (id=, userId=, orderId=) for horizontal privilege escalation. Swap IDs between two test sessions.",
+		Priority: "high",
+		Hypothesis: "Object references in API responses are guessable and lack server-side authorization checks.",
+	})
+	addSpec(SwarmAgentSpec{
+		Type:     "Misconfigs",
+		Target:   baseTarget,
+		Context:  "Check for CORS misconfigurations, exposed debug endpoints (/api-docs, /swagger, /.env), security headers, and directory listing.",
+		Priority: "medium",
+		Hypothesis: "Application exposes sensitive configuration or lacks basic security headers.",
+	})
+	addSpec(SwarmAgentSpec{
+		Type:     "Business Logic",
+		Target:   baseTarget,
+		Context:  "Test for price/quantity manipulation (negative values), coupon reuse via race conditions, and workflow state tampering.",
+		Priority: "medium",
+		Hypothesis: "Business-layer validation can be bypassed by manipulating numeric parameters or repeating one-time operations.",
+	})
 
 	return specs
 }

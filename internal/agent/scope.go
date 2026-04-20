@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -31,6 +32,7 @@ var localArtifactPrefixes = []string{
 type ScopeEngine struct {
 	AllowedDomains []string    // e.g., ["example.com", "*.example.com"]
 	AllowedIPs     []net.IPNet // CIDR ranges
+	AllowedPort    int         // Non-zero: only this port is in-scope (e.g., 3001 for http://host:3001)
 	ExcludedPaths  []string    // e.g., ["/logout", "/admin/delete"]
 	RawTarget      string      // Original target string
 }
@@ -61,6 +63,9 @@ func (se *ScopeEngine) parseTarget(target string) {
 		portPart := host[idx+1:]
 		if len(portPart) <= 5 {
 			host = host[:idx]
+			if p, err := strconv.Atoi(portPart); err == nil && p > 0 {
+				se.AllowedPort = p
+			}
 		}
 	}
 
@@ -95,6 +100,12 @@ func (se *ScopeEngine) IsInScope(targetURL string) bool {
 
 	host := parsed.Hostname()
 	path := parsed.Path
+
+	// Port enforcement: if the original target specified an explicit non-default port
+	// (e.g., http://86.48.30.37:3001), only requests to that exact port are in-scope.
+	if se.AllowedPort != 0 && effectivePort(parsed) != se.AllowedPort {
+		return false
+	}
 
 	for _, excluded := range se.ExcludedPaths {
 		if strings.HasPrefix(path, excluded) {
@@ -222,6 +233,21 @@ func (se *ScopeEngine) baseTargetURL() *url.URL {
 		return nil
 	}
 	return parsed
+}
+
+// effectivePort returns the port a URL will actually connect to.
+// If the URL has an explicit port it returns that; otherwise it returns
+// the well-known default for the scheme (80 for http, 443 for https).
+func effectivePort(u *url.URL) int {
+	if p := u.Port(); p != "" {
+		if n, err := strconv.Atoi(p); err == nil {
+			return n
+		}
+	}
+	if u.Scheme == "https" {
+		return 443
+	}
+	return 80
 }
 
 // matchDomain checks if a host matches a domain pattern (supports wildcards).
