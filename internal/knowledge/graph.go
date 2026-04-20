@@ -80,6 +80,10 @@ type Graph interface {
 	GetVulnerabilities(hostID string) ([]*KGNode, error)
 	GetEffectivePayloads(techStack, vulnType string) ([]*KGNode, error)
 
+	// Export operations (for API serialization)
+	AllNodes() []*KGNode
+	AllEdges() []*KGEdge
+
 	// Lifecycle
 	Close() error
 }
@@ -97,6 +101,24 @@ func NewInMemoryGraph() *InMemoryGraph {
 		nodes: make(map[string]*KGNode),
 		edges: make([]*KGEdge, 0),
 	}
+}
+
+func (g *InMemoryGraph) AllNodes() []*KGNode {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	out := make([]*KGNode, 0, len(g.nodes))
+	for _, n := range g.nodes {
+		out = append(out, n)
+	}
+	return out
+}
+
+func (g *InMemoryGraph) AllEdges() []*KGEdge {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	out := make([]*KGEdge, len(g.edges))
+	copy(out, g.edges)
+	return out
 }
 
 func (g *InMemoryGraph) AddNode(node *KGNode) error {

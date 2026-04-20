@@ -64,7 +64,7 @@ func (q *Queries) ListFlows() ([]models.Flow, error) {
 	}
 	defer rows.Close()
 
-	var flows []models.Flow
+	flows := []models.Flow{}
 	for rows.Next() {
 		var f models.Flow
 		if err := rows.Scan(&f.ID, &f.Name, &f.Description, &f.Target, &f.Status, &f.CreatedAt, &f.UpdatedAt); err != nil {
@@ -322,7 +322,7 @@ func (q *Queries) CreateFlowEvent(flowID uuid.UUID, eventType string, content st
 
 func (q *Queries) GetFlowEvents(flowID uuid.UUID) ([]EventWithTimestamp, error) {
 	rows, err := q.db.Query(
-		`SELECT type, content, metadata, timestamp FROM flow_events 
+		`SELECT id, flow_id, type, content, metadata, timestamp FROM flow_events
 		 WHERE flow_id = $1 ORDER BY timestamp ASC`, flowID,
 	)
 	if err != nil {
@@ -334,16 +334,21 @@ func (q *Queries) GetFlowEvents(flowID uuid.UUID) ([]EventWithTimestamp, error) 
 	for rows.Next() {
 		var e EventWithTimestamp
 		var metaJSON []byte
-		if err := rows.Scan(&e.Type, &e.Content, &metaJSON, &e.Timestamp); err != nil {
+		if err := rows.Scan(&e.ID, &e.FlowID, &e.Type, &e.Content, &metaJSON, &e.Timestamp); err != nil {
 			return nil, err
 		}
 		json.Unmarshal(metaJSON, &e.Metadata)
 		events = append(events, e)
 	}
+	if events == nil {
+		events = []EventWithTimestamp{}
+	}
 	return events, nil
 }
 
 type EventWithTimestamp struct {
+	ID        string      `json:"id"`
+	FlowID    string      `json:"flow_id"`
 	Type      string      `json:"type"`
 	Content   string      `json:"content"`
 	Metadata  interface{} `json:"metadata"`
@@ -351,21 +356,22 @@ type EventWithTimestamp struct {
 }
 
 type GlobalFinding struct {
-	ID        string    `json:"id"`
-	FlowID    uuid.UUID `json:"flowId"`
-	FlowName  string    `json:"flowName"`
-	Target    string    `json:"target"`
-	Severity  string    `json:"severity"`
-	Title     string    `json:"title"`
-	Content   string    `json:"content"`
-	Timestamp time.Time `json:"timestamp"`
+	ID        string                 `json:"id"`
+	FlowID    uuid.UUID              `json:"flowId"`
+	FlowName  string                 `json:"flowName"`
+	Target    string                 `json:"target"`
+	Severity  string                 `json:"severity"`
+	Title     string                 `json:"title"`
+	Content   string                 `json:"content"`
+	Metadata  map[string]interface{} `json:"metadata"`
+	Timestamp time.Time              `json:"timestamp"`
 }
 
 func (q *Queries) GetAllFindings() ([]GlobalFinding, error) {
 	rows, err := q.db.Query(
-		`SELECT 
-			f.id, f.name, f.target, 
-			fe.content, fe.timestamp
+		`SELECT
+			f.id, f.name, f.target,
+			fe.content, fe.metadata, fe.timestamp
 		 FROM flow_events fe
 		 JOIN flows f ON fe.flow_id = f.id
 		 WHERE fe.type = 'tool_result' AND fe.metadata->>'tool' = 'report_findings'
@@ -380,11 +386,14 @@ func (q *Queries) GetAllFindings() ([]GlobalFinding, error) {
 	for rows.Next() {
 		var flowID uuid.UUID
 		var flowName, target, content string
+		var metaJSON []byte
 		var timestamp time.Time
 
-		if err := rows.Scan(&flowID, &flowName, &target, &content, &timestamp); err != nil {
+		if err := rows.Scan(&flowID, &flowName, &target, &content, &metaJSON, &timestamp); err != nil {
 			return nil, err
 		}
+		var meta map[string]interface{}
+		json.Unmarshal(metaJSON, &meta)
 
 		// Since our frontend already has logic to parse severity and title from
 		// the markdown content, we'll do the same extraction here for the DB query
@@ -410,6 +419,9 @@ func (q *Queries) GetAllFindings() ([]GlobalFinding, error) {
 			}
 		}
 
+		if meta == nil {
+			meta = map[string]interface{}{}
+		}
 		findings = append(findings, GlobalFinding{
 			ID:        fmt.Sprintf("%s-%d", flowID.String(), timestamp.UnixNano()),
 			FlowID:    flowID,
@@ -418,6 +430,7 @@ func (q *Queries) GetAllFindings() ([]GlobalFinding, error) {
 			Severity:  severity,
 			Title:     title,
 			Content:   content,
+			Metadata:  meta,
 			Timestamp: timestamp,
 		})
 	}

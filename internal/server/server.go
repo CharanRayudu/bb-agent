@@ -22,6 +22,7 @@ import (
 	"github.com/bb-agent/mirage/internal/config"
 	"github.com/bb-agent/mirage/internal/database"
 	"github.com/bb-agent/mirage/internal/docker"
+	"github.com/bb-agent/mirage/internal/knowledge"
 	"github.com/bb-agent/mirage/internal/llm"
 	"github.com/bb-agent/mirage/internal/models"
 	"github.com/bb-agent/mirage/internal/tools"
@@ -80,6 +81,14 @@ type Server struct {
 	// llmProvider is used for stateless LLM API requests (e.g. /api/mutate).
 	// May be nil when no auth is configured.
 	llmProvider llm.Provider
+
+	// Shared knowledge graph — persists across scans within the same server process.
+	knowledgeGraph   knowledge.Graph
+	knowledgeGraphMu sync.RWMutex
+
+	// In-memory config store for /api/config GET/PUT.
+	configStore   map[string]interface{}
+	configStoreMu sync.RWMutex
 }
 
 // New creates a new server instance
@@ -111,11 +120,24 @@ func New(cfg *config.Config, db *sql.DB) *Server {
 		sharedProvider = llm.NewResilientProvider(sharedProvider)
 	}
 
+	sharedKG := knowledge.NewInMemoryGraph()
+	initialConfig := map[string]interface{}{
+		"providers": map[string]interface{}{
+			"openai": map[string]interface{}{
+				"enabled": true,
+				"model":   cfg.OpenAIModel,
+				"apiKey":  cfg.OpenAIAPIKey,
+			},
+		},
+	}
+
 	s = &Server{
-		cfg:     cfg,
-		db:      db,
-		queries: database.NewQueries(db),
-		mux:     http.NewServeMux(),
+		cfg:            cfg,
+		db:             db,
+		queries:        database.NewQueries(db),
+		mux:            http.NewServeMux(),
+		knowledgeGraph: sharedKG,
+		configStore:    initialConfig,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  4096,
 			WriteBufferSize: 4096,
@@ -805,8 +827,11 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 		prompts = &config.Prompts{}
 	}
 
-	// Create orchestrator
+	// Create orchestrator, wiring in the shared cross-scan knowledge graph
 	orchestrator := agent.NewOrchestrator(provider, registry, s.db, prompts)
+	s.knowledgeGraphMu.RLock()
+	orchestrator.SetKnowledgeGraph(s.knowledgeGraph)
+	s.knowledgeGraphMu.RUnlock()
 	orchestrator.SetEventHandler(func(event agent.Event) {
 		// Mirage 2.0: Persist events so they survive page refreshes
 		flowIDuuid, err := uuid.Parse(event.FlowID)
