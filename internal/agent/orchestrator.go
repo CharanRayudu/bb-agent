@@ -118,15 +118,24 @@ type AuthState struct {
 
 // Structured Brain for Mirage 2.0
 type Brain struct {
-	Leads        []string            `json:"leads"`                 // Unconfirmed interests
-	Findings     []*Finding          `json:"findings"`              // Confirmed bugs
-	Exclusions   []string            `json:"exclusions"`            // Dead ends
-	PivotContext string              `json:"pivotContext"`          // Discovered context that unlocks new attack surface
-	Tech         *TechStack          `json:"tech"`                  // Inferred technology stack
-	Auth         *AuthState          `json:"auth,omitempty"`        // Authentication context for auth-aware scanning
-	CausalGraph  *models.CausalGraph `json:"causalGraph,omitempty"` // DAG for non-monotonic evidence reasoning
+	Leads          []string            `json:"leads"`              // Unconfirmed interests
+	Findings       []*Finding          `json:"findings"`           // Confirmed bugs (promoted through all gates)
+	HallucinationBin []*HallucinationEntry `json:"hallucination_bin,omitempty"` // Rejected findings with gate failure reason
+	KnownDefences  []string            `json:"known_defences,omitempty"`    // Hardened paths/mechanisms (WAF, auth walls, rate limits)
+	Exclusions     []string            `json:"exclusions"`         // Dead ends
+	PivotContext   string              `json:"pivotContext"`       // Discovered context that unlocks new attack surface
+	Tech           *TechStack          `json:"tech"`               // Inferred technology stack
+	Auth           *AuthState          `json:"auth,omitempty"`     // Authentication context for auth-aware scanning
+	CausalGraph    *models.CausalGraph `json:"causalGraph,omitempty"` // DAG for non-monotonic evidence reasoning
 	// Mythos: refined attack hypotheses — included in next planner iteration for adaptive prioritization
 	Hypotheses []AttackHypothesis `json:"hypotheses,omitempty"`
+}
+
+// HallucinationEntry is a finding that failed one or more promotion gates.
+// Tracked so the planner can dispatch targeted agents to acquire the missing proof.
+type HallucinationEntry struct {
+	Finding   *Finding `json:"finding"`
+	FailedGate string  `json:"failed_gate"` // e.g. "Gate1: missing request/response proof"
 }
 
 // SwarmAgentSpec is a richer agent dispatch format from the Planner
@@ -761,17 +770,39 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		switch category {
 		case "lead":
 			o.bus.Emit(EventLeadDiscovered, note)
+		case "defence":
+			// Record hardened/defended paths so the planner doesn't waste cycles on them again.
+			normalized := normalizeBrainNote(note)
+			if normalized != "" {
+				brainMu.Lock()
+				brain.KnownDefences = append(brain.KnownDefences, normalized)
+				brainMu.Unlock()
+				persistBrainState("defence")
+				o.emit(flowID.String(), Event{
+					Type:    EventMessage,
+					FlowID:  flowID.String(),
+					TaskID:  task.ID.String(),
+					Content: fmt.Sprintf("[DEFENCE] Hardened path recorded: %s", normalized),
+				})
+			}
 		case "finding":
 			var f Finding
 			if err := json.Unmarshal([]byte(note), &f); err == nil {
 				if ok, reason := shouldPromoteFinding(&f); ok {
 					o.bus.Emit(EventFindingDiscovered, &f)
 				} else {
+					// Hallucination bin: route to quarantine, not silently to leads.
+					brainMu.Lock()
+					brain.HallucinationBin = append(brain.HallucinationBin, &HallucinationEntry{
+						Finding: cloneFinding(&f), FailedGate: reason,
+					})
+					brainMu.Unlock()
+					persistBrainState("hallucination")
 					o.emit(flowID.String(), Event{
 						Type:    EventMessage,
 						FlowID:  flowID.String(),
 						TaskID:  task.ID.String(),
-						Content: fmt.Sprintf("[WARN] Finding held for more proof: %s", reason),
+						Content: fmt.Sprintf("[HALLUCINATION BIN] Finding quarantined — %s", reason),
 					})
 					o.bus.Emit(EventLeadDiscovered, fmt.Sprintf("Needs validation: %s at %s", f.Type, f.URL))
 				}
@@ -867,11 +898,19 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 
 		if ok, reason := shouldPromoteFinding(finding); !ok {
 			o.recordEvidencePack(flowID, &task.ID, subtaskIDFromFinding(finding), finding, models.EvidenceStatusNeedsProof, reason)
+			// Route to hallucination bin — guilty until proven innocent.
+			brainMu.Lock()
+			brain.HallucinationBin = append(brain.HallucinationBin, &HallucinationEntry{
+				Finding:    cloneFinding(finding),
+				FailedGate: reason,
+			})
+			brainMu.Unlock()
+			persistBrainState("hallucination")
 			o.emit(flowID.String(), Event{
 				Type:    EventMessage,
 				FlowID:  flowID.String(),
 				TaskID:  task.ID.String(),
-				Content: fmt.Sprintf("Finding not promoted: %s", reason),
+				Content: fmt.Sprintf("[HALLUCINATION BIN] Finding quarantined — %s. Needs more proof before promotion.", reason),
 			})
 			o.bus.Emit(EventLeadDiscovered, fmt.Sprintf("Needs stronger validation: %s at %s", finding.Type, finding.URL))
 			return
@@ -1194,6 +1233,26 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		plannerInput := "RECON SUMMARY:\n" + reconResult + "\n\n[BRAIN] LEADS (LEADS TO CONSOLIDATE):\n"
 		bJSON, _ := json.MarshalIndent(brain, "", "  ")
 		plannerInput += string(bJSON)
+
+		// Inject hallucination bin — tell planner which findings need more proof
+		if len(brain.HallucinationBin) > 0 {
+			plannerInput += fmt.Sprintf("\n\n[HALLUCINATION BIN] %d finding(s) quarantined — dispatch targeted agents to acquire missing proof:\n", len(brain.HallucinationBin))
+			for _, h := range brain.HallucinationBin {
+				if h != nil && h.Finding != nil {
+					plannerInput += fmt.Sprintf("  • %s at %s — FAILED: %s\n", h.Finding.Type, h.Finding.URL, h.FailedGate)
+				}
+			}
+			plannerInput += "These are UNCONFIRMED. Do NOT report them. Dispatch specialists to re-attack these endpoints with the explicit goal of obtaining the missing proof class."
+		}
+
+		// Inject known defences — tell planner not to repeat dead ends
+		if len(brain.KnownDefences) > 0 {
+			plannerInput += "\n\n[KNOWN DEFENCES — DO NOT RETRY THESE PATHS]:\n"
+			for _, d := range brain.KnownDefences {
+				plannerInput += "  • " + d + "\n"
+			}
+			plannerInput += "These paths are hardened. Do not dispatch specialists to them unless you have a specific bypass strategy."
+		}
 		brainMu.Unlock()
 
 		plannerPrompt := o.prompts.BuildPhasePrompt("THINKING & CONSOLIDATION", o.prompts.Phases.Planner, flow.Target, userPrompt, "")

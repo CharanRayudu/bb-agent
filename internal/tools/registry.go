@@ -212,8 +212,8 @@ func (r *Registry) AddUpdateBrainTool(onBrainUpdate func(string, string)) {
 				"properties": map[string]interface{}{
 					"category": map[string]interface{}{
 						"type":        "string",
-						"enum":        []string{"lead", "finding", "exclusion", "credentials", "pivot", "tech"},
-						"description": "'lead': interesting paths/params to investigate; 'finding': confirmed vulnerability; 'exclusion': dead end or blocked path; 'credentials': discovered valid credentials, session cookies, or JWT tokens; 'pivot': ANY discovery that unlocks a new attack surface; 'tech': discovered technology stack (e.g., 'PHP 8.1, MySQL, Cloudflare').",
+						"enum":        []string{"lead", "finding", "exclusion", "credentials", "pivot", "tech", "defence"},
+						"description": "'lead': interesting paths/params to investigate; 'finding': confirmed vulnerability (JSON-encoded); 'exclusion': dead end or blocked path; 'credentials': discovered valid credentials, session cookies, or JWT tokens; 'pivot': ANY discovery that unlocks a new attack surface; 'tech': discovered technology stack; 'defence': a hardened mechanism that blocked you (WAF, auth wall, rate limit, CSP, 403 on all attempts) — records it so the planner avoids it in future loops.",
 					},
 					"discovery": map[string]interface{}{
 						"type":        "string",
