@@ -26,19 +26,26 @@ const (
 )
 
 // FlowSandboxConfig controls per-flow sandbox resource limits.
+//
+// Note on egress filtering: Docker's networking APIs do not provide a
+// cheap host-level allow-list. If you need strict egress isolation, set
+// NetworkMode to "none" (no outbound traffic) or to a user-managed
+// network configured with iptables/nftables rules on the host. An
+// in-process AllowedHosts field used to live here but was removed
+// because it was never enforced and gave callers a false sense of
+// security.
 type FlowSandboxConfig struct {
 	CPULimit    int64  // CPU quota (nanoCPUs, e.g., 2e9 = 2 CPUs)
 	MemoryLimit int64  // Memory limit in bytes (e.g., 2<<30 = 2GB)
 	DiskLimit   string // Disk limit (e.g., "5g")
-	NetworkMode string // "bridge", "none", or custom
-	AllowedHosts []string // Network allow-list for target restriction
+	NetworkMode string // "bridge", "none", or a user-managed network name
 }
 
 // DefaultFlowConfig returns a sensible default sandbox configuration.
 func DefaultFlowConfig() FlowSandboxConfig {
 	return FlowSandboxConfig{
-		CPULimit:    2e9,       // 2 CPUs
-		MemoryLimit: 2 << 30,  // 2 GB
+		CPULimit:    2e9,     // 2 CPUs
+		MemoryLimit: 2 << 30, // 2 GB
 		NetworkMode: "bridge",
 	}
 }
@@ -93,12 +100,20 @@ func (fs *FlowSandbox) CreateForFlow(ctx context.Context, flowID string, profile
 	containerName := fmt.Sprintf("mirage-flow-%s", flowID[:8])
 	image := fs.resolveImage(profile)
 
+	netMode := config.NetworkMode
+	if netMode == "" {
+		netMode = "none"
+	}
+	if netMode == "bridge" {
+		log.Printf("[sandbox] flow %s uses unrestricted bridge egress; set NetworkMode=\"none\" or configure host firewall for strict isolation", flowID[:8])
+	}
+
 	hostConfig := &container.HostConfig{
 		Resources: container.Resources{
 			NanoCPUs: config.CPULimit,
 			Memory:   config.MemoryLimit,
 		},
-		NetworkMode: container.NetworkMode(config.NetworkMode),
+		NetworkMode: container.NetworkMode(netMode),
 		SecurityOpt: []string{
 			"no-new-privileges",
 		},
@@ -133,7 +148,9 @@ func (fs *FlowSandbox) CreateForFlow(ctx context.Context, flowID string, profile
 	return resp.ID, nil
 }
 
-// ExecuteInFlow runs a command in a flow-specific sandbox.
+// ExecuteInFlow runs a shell command in a flow-specific sandbox via `bash -c`.
+// See Sandbox.Execute for the same injection caveat: callers must validate
+// any attacker-controlled input or switch to ExecuteArgvInFlow.
 func (fs *FlowSandbox) ExecuteInFlow(ctx context.Context, flowID, command string, timeoutSec int) (*ExecResult, error) {
 	fs.mu.Lock()
 	containerID, ok := fs.containers[flowID]
@@ -143,8 +160,25 @@ func (fs *FlowSandbox) ExecuteInFlow(ctx context.Context, flowID, command string
 		return nil, fmt.Errorf("no sandbox for flow %s", flowID)
 	}
 
-	// Reuse the same exec pattern as the main Sandbox
-	return executeInContainer(ctx, fs.client, containerID, command, timeoutSec)
+	return executeInContainerArgv(ctx, fs.client, containerID, []string{"/bin/bash", "-c", command}, timeoutSec)
+}
+
+// ExecuteArgvInFlow runs an argv-form command in a flow-specific sandbox,
+// bypassing the shell entirely. Preferred when any argument is derived
+// from untrusted input.
+func (fs *FlowSandbox) ExecuteArgvInFlow(ctx context.Context, flowID string, argv []string, timeoutSec int) (*ExecResult, error) {
+	if len(argv) == 0 {
+		return nil, fmt.Errorf("ExecuteArgvInFlow: empty argv")
+	}
+	fs.mu.Lock()
+	containerID, ok := fs.containers[flowID]
+	fs.mu.Unlock()
+
+	if !ok {
+		return nil, fmt.Errorf("no sandbox for flow %s", flowID)
+	}
+
+	return executeInContainerArgv(ctx, fs.client, containerID, argv, timeoutSec)
 }
 
 // DestroyForFlow removes the sandbox container for a completed flow.
@@ -207,8 +241,16 @@ func (fs *FlowSandbox) resolveImage(profile SandboxProfile) string {
 	}
 }
 
-// executeInContainer is a shared helper for running commands in any container.
+// executeInContainer is a shared helper for running shell commands in any
+// container. Deprecated: prefer executeInContainerArgv with an explicit
+// argv to avoid shell injection.
 func executeInContainer(ctx context.Context, cli *client.Client, containerID, command string, timeoutSec int) (*ExecResult, error) {
+	return executeInContainerArgv(ctx, cli, containerID, []string{"/bin/bash", "-c", command}, timeoutSec)
+}
+
+// executeInContainerArgv runs an explicit argv in the container without
+// invoking a shell parser.
+func executeInContainerArgv(ctx context.Context, cli *client.Client, containerID string, argv []string, timeoutSec int) (*ExecResult, error) {
 	start := time.Now()
 
 	if timeoutSec <= 0 {
@@ -219,7 +261,7 @@ func executeInContainer(ctx context.Context, cli *client.Client, containerID, co
 	defer cancel()
 
 	execConfig := container.ExecOptions{
-		Cmd:          []string{"/bin/bash", "-c", command},
+		Cmd:          argv,
 		AttachStdout: true,
 		AttachStderr: true,
 		Tty:          false,

@@ -3,6 +3,7 @@ package base
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -10,6 +11,10 @@ import (
 	"strings"
 	"time"
 )
+
+// ErrOutOfScope is returned by FuzzClient probe methods when the target URL
+// is rejected by the Scope carried on the request context.
+var ErrOutOfScope = errors.New("probe refused: target out of scope")
 
 // ProbeResult holds the outcome of a single HTTP probe.
 type ProbeResult struct {
@@ -66,6 +71,10 @@ func readBody(resp *http.Response) string {
 func (fc *FuzzClient) ProbeGET(ctx context.Context, targetURL, paramName, payload string) ProbeResult {
 	probeURL := injectParam(targetURL, paramName, payload)
 
+	if !scopeAllows(ctx, probeURL) {
+		return ProbeResult{Error: ErrOutOfScope}
+	}
+
 	start := time.Now()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, probeURL, nil)
 	if err != nil {
@@ -98,6 +107,10 @@ func (fc *FuzzClient) ProbePOST(ctx context.Context, targetURL, paramName, paylo
 	}
 	formData := url.Values{}
 	formData.Set(paramName, payload)
+
+	if !scopeAllows(ctx, targetURL) {
+		return ProbeResult{Error: ErrOutOfScope}
+	}
 
 	start := time.Now()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, strings.NewReader(formData.Encode()))
@@ -133,6 +146,9 @@ func (fc *FuzzClient) ProbeURL(ctx context.Context, targetURL, paramName, payloa
 
 // Baseline measures a clean response for timing comparison.
 func (fc *FuzzClient) Baseline(ctx context.Context, targetURL string) time.Duration {
+	if !scopeAllows(ctx, targetURL) {
+		return 0
+	}
 	start := time.Now()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
 	if err != nil {
@@ -150,6 +166,18 @@ func (fc *FuzzClient) Baseline(ctx context.Context, targetURL string) time.Durat
 	}
 	fc.baseDelay = dur
 	return dur
+}
+
+// scopeAllows returns true when no Scope is attached to ctx or the attached
+// Scope accepts the target URL. Callers get a fail-open behavior when no
+// scope is injected (preserving local/test flows) but are hard-blocked when
+// the orchestrator has injected a real scope for an authorized flow.
+func scopeAllows(ctx context.Context, targetURL string) bool {
+	s := ScopeFromContext(ctx)
+	if s == nil {
+		return true
+	}
+	return s.IsInScope(targetURL)
 }
 
 // injectParam builds a URL with the given param set to payload.

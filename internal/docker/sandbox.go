@@ -62,8 +62,28 @@ type ExecResult struct {
 	Duration time.Duration
 }
 
-// Execute runs a command inside a sandboxed container with resource limits
+// Execute runs a shell command string inside the sandbox via `bash -c`.
+//
+// WARNING: the sandbox image *is* a shell. Callers that interpolate any
+// untrusted input into `command` MUST first pass it through a strict
+// validator (scope engine + shell-escape) or switch to ExecuteArgv so the
+// arguments are never parsed by a shell. All current call sites go through
+// the agent orchestrator's ScopeEngine.ValidateToolArgs.
 func (s *Sandbox) Execute(ctx context.Context, command string, timeoutSec int) (*ExecResult, error) {
+	return s.execCmd(ctx, []string{"/bin/bash", "-c", command}, timeoutSec)
+}
+
+// ExecuteArgv runs an argv-form command inside the sandbox WITHOUT invoking
+// a shell. Use this whenever an argument could contain attacker-controlled
+// data (URLs, filenames, repo paths, etc.) to eliminate shell injection.
+func (s *Sandbox) ExecuteArgv(ctx context.Context, argv []string, timeoutSec int) (*ExecResult, error) {
+	if len(argv) == 0 {
+		return nil, fmt.Errorf("ExecuteArgv: empty argv")
+	}
+	return s.execCmd(ctx, argv, timeoutSec)
+}
+
+func (s *Sandbox) execCmd(ctx context.Context, argv []string, timeoutSec int) (*ExecResult, error) {
 	start := time.Now()
 
 	if timeoutSec <= 0 {
@@ -75,7 +95,7 @@ func (s *Sandbox) Execute(ctx context.Context, command string, timeoutSec int) (
 
 	// Prepare the exec configuration
 	execConfig := container.ExecOptions{
-		Cmd:          []string{"/bin/bash", "-c", command},
+		Cmd:          argv,
 		AttachStdout: true,
 		AttachStderr: true,
 		Tty:          false,

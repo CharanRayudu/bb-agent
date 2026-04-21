@@ -609,8 +609,17 @@ function FlowDetail() {
     function connectWebSocket() {
         if (wsRef.current) return;
 
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-        const wsUrl = `${protocol}//${window.location.host}/ws`
+        // Prefer an explicit VITE_WS_URL (set in .env) so the same build can
+        // point at a separate backend host; fall back to the page origin for
+        // the common single-host deployment or the Vite dev proxy.
+        const configuredWsUrl = import.meta.env.VITE_WS_URL
+        let wsUrl
+        if (configuredWsUrl && typeof configuredWsUrl === 'string' && configuredWsUrl.trim() !== '') {
+            wsUrl = configuredWsUrl.trim()
+        } else {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+            wsUrl = `${protocol}//${window.location.host}/ws`
+        }
 
         const ws = new WebSocket(wsUrl)
         wsRef.current = ws

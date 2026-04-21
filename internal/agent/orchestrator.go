@@ -237,6 +237,10 @@ func buildSpecialists(provider llm.Provider) map[string]Specialist {
 		"nuclei":            nuclei.New(),
 		"oauth":             oauth.New(),
 		"openredirect":      openredirect.New(),
+		// Note: postexploit is dispatched directly by the orchestrator
+		// (see the peAgent usage in handleConfirmedFinding) and does
+		// not implement the queue-driven Specialist interface, so it is
+		// intentionally NOT registered here.
 		"protopollution":    protopollution.New(),
 		"rce":               rce.New(),
 		"reporting":         reportingagent.New(),

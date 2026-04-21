@@ -138,6 +138,7 @@ func New(cfg *config.Config, db *sql.DB) *Server {
 		mux:            http.NewServeMux(),
 		knowledgeGraph: sharedKG,
 		configStore:    initialConfig,
+		webhookSecret:  cfg.WebhookSecret,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  4096,
 			WriteBufferSize: 4096,
@@ -197,19 +198,20 @@ func (s *Server) setupRoutes() {
 	s.mux.HandleFunc("/api/findings", s.handleFindings)
 	s.mux.HandleFunc("/api/findings/remediation", s.handleRemediationList)
 	s.mux.HandleFunc("/api/findings/", s.handleFindingSubroute)
-	s.mux.HandleFunc("/api/flows/create", s.handleCreateFlow)
+	// Mutation endpoints require at least Operator when AUTH_REQUIRED=true.
+	s.mux.HandleFunc("/api/flows/create", s.authGate(RoleOperator, s.handleCreateFlow))
 	s.mux.HandleFunc("/api/flows/", s.handleFlow)
 	s.mux.HandleFunc("/api/flows", s.handleFlows)
 
 	// Operational routes
-	s.mux.HandleFunc("/api/schedules", s.handleSchedules)
-	s.mux.HandleFunc("/api/schedules/", s.handleScheduleByID)
-	s.mux.HandleFunc("/api/users", s.handleUsers)
+	s.mux.HandleFunc("/api/schedules", s.authGate(RoleOperator, s.handleSchedules))
+	s.mux.HandleFunc("/api/schedules/", s.authGate(RoleOperator, s.handleScheduleByID))
+	s.mux.HandleFunc("/api/users", s.authGate(RoleAdmin, s.handleUsers))
 	s.mux.HandleFunc("/api/audit", s.handleAudit)
 	s.mux.HandleFunc("/api/cicd/trigger", s.handleCICDTrigger)
 
 	// LLM mutation endpoint
-	s.mux.HandleFunc("/api/mutate", s.handleMutate)
+	s.mux.HandleFunc("/api/mutate", s.authGate(RoleOperator, s.handleMutate))
 
 	// Extended API routes (knowledge graph, analytics, config, metrics, schedules)
 	s.registerExtendedRoutes()
@@ -227,13 +229,13 @@ func (s *Server) setupRoutes() {
 // Start runs the HTTP server
 // Handler returns the server's HTTP handler (useful for testing).
 func (s *Server) Handler() http.Handler {
-	return corsMiddleware(s.mux)
+	return s.corsMiddleware(s.mux)
 }
 
 func (s *Server) Start(ctx context.Context, addr string) error {
 	srv := &http.Server{
 		Addr:    addr,
-		Handler: corsMiddleware(s.mux),
+		Handler: s.corsMiddleware(s.mux),
 	}
 
 	go func() {
@@ -248,6 +250,11 @@ func (s *Server) Start(ctx context.Context, addr string) error {
 // ============ Handlers ============
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
 		"status":  "ok",
 		"service": "mirage",
@@ -808,10 +815,12 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 		log.Printf("[ERROR] %s", errMsg)
 		s.queries.UpdateFlowStatus(flowID, models.FlowStatusFailed)
 		s.broadcast(agent.Event{
-			Type:    agent.EventError,
-			FlowID:  flowID.String(),
-			Content: errMsg,
+			Type:      agent.EventError,
+			FlowID:    flowID.String(),
+			Content:   errMsg,
+			Timestamp: time.Now(),
 		})
+		return
 	}
 
 	// Wrap with ResilientProvider to handle transient connection errors (Brain-Hardening)
@@ -1587,14 +1596,48 @@ func (s *Server) handleCaptureScreenshot(w http.ResponseWriter, r *http.Request,
 
 // ============ Middleware ============
 
-func corsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+// corsMiddleware applies a strict, allow-list based CORS policy.
+// When AllowedOrigins is empty, only same-origin requests are echoed back
+// (browsers without an Origin header — e.g. curl, server-to-server — are
+// unaffected). When non-empty, each origin must match exactly.
+// Credentials are allowed so browser apps can attach the Bearer JWT.
+func (s *Server) corsMiddleware(next http.Handler) http.Handler {
+	allowed := map[string]struct{}{}
+	if s != nil && s.cfg != nil {
+		for _, o := range s.cfg.AllowedOrigins {
+			allowed[o] = struct{}{}
+		}
+	}
 
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusOK)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			allow := false
+			if _, ok := allowed[origin]; ok {
+				allow = true
+			} else if len(allowed) == 0 {
+				// Fallback allow-list for local development: same-host and
+				// loopback origins only. Never reply with "*".
+				host := r.Host
+				if strings.HasSuffix(origin, "://"+host) ||
+					strings.HasPrefix(origin, "http://localhost") ||
+					strings.HasPrefix(origin, "https://localhost") ||
+					strings.HasPrefix(origin, "http://127.0.0.1") ||
+					strings.HasPrefix(origin, "https://127.0.0.1") {
+					allow = true
+				}
+			}
+			if allow {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Vary", "Origin")
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+			}
+		}
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 

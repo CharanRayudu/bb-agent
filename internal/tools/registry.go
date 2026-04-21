@@ -5,12 +5,53 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/bb-agent/mirage/internal/docker"
 	"github.com/bb-agent/mirage/internal/llm"
 )
+
+// repoURLSafeRe restricts the characters allowed in a git repository URL
+// to a conservative subset that is safe even when interpolated into a
+// shell. We additionally require http(s) scheme and a real host below.
+var repoURLSafeRe = regexp.MustCompile(`^[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=\-%]+$`)
+
+// validateRepoURL verifies the given URL is a plain http(s) URL pointing
+// to a normal host, with no shell metacharacters. Returns the cleaned
+// URL or an error. This is the defense against command injection in
+// analyze_source_code — see C-3 in the security audit.
+func validateRepoURL(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", fmt.Errorf("empty URL")
+	}
+	if !repoURLSafeRe.MatchString(trimmed) {
+		return "", fmt.Errorf("URL contains characters outside the safe set")
+	}
+	u, err := url.Parse(trimmed)
+	if err != nil {
+		return "", fmt.Errorf("unparseable URL: %w", err)
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https":
+	default:
+		return "", fmt.Errorf("only http/https repository URLs are allowed (got %q)", u.Scheme)
+	}
+	if u.Host == "" {
+		return "", fmt.Errorf("URL is missing a host")
+	}
+	if strings.ContainsAny(u.Host, " \t\r\n`$\";'\\") {
+		return "", fmt.Errorf("URL host contains invalid characters")
+	}
+	// Reject leading `-` on path so git cannot treat it as a flag.
+	if strings.HasPrefix(u.Path, "-") {
+		return "", fmt.Errorf("URL path must not start with '-'")
+	}
+	return u.String(), nil
+}
 
 // Tool represents an executable capability available to the agent
 type Tool struct {
@@ -325,12 +366,32 @@ func (r *Registry) analyzeSourceCode(ctx context.Context, args json.RawMessage) 
 		return "", fmt.Errorf("invalid analyze_source_code args: %w", err)
 	}
 
-	log.Printf("[ANALYZE] CodeMapper: Analyzing %s (focus: %s)", params.URL, params.Focus)
+	cleanURL, err := validateRepoURL(params.URL)
+	if err != nil {
+		return fmt.Sprintf("[ERROR] Rejected repository URL %q: %v", params.URL, err), nil
+	}
 
-	// Build the analysis script
-	cloneCmd := fmt.Sprintf("cd /tmp && rm -rf codemapper_repo && git clone --depth=1 %s codemapper_repo 2>&1 && cd codemapper_repo", params.URL)
+	log.Printf("[ANALYZE] CodeMapper: Analyzing %s (focus: %s)", cleanURL, params.Focus)
 
-	// Build grep patterns based on focus area
+	// Step 1: wipe previous clone via argv (no shell interpolation).
+	if _, err := r.sandbox.ExecuteArgv(ctx, []string{"rm", "-rf", "/tmp/codemapper_repo"}, 30); err != nil {
+		return "", fmt.Errorf("codemapper cleanup failed: %w", err)
+	}
+
+	// Step 2: clone via argv — the URL is never seen by a shell.
+	cloneRes, err := r.sandbox.ExecuteArgv(ctx, []string{
+		"git", "clone", "--depth=1", "--", cleanURL, "/tmp/codemapper_repo",
+	}, 120)
+	if err != nil {
+		return "", fmt.Errorf("codemapper clone failed: %w", err)
+	}
+	if cloneRes.ExitCode != 0 {
+		return fmt.Sprintf("[ERROR] git clone exited with code %d\n%s\n%s", cloneRes.ExitCode, cloneRes.Stdout, cloneRes.Stderr), nil
+	}
+
+	// Step 3: build grep patterns based on focus area. The URL is no longer
+	// in the command, so the remaining shell pipeline operates on
+	// trusted filenames under /tmp/codemapper_repo.
 	var grepPatterns string
 	switch strings.ToLower(params.Focus) {
 	case "sqli":
@@ -349,15 +410,19 @@ func (r *Registry) analyzeSourceCode(ctx context.Context, args json.RawMessage) 
 		grepPatterns = `echo "=== SQL Injection ===" && grep -rn --include='*.js' --include='*.py' --include='*.php' --include='*.go' -E "(query\(|execute\(|raw\(|\.query|SELECT.*FROM)" /tmp/codemapper_repo/ 2>/dev/null | head -30 && echo "=== XSS ===" && grep -rn --include='*.js' --include='*.py' --include='*.php' --include='*.html' -E "(innerHTML|document\.write|\.html\(|dangerouslySetInnerHTML)" /tmp/codemapper_repo/ 2>/dev/null | head -30 && echo "=== Command Injection ===" && grep -rn --include='*.js' --include='*.py' --include='*.php' --include='*.go' -E "(exec\(|system\(|popen\(|spawn\(|subprocess)" /tmp/codemapper_repo/ 2>/dev/null | head -30 && echo "=== Secrets ===" && grep -rn -E "(API_KEY|SECRET_KEY|password\s*=|token\s*=)" /tmp/codemapper_repo/ 2>/dev/null | head -20`
 	}
 
-	// Apply path filter if provided
-	if params.PathFilter != "" {
-		grepPatterns = strings.ReplaceAll(grepPatterns, "/tmp/codemapper_repo/", fmt.Sprintf("/tmp/codemapper_repo/%s", params.PathFilter))
+	// Apply path filter if provided. We still only accept a conservative
+	// character set so no shell metachar can slip through.
+	if pf := strings.TrimSpace(params.PathFilter); pf != "" {
+		if !regexp.MustCompile(`^[A-Za-z0-9._*/?\-]+$`).MatchString(pf) {
+			return fmt.Sprintf("[ERROR] path_filter contains invalid characters: %q", pf), nil
+		}
+		grepPatterns = strings.ReplaceAll(grepPatterns, "/tmp/codemapper_repo/", fmt.Sprintf("/tmp/codemapper_repo/%s", pf))
 	}
 
 	// Get repo stats
 	statsCmd := `echo "=== Repo Stats ===" && find /tmp/codemapper_repo -type f \( -name '*.js' -o -name '*.py' -o -name '*.php' -o -name '*.go' -o -name '*.java' -o -name '*.rb' -o -name '*.ts' \) 2>/dev/null | wc -l && echo " source files found" && echo "=== Directory Structure ===" && find /tmp/codemapper_repo -type d -maxdepth 3 2>/dev/null | head -30`
 
-	fullCmd := fmt.Sprintf("%s && %s && echo '=== Security Analysis ===' && %s", cloneCmd, statsCmd, grepPatterns)
+	fullCmd := fmt.Sprintf("%s && echo '=== Security Analysis ===' && %s", statsCmd, grepPatterns)
 
 	result, err := r.sandbox.Execute(ctx, fullCmd, 120)
 	if err != nil {

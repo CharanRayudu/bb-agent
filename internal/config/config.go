@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 )
 
 type Config struct {
@@ -25,7 +26,14 @@ type Config struct {
 	OpenAITemperature float64
 
 	// Auth
-	JWTSecret string
+	JWTSecret     string
+	AuthRequired  bool // if true, endpoints without a valid token are rejected (401). Default false.
+	WebhookSecret string // HMAC-SHA256 secret for /api/cicd/trigger. Empty disables verification.
+
+	// CORS
+	// AllowedOrigins is an explicit allow-list of origins for browser CORS.
+	// If empty, CORS responds with the first value from Origin only for same-host requests.
+	AllowedOrigins []string
 
 	// Search
 	TavilyAPIKey string
@@ -47,6 +55,9 @@ func Load() (*Config, error) {
 		OpenAIModel:       getEnv("OPENAI_MODEL", "gpt-4o"),
 		OpenAITemperature: temp,
 		JWTSecret:         getEnv("JWT_SECRET", ""),
+		AuthRequired:      strings.EqualFold(getEnv("AUTH_REQUIRED", "false"), "true"),
+		WebhookSecret:     getEnv("WEBHOOK_SECRET", ""),
+		AllowedOrigins:    splitList(getEnv("ALLOWED_ORIGINS", "")),
 		TavilyAPIKey:      getEnv("TAVILY_API_KEY", ""),
 		ShodanAPIKey:      getEnv("SHODAN_API_KEY", ""),
 	}
@@ -66,4 +77,18 @@ func getEnv(key, fallback string) string {
 		return val
 	}
 	return fallback
+}
+
+func splitList(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if s := strings.TrimSpace(p); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }

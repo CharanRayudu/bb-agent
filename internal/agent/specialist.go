@@ -115,6 +115,13 @@ func NewWorker(spec Specialist, q *queue.SpecialistQueue, concurrency int, onFin
 // Blocks until the context is cancelled or the queue is closed.
 func (w *Worker) Start(ctx context.Context) {
 	ctx, w.cancel = context.WithCancel(ctx)
+	// Propagate the orchestrator's ScopeEngine to every downstream HTTP
+	// probe via context. Specialists that use FuzzClient will refuse
+	// out-of-scope requests rather than silently hit whatever URL the
+	// LLM produced.
+	if w.orchestrator != nil && w.orchestrator.scope != nil {
+		ctx = base.WithScope(ctx, w.orchestrator.scope)
+	}
 	sem := make(chan struct{}, w.concurrency)
 
 	log.Printf("[worker:%s] Started with concurrency=%d", w.specialist.Name(), w.concurrency)
