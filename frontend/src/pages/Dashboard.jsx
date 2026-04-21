@@ -257,30 +257,40 @@ function Dashboard() {
                 <div className="absolute top-24 -right-40 w-[36rem] h-[36rem] bg-accent-purple/18 rounded-full blur-3xl animate-float" />
             </div>
 
-            {/* Header Area */}
+            {/* Hero / Header Area */}
             <div className="mb-10 relative z-10">
-                <div className="relative overflow-hidden rounded-3xl border border-white/12 bg-white/6 backdrop-blur-2xl shadow-[0_18px_80px_rgba(15,23,42,0.95)] px-6 py-6 md:px-8 md:py-7">
-                    <div className="absolute -right-24 -top-24 h-64 w-64 bg-accent-cyan/20 blur-3xl opacity-60" />
-                    <div className="absolute -left-24 -bottom-24 h-64 w-64 bg-accent-purple/20 blur-3xl opacity-40" />
+                <div className="lg-surface-hero lg-halo-cyan px-7 py-8 md:px-10 md:py-10">
+                    <div className="absolute -right-28 -top-28 h-72 w-72 bg-accent-cyan/25 blur-3xl opacity-70 pointer-events-none" />
+                    <div className="absolute -left-28 -bottom-28 h-72 w-72 bg-accent-purple/25 blur-3xl opacity-60 pointer-events-none" />
 
                     <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-                        <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}>
-                            <h1 className="text-4xl md:text-5xl font-display font-black text-transparent bg-clip-text bg-gradient-to-r from-text-primary to-text-muted mb-3 tracking-tight">
+                        <motion.div
+                            initial={{ opacity: 0, y: 8 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.35, ease: [0.2, 0.8, 0.2, 1] }}
+                        >
+                            <div className="inline-flex items-center gap-2 lg-pill mb-4 text-[10px] uppercase tracking-[0.22em] font-semibold">
+                                <span className="w-1.5 h-1.5 rounded-full bg-accent-cyan animate-pulse" />
+                                {activeTab === 'scans' ? 'Live Operations' : 'Threat Intelligence'}
+                            </div>
+                            <h1 className="text-4xl md:text-5xl lg:text-[56px] font-display font-semibold mb-3 tracking-[-0.02em] leading-[1.05] lg-gradient-text">
                                 {activeTab === 'scans' ? 'Active Scans' : 'Global Findings'}
                             </h1>
-                            <p className="text-sm md:text-base text-text-muted flex items-center gap-2">
+                            <p className="text-sm md:text-base text-text-secondary flex items-center gap-2">
                                 <Activity className="w-4 h-4 text-accent-cyan" />
-                                {activeTab === 'scans' ? `Monitoring ${flows.length} autonomous penetration tests` : `Tracking ${findings.length} total discovered vulnerabilities`}
+                                {activeTab === 'scans'
+                                    ? `Monitoring ${flows.length} autonomous penetration test${flows.length !== 1 ? 's' : ''}`
+                                    : `Tracking ${findings.length} total discovered vulnerabilit${findings.length !== 1 ? 'ies' : 'y'}`}
                             </p>
                         </motion.div>
-                        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}>
-                            <Link
-                                to="/new"
-                                className="group relative inline-flex items-center justify-center gap-2 px-8 py-3.5 text-sm font-semibold text-primary-bg rounded-full overflow-hidden transition-all duration-300 hover:scale-105 bg-gradient-to-r from-accent-cyan via-accent-green to-accent-cyan cta-breathe"
-                            >
-                                <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-white/40 via-transparent to-white/40 opacity-0 group-hover:opacity-100 transition-opacity duration-700 bg-[length:220%_100%] animate-[shimmer_3s_linear_infinite]" />
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.96 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            transition={{ delay: 0.1, duration: 0.35, ease: [0.2, 0.8, 0.2, 1] }}
+                        >
+                            <Link to="/new" className="lg-btn cta-breathe text-[15px] px-6 py-3.5">
                                 <Zap className="w-4 h-4 relative z-10" />
-                                <span className="relative z-10 font-bold tracking-wide">Initiate New Attack</span>
+                                <span className="relative z-10 font-semibold tracking-wide">Initiate New Attack</span>
                             </Link>
                         </motion.div>
                     </div>
@@ -294,30 +304,41 @@ function Dashboard() {
 
             {/* Top Level Tabs */}
             <div className="mb-8 relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                <div className="flex bg-white/5 backdrop-blur-md rounded-2xl p-1 border border-white/10 mt-1">
-                    <button
-                        onClick={() => setActiveTab('scans')}
-                        className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all duration-300 ${activeTab === 'scans'
-                            ? 'bg-accent-cyan/20 text-accent-cyan shadow-[0_0_20px_rgba(0,212,255,0.2)]'
-                            : 'text-text-muted hover:text-text-primary hover:bg-white/5'
-                            }`}
-                    >
-                        Active Scans
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('findings')}
-                        className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all duration-300 ${activeTab === 'findings'
-                            ? 'bg-accent-purple/20 text-accent-purple shadow-[0_0_20px_rgba(168,85,247,0.2)]'
-                            : 'text-text-muted hover:text-text-primary hover:bg-white/5'
-                            }`}
-                    >
-                        Global Findings
-                        {findings.length > 0 && (
-                            <span className="ml-2 inline-flex items-center justify-center px-1.5 py-0.5 rounded-full bg-accent-purple/30 text-[10px] text-accent-purple">
-                                {findings.length}
-                            </span>
-                        )}
-                    </button>
+                <div className="relative flex bg-white/[0.04] backdrop-blur-xl rounded-2xl p-1 border border-white/[0.08] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
+                    {['scans', 'findings'].map((tab) => {
+                        const isActive = activeTab === tab
+                        const label = tab === 'scans' ? 'Active Scans' : 'Global Findings'
+                        const accent = tab === 'scans' ? 'text-accent-cyan' : 'text-accent-purple'
+                        return (
+                            <button
+                                key={tab}
+                                onClick={() => setActiveTab(tab)}
+                                className={`relative px-6 py-2.5 rounded-xl text-sm font-semibold transition-colors duration-200 ${
+                                    isActive ? accent : 'text-text-muted hover:text-text-primary'
+                                }`}
+                            >
+                                {isActive && (
+                                    <motion.span
+                                        layoutId="dashboard-tab-active"
+                                        transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+                                        className={`absolute inset-0 rounded-xl ${
+                                            tab === 'scans'
+                                                ? 'bg-accent-cyan/15 border border-accent-cyan/30 shadow-[0_0_24px_rgba(34,211,238,0.25),inset_0_1px_0_rgba(255,255,255,0.14)]'
+                                                : 'bg-accent-purple/15 border border-accent-purple/30 shadow-[0_0_24px_rgba(167,139,250,0.25),inset_0_1px_0_rgba(255,255,255,0.14)]'
+                                        }`}
+                                    />
+                                )}
+                                <span className="relative z-10 flex items-center">
+                                    {label}
+                                    {tab === 'findings' && findings.length > 0 && (
+                                        <span className="ml-2 inline-flex items-center justify-center px-1.5 py-0.5 rounded-full bg-accent-purple/25 text-[10px] text-accent-purple border border-accent-purple/30">
+                                            {findings.length}
+                                        </span>
+                                    )}
+                                </span>
+                            </button>
+                        )
+                    })}
                 </div>
 
                 {/* Status Filter Bar for Scans */}
@@ -408,7 +429,7 @@ function Dashboard() {
                                     <motion.div key={finding.id} variants={itemVariants}>
                                         <div
                                             onClick={() => setSelectedFinding(finding)}
-                                            className="block h-full relative cursor-pointer overflow-hidden rounded-3xl border border-white/10 bg-white/5 backdrop-blur-xl p-6 shadow-[0_14px_50px_rgba(15,23,42,0.9)] hover:border-accent-purple/50 hover:shadow-[0_0_40px_rgba(168,85,247,0.25)] transition-all group"
+                                            className="lg-surface lg-hover block h-full relative cursor-pointer p-6 group"
                                         >
                                             <div className="flex items-center justify-between mb-4 gap-2">
                                                 <span className={`${CHIP_BASE} ${severityClasses} px-3 py-1 text-xs`}>
@@ -461,7 +482,7 @@ function Dashboard() {
                         >
                             {filteredFlows.map((flow) => (
                                 <motion.div key={flow.id} variants={itemVariants} className="h-full relative">
-                                    <div className="h-full relative overflow-hidden rounded-3xl border border-white/15 bg-white/8 backdrop-blur-2xl p-6 shadow-[0_18px_80px_rgba(15,23,42,0.95)] transition-all duration-500 group hover:-translate-y-1 hover:shadow-[0_0_45px_rgba(0,212,255,0.45)] hover:border-accent-cyan/60">
+                                    <div className="lg-surface lg-hover h-full relative p-6 group">
                                         {/* Delete button outside Link so click never triggers navigation */}
                                         <button
                                             type="button"

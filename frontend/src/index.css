@@ -3,29 +3,29 @@
 @tailwind utilities;
 
 /* ============================================================
-   Mirage Design System — Claude aesthetic, dark security tool
+   Mirage Design System v3 — 21st.dev × macOS Liquid Glass
    ============================================================ */
 
 :root {
-  /* Core Backgrounds */
-  --bg: #0a0b0f;
-  --surface: #111318;
-  --card: #161b24;
-  --card-hover: #1a2030;
+  /* Core surfaces (legacy tokens, kept for compatibility) */
+  --bg: #05070d;
+  --surface: #0b0e17;
+  --card: #111622;
+  --card-hover: #151b2b;
 
   /* Borders */
-  --border: #1e2535;
-  --border-muted: #162033;
+  --border: #1a2134;
+  --border-muted: #141b2c;
 
   /* Text */
-  --text-primary: #e2e8f0;
-  --text-secondary: #8b98b1;
-  --text-muted: #4b5675;
+  --text-primary: #e6ecff;
+  --text-secondary: #93a0bf;
+  --text-muted: #5a6784;
 
   /* Accents */
-  --accent-cyan: #06b6d4;
+  --accent-cyan: #22d3ee;
   --accent-green: #10b981;
-  --accent-purple: #8b5cf6;
+  --accent-purple: #a78bfa;
   --accent-orange: #f97316;
   --accent-yellow: #eab308;
   --accent-red: #ef4444;
@@ -35,24 +35,39 @@
   --severity-high: #f97316;
   --severity-medium: #eab308;
   --severity-low: #3b82f6;
-  --severity-info: #06b6d4;
+  --severity-info: #22d3ee;
 
-  /* Sidebar */
-  --sidebar-width: 220px;
+  /* Layout */
+  --sidebar-width: 240px;
+  --sidebar-gap: 16px;
 
-  /* Typography */
+  /* Type */
   --font-main: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 
-  /* Shadows */
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.6);
-  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.4);
+  /* ---------- Liquid Glass tokens ---------- */
+  --lg-tint: rgba(255, 255, 255, 0.05);
+  --lg-tint-strong: rgba(255, 255, 255, 0.09);
+  --lg-tint-hot: rgba(255, 255, 255, 0.14);
+  --lg-stroke: rgba(255, 255, 255, 0.10);
+  --lg-stroke-hot: rgba(255, 255, 255, 0.22);
+  --lg-inner: inset 0 1px 0 rgba(255, 255, 255, 0.14),
+              inset 0 -1px 0 rgba(0, 0, 0, 0.45);
+  --lg-inner-strong: inset 0 1px 0 rgba(255, 255, 255, 0.22),
+                     inset 0 -1px 0 rgba(0, 0, 0, 0.55),
+                     inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --lg-shadow: 0 10px 30px rgba(3, 6, 16, 0.5),
+               0 2px 6px rgba(0, 0, 0, 0.45);
+  --lg-shadow-xl: 0 28px 80px rgba(3, 6, 16, 0.65),
+                  0 4px 12px rgba(0, 0, 0, 0.55);
+
+  /* Ambient halos */
+  --halo-cyan: radial-gradient(circle at 30% 20%, rgba(34, 211, 238, 0.35), transparent 55%);
+  --halo-purple: radial-gradient(circle at 80% 80%, rgba(167, 139, 250, 0.35), transparent 55%);
 }
 
 /* ============================================================
-   Reset & Base
+   Reset & base
    ============================================================ */
 
 *, *::before, *::after {
@@ -68,78 +83,137 @@ html {
 
 body {
   font-family: var(--font-main);
-  background: var(--bg);
   color: var(--text-primary);
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   min-height: 100vh;
+  position: relative;
+  overflow-x: hidden;
+
+  /* Deep aurora mesh — the stage for all glass */
+  background-color: #05070d;
+  background-image:
+    radial-gradient(1100px 800px at 15% -10%, rgba(34, 211, 238, 0.18), transparent 60%),
+    radial-gradient(900px 700px at 90% 10%, rgba(167, 139, 250, 0.18), transparent 55%),
+    radial-gradient(900px 800px at 70% 120%, rgba(16, 185, 129, 0.12), transparent 60%),
+    radial-gradient(700px 600px at -10% 90%, rgba(244, 114, 182, 0.10), transparent 60%);
+  background-attachment: fixed;
+}
+
+/* Slow drifting aurora sheet above the static mesh */
+body::before {
+  content: '';
+  position: fixed;
+  inset: -20%;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(40rem 40rem at 20% 30%, rgba(34, 211, 238, 0.12), transparent 60%),
+    radial-gradient(36rem 36rem at 80% 70%, rgba(167, 139, 250, 0.12), transparent 60%);
+  filter: blur(40px);
+  animation: aurora-drift 28s ease-in-out infinite alternate;
+}
+
+/* Film grain layer — adds the subtle "paper" feel like 21st.dev */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.04;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.7 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  background-size: 160px 160px;
 }
 
 #root {
+  position: relative;
   min-height: 100vh;
   display: flex;
+  z-index: 1;
 }
 
 /* ============================================================
-   Scrollbars — thin, dark, tasteful
+   Scrollbars — thin, translucent, rounded
    ============================================================ */
 
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 10px;
+  height: 10px;
 }
-
 ::-webkit-scrollbar-track {
   background: transparent;
 }
-
 ::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
 }
-
 ::-webkit-scrollbar-thumb:hover {
-  background: #2d3a52;
+  background: rgba(255, 255, 255, 0.18);
+  background-clip: padding-box;
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
 }
 
-/* ============================================================
-   Focus Rings — clean, accessible
-   ============================================================ */
-
+/* Focus ring — bright, accessible */
 :focus-visible {
-  outline: 2px solid var(--accent-cyan);
+  outline: 2px solid rgba(34, 211, 238, 0.75);
   outline-offset: 2px;
-  border-radius: 4px;
+  border-radius: 8px;
+}
+
+::selection {
+  background: rgba(34, 211, 238, 0.35);
+  color: #f8fbff;
 }
 
 /* ============================================================
-   Sidebar Layout
+   App layout — floating sidebar island
    ============================================================ */
 
 .app-layout {
   display: flex;
   min-height: 100vh;
   width: 100%;
+  position: relative;
 }
 
 .sidebar {
   position: fixed;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: var(--sidebar-width);
+  left: var(--sidebar-gap);
+  top: var(--sidebar-gap);
+  bottom: var(--sidebar-gap);
+  width: calc(var(--sidebar-width) - var(--sidebar-gap));
   z-index: 40;
   display: flex;
   flex-direction: column;
-  background: var(--surface);
-  border-right: 1px solid var(--border);
   overflow: hidden;
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--lg-stroke);
+  box-shadow: var(--lg-shadow-xl), var(--lg-inner);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+}
+
+/* specular highlight that slowly pans across the sidebar */
+.sidebar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 60% at 30% -10%, rgba(255, 255, 255, 0.18), transparent 60%),
+    radial-gradient(80% 50% at 50% 110%, rgba(34, 211, 238, 0.10), transparent 60%);
+  mix-blend-mode: screen;
+  opacity: 0.9;
 }
 
 .main-area {
@@ -147,147 +221,343 @@ body {
   flex: 1;
   min-width: 0;
   overflow-x: hidden;
+  padding: 28px 28px 64px;
+}
+
+@media (max-width: 768px) {
+  .sidebar { display: none; }
+  .main-area { margin-left: 0; padding: 16px 16px 48px; }
 }
 
 /* ============================================================
-   Severity Badge Classes
+   Liquid Glass utilities — the core visual language
    ============================================================ */
 
 @layer components {
+
+  /* The primary glass surface */
+  .lg-surface {
+    position: relative;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02)),
+      rgba(8, 12, 22, 0.55);
+    border: 1px solid var(--lg-stroke);
+    box-shadow: var(--lg-shadow), var(--lg-inner);
+    backdrop-filter: blur(22px) saturate(175%);
+    -webkit-backdrop-filter: blur(22px) saturate(175%);
+    border-radius: 20px;
+    overflow: hidden;
+  }
+
+  /* Stronger, floating hero-class glass */
+  .lg-surface-hero {
+    position: relative;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.02)),
+      rgba(10, 14, 26, 0.55);
+    border: 1px solid var(--lg-stroke-hot);
+    box-shadow: var(--lg-shadow-xl), var(--lg-inner-strong);
+    backdrop-filter: blur(30px) saturate(180%);
+    -webkit-backdrop-filter: blur(30px) saturate(180%);
+    border-radius: 28px;
+    overflow: hidden;
+  }
+
+  /* Automatic highlight sheen at top edge — "Liquid Glass" specular */
+  .lg-surface::before,
+  .lg-surface-hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(120% 70% at 30% -20%, rgba(255, 255, 255, 0.22), transparent 55%);
+    mix-blend-mode: screen;
+    opacity: 0.85;
+  }
+
+  /* Subtle colored halo under the surface (optional add alongside lg-surface) */
+  .lg-halo-cyan::after {
+    content: '';
+    position: absolute;
+    inset: -30%;
+    pointer-events: none;
+    background: radial-gradient(circle at 30% 30%, rgba(34, 211, 238, 0.22), transparent 55%);
+    filter: blur(40px);
+    z-index: -1;
+  }
+  .lg-halo-purple::after {
+    content: '';
+    position: absolute;
+    inset: -30%;
+    pointer-events: none;
+    background: radial-gradient(circle at 70% 70%, rgba(167, 139, 250, 0.22), transparent 55%);
+    filter: blur(40px);
+    z-index: -1;
+  }
+
+  /* Interactive hover-lift for cards */
+  .lg-hover {
+    transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
+                box-shadow 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
+                border-color 240ms ease;
+  }
+  .lg-hover:hover {
+    transform: translateY(-3px);
+    border-color: var(--lg-stroke-hot);
+    box-shadow: var(--lg-shadow-xl),
+                var(--lg-inner-strong),
+                0 0 0 1px rgba(34, 211, 238, 0.25),
+                0 0 40px rgba(34, 211, 238, 0.15);
+  }
+
+  /* Liquid pill — used for nav items, filters, chips */
+  .lg-pill {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.9rem;
+    border-radius: 999px;
+    background: var(--lg-tint);
+    border: 1px solid var(--lg-stroke);
+    box-shadow: var(--lg-inner);
+    backdrop-filter: blur(16px) saturate(180%);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 500;
+    transition: all 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .lg-pill:hover {
+    background: var(--lg-tint-strong);
+    border-color: var(--lg-stroke-hot);
+    color: var(--text-primary);
+  }
+  .lg-pill[data-active="true"] {
+    background: linear-gradient(180deg, rgba(34, 211, 238, 0.18), rgba(34, 211, 238, 0.06));
+    border-color: rgba(34, 211, 238, 0.45);
+    color: #b8f0fb;
+    box-shadow: var(--lg-inner), 0 0 24px rgba(34, 211, 238, 0.25);
+  }
+
+  /* Liquid primary button — with animated sheen */
+  .lg-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.7rem 1.35rem;
+    border-radius: 14px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: #f8fbff;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.04)),
+      linear-gradient(135deg, rgba(34, 211, 238, 0.55), rgba(167, 139, 250, 0.55));
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    box-shadow: var(--lg-inner-strong),
+                0 10px 30px rgba(34, 211, 238, 0.20),
+                0 2px 6px rgba(0, 0, 0, 0.40);
+    backdrop-filter: blur(14px) saturate(180%);
+    -webkit-backdrop-filter: blur(14px) saturate(180%);
+    transition: transform 180ms ease, box-shadow 220ms ease;
+    overflow: hidden;
+    isolation: isolate;
+  }
+  .lg-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--lg-inner-strong),
+                0 16px 44px rgba(34, 211, 238, 0.30),
+                0 4px 10px rgba(0, 0, 0, 0.45);
+  }
+  .lg-btn:active { transform: translateY(0); }
+  .lg-btn::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(120deg,
+                  transparent 0%,
+                  rgba(255, 255, 255, 0.30) 45%,
+                  rgba(255, 255, 255, 0.12) 55%,
+                  transparent 100%);
+    transform: translateX(-120%);
+    mix-blend-mode: overlay;
+    pointer-events: none;
+  }
+  .lg-btn:hover::after { animation: shine-sweep 1200ms ease forwards; }
+
+  /* Ghost (secondary) liquid button */
+  .lg-btn-ghost {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.6rem 1.1rem;
+    border-radius: 12px;
+    font-weight: 500;
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    background: var(--lg-tint);
+    border: 1px solid var(--lg-stroke);
+    box-shadow: var(--lg-inner);
+    backdrop-filter: blur(14px) saturate(180%);
+    -webkit-backdrop-filter: blur(14px) saturate(180%);
+    transition: all 180ms ease;
+  }
+  .lg-btn-ghost:hover {
+    background: var(--lg-tint-strong);
+    border-color: var(--lg-stroke-hot);
+  }
+
+  /* Liquid input */
+  .lg-input {
+    width: 100%;
+    background: rgba(10, 13, 22, 0.55);
+    border: 1px solid var(--lg-stroke);
+    border-radius: 12px;
+    padding: 0.75rem 1rem;
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    backdrop-filter: blur(14px) saturate(180%);
+    -webkit-backdrop-filter: blur(14px) saturate(180%);
+    box-shadow: var(--lg-inner);
+    outline: none;
+    transition: border-color 180ms ease, box-shadow 180ms ease;
+  }
+  .lg-input:focus {
+    border-color: rgba(34, 211, 238, 0.6);
+    box-shadow: var(--lg-inner), 0 0 0 3px rgba(34, 211, 238, 0.18);
+  }
+  .lg-input::placeholder { color: var(--text-muted); }
+
+  /* Frosted divider */
+  .lg-divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--lg-stroke-hot), transparent);
+  }
+
+  /* Gradient accent border (conic ring) — pair with inner content that has its own bg */
+  .lg-ring {
+    position: relative;
+    border-radius: 20px;
+    background: conic-gradient(from 180deg at 50% 50%,
+                  rgba(34, 211, 238, 0.4),
+                  rgba(167, 139, 250, 0.4),
+                  rgba(16, 185, 129, 0.4),
+                  rgba(34, 211, 238, 0.4));
+    padding: 1px;
+    animation: ring-spin 12s linear infinite;
+  }
+  .lg-ring > * {
+    border-radius: inherit;
+  }
+
+  /* Gradient text (21st.dev-style hero type) */
+  .lg-gradient-text {
+    background: linear-gradient(135deg, #f8fbff 0%, #a8b4d6 45%, #dcd3ff 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    letter-spacing: -0.02em;
+  }
+  .lg-gradient-text-cyan {
+    background: linear-gradient(135deg, #e8faff 0%, #67e8f9 50%, #c4b5fd 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* ---------- Severity / status badges (kept API) ---------- */
+
   .badge-severity {
-    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono font-semibold uppercase tracking-wider border;
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold uppercase tracking-wider border backdrop-blur-sm;
   }
+  .badge-critical { @apply bg-red-500/15    text-red-300    border-red-500/40; }
+  .badge-high     { @apply bg-orange-500/15 text-orange-300 border-orange-500/40; }
+  .badge-medium   { @apply bg-yellow-500/15 text-yellow-300 border-yellow-500/40; }
+  .badge-low      { @apply bg-blue-500/15   text-blue-300   border-blue-500/40; }
+  .badge-info     { @apply bg-cyan-500/15   text-cyan-300   border-cyan-500/40; }
 
-  .badge-critical {
-    @apply bg-red-500/10 text-red-400 border-red-500/30;
-  }
-
-  .badge-high {
-    @apply bg-orange-500/10 text-orange-400 border-orange-500/30;
-  }
-
-  .badge-medium {
-    @apply bg-yellow-500/10 text-yellow-400 border-yellow-500/30;
-  }
-
-  .badge-low {
-    @apply bg-blue-500/10 text-blue-400 border-blue-500/30;
-  }
-
-  .badge-info {
-    @apply bg-cyan-500/10 text-cyan-400 border-cyan-500/30;
-  }
-
-  /* Status Pills */
   .status-pill {
-    @apply inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium border;
+    @apply inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium border backdrop-blur-sm;
   }
+  .status-running   { @apply bg-cyan-500/15    text-cyan-300    border-cyan-500/35; }
+  .status-active    { @apply bg-cyan-500/15    text-cyan-300    border-cyan-500/35; }
+  .status-completed { @apply bg-emerald-500/15 text-emerald-300 border-emerald-500/35; }
+  .status-failed    { @apply bg-red-500/15     text-red-300     border-red-500/35; }
+  .status-pending   { @apply bg-slate-500/15   text-slate-300   border-slate-500/35; }
 
-  .status-running {
-    @apply bg-cyan-500/10 text-cyan-400 border-cyan-500/25;
-  }
+  .status-dot             { @apply w-1.5 h-1.5 rounded-full flex-shrink-0; }
+  .status-dot-running     { @apply bg-cyan-400 animate-pulse; }
+  .status-dot-completed   { @apply bg-emerald-400; }
+  .status-dot-failed      { @apply bg-red-400; }
+  .status-dot-pending     { @apply bg-slate-500; }
 
-  .status-active {
-    @apply bg-cyan-500/10 text-cyan-400 border-cyan-500/25;
-  }
-
-  .status-completed {
-    @apply bg-emerald-500/10 text-emerald-400 border-emerald-500/25;
-  }
-
-  .status-failed {
-    @apply bg-red-500/10 text-red-400 border-red-500/25;
-  }
-
-  .status-pending {
-    @apply bg-slate-500/10 text-slate-400 border-slate-500/25;
-  }
-
-  /* Status dot */
-  .status-dot {
-    @apply w-1.5 h-1.5 rounded-full flex-shrink-0;
-  }
-
-  .status-dot-running {
-    @apply bg-cyan-400 animate-pulse;
-  }
-
-  .status-dot-completed {
-    @apply bg-emerald-400;
-  }
-
-  .status-dot-failed {
-    @apply bg-red-400;
-  }
-
-  .status-dot-pending {
-    @apply bg-slate-500;
-  }
-
-  /* Glass card effect */
+  /* Backwards compatible alias for older code that used .glass */
   .glass {
-    @apply bg-white/[0.03] backdrop-blur-md border border-white/[0.07];
+    @apply bg-white/[0.05] backdrop-blur-md border border-white/[0.10];
   }
 
-  /* Card surface */
+  /* Card surface — legacy naming, now resolves to the liquid glass look */
   .card-surface {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 10px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.01)),
+                rgba(10, 14, 26, 0.50);
+    border: 1px solid var(--lg-stroke);
+    box-shadow: var(--lg-shadow), var(--lg-inner);
+    border-radius: 16px;
+    backdrop-filter: blur(22px) saturate(175%);
+    -webkit-backdrop-filter: blur(22px) saturate(175%);
   }
 
-  /* Input base */
+  /* Legacy .input-base — mapped to .lg-input look */
   .input-base {
-    @apply w-full bg-[#0d1117] border border-[#1e2535] rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted/60 outline-none transition-colors;
-    @apply focus:border-accent-cyan focus:ring-1 focus:ring-cyan-500/30;
+    @apply w-full rounded-xl px-3 py-2 text-sm text-text-primary outline-none transition-colors;
+    background: rgba(10, 13, 22, 0.55);
+    border: 1px solid var(--lg-stroke);
+    box-shadow: var(--lg-inner);
+    backdrop-filter: blur(14px) saturate(180%);
+    -webkit-backdrop-filter: blur(14px) saturate(180%);
   }
+  .input-base:focus {
+    border-color: rgba(34, 211, 238, 0.6);
+    box-shadow: var(--lg-inner), 0 0 0 3px rgba(34, 211, 238, 0.18);
+  }
+  .input-base::placeholder { color: var(--text-muted); }
 }
 
 /* ============================================================
-   Code / Terminal Block Styling
+   Code / terminal blocks
    ============================================================ */
 
 .terminal-block {
-  background: #070a0f;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  background: rgba(4, 7, 14, 0.8);
+  border: 1px solid var(--lg-stroke);
+  border-radius: 12px;
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.7;
-  color: #a5d6a7;
+  color: #a5f3d1;
   padding: 16px;
   overflow-x: auto;
   white-space: pre-wrap;
   word-break: break-all;
+  backdrop-filter: blur(10px);
 }
 
-.terminal-block .cmd {
-  color: var(--accent-cyan);
-}
-
-.terminal-block .cmd::before {
-  content: '$ ';
-  color: var(--accent-green);
-}
-
-.terminal-block .err {
-  color: var(--accent-red);
-}
-
-.terminal-block .warn {
-  color: var(--accent-yellow);
-}
-
-.terminal-block .info-line {
-  color: var(--accent-cyan);
-}
+.terminal-block .cmd { color: var(--accent-cyan); }
+.terminal-block .cmd::before { content: '$ '; color: var(--accent-green); }
+.terminal-block .err { color: var(--accent-red); }
+.terminal-block .warn { color: var(--accent-yellow); }
+.terminal-block .info-line { color: var(--accent-cyan); }
 
 code {
   font-family: var(--font-mono);
   font-size: 0.875em;
-  background: #0d1117;
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--lg-stroke);
+  border-radius: 6px;
   padding: 1px 6px;
   color: var(--accent-cyan);
 }
@@ -302,89 +572,121 @@ pre code {
 pre {
   font-family: var(--font-mono);
   font-size: 12px;
-  background: #070a0f;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  background: rgba(4, 7, 14, 0.8);
+  border: 1px solid var(--lg-stroke);
+  border-radius: 12px;
   padding: 14px;
   overflow-x: auto;
   white-space: pre-wrap;
-  color: #a5d6a7;
+  color: #a5f3d1;
   line-height: 1.7;
+  backdrop-filter: blur(10px);
 }
 
 /* ============================================================
-   Animation Keyframes
+   Animation keyframes
    ============================================================ */
 
 @keyframes fadeIn {
   from { opacity: 0; }
   to   { opacity: 1; }
 }
-
 @keyframes slideInLeft {
   from { opacity: 0; transform: translateX(-12px); }
   to   { opacity: 1; transform: translateX(0); }
 }
-
 @keyframes slideInRight {
   from { opacity: 0; transform: translateX(12px); }
   to   { opacity: 1; transform: translateX(0); }
 }
-
 @keyframes slideUp {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-
 @keyframes shimmer {
   0%   { background-position: -200% 0; }
   100% { background-position: 200% 0; }
 }
-
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
-
 @keyframes pulse-ring {
   0%   { transform: scale(1);   opacity: 0.6; }
   100% { transform: scale(1.7); opacity: 0; }
 }
 
-.animate-fade-in     { animation: fadeIn 0.2s ease-out; }
-.animate-slide-left  { animation: slideInLeft 0.25s ease-out; }
-.animate-slide-right { animation: slideInRight 0.25s ease-out; }
-.animate-slide-up    { animation: slideUp 0.2s ease-out; }
+/* New — 21st.dev / Liquid glass specific */
+@keyframes aurora-drift {
+  0%   { transform: translate3d(0, 0, 0) rotate(0deg); }
+  50%  { transform: translate3d(-4%, 2%, 0) rotate(8deg); }
+  100% { transform: translate3d(3%, -3%, 0) rotate(-6deg); }
+}
+
+@keyframes shine-sweep {
+  to { transform: translateX(120%); }
+}
+
+@keyframes ring-spin {
+  to { transform: rotate(1turn); }
+}
+
+@keyframes float-soft {
+  0%, 100% { transform: translateY(0) translateX(0); }
+  50%      { transform: translateY(-8px) translateX(4px); }
+}
+
+@keyframes gradient-pan {
+  0%   { background-position:   0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position:   0% 50%; }
+}
+
+.animate-fade-in     { animation: fadeIn 0.25s ease-out; }
+.animate-slide-left  { animation: slideInLeft 0.28s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.animate-slide-right { animation: slideInRight 0.28s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.animate-slide-up    { animation: slideUp 0.25s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.animate-float-soft  { animation: float-soft 8s ease-in-out infinite; }
+.animate-gradient    {
+  background-size: 200% 200%;
+  animation: gradient-pan 12s ease infinite;
+}
 
 /* Spinner */
 .spinner {
   width: 18px;
   height: 18px;
-  border: 2px solid var(--border);
+  border: 2px solid rgba(255, 255, 255, 0.12);
   border-top-color: var(--accent-cyan);
   border-radius: 50%;
-  animation: spin 0.65s linear infinite;
+  animation: spin 0.7s linear infinite;
 }
 
 /* Shimmer skeleton */
 .skeleton {
   background: linear-gradient(
     90deg,
-    var(--card) 25%,
-    #1e2535 50%,
-    var(--card) 75%
+    rgba(255, 255, 255, 0.04) 25%,
+    rgba(255, 255, 255, 0.10) 50%,
+    rgba(255, 255, 255, 0.04) 75%
   );
   background-size: 200% 100%;
   animation: shimmer 2s linear infinite;
-  border-radius: 6px;
+  border-radius: 10px;
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  body::before { animation: none; }
+  .animate-float-soft,
+  .animate-gradient,
+  .lg-ring { animation: none !important; }
 }
 
 /* ============================================================
    Typography helpers
    ============================================================ */
 
-.mono {
-  font-family: var(--font-mono);
-}
+.mono { font-family: var(--font-mono); }
 
 .text-gradient-cyan {
   background: linear-gradient(135deg, var(--accent-cyan), var(--accent-green));
@@ -394,7 +696,7 @@ pre {
 }
 
 /* ============================================================
-   Finding / Vuln card border accents
+   Finding / vuln card accents
    ============================================================ */
 
 .finding-critical { border-left: 3px solid var(--severity-critical); }
@@ -404,7 +706,7 @@ pre {
 .finding-info     { border-left: 3px solid var(--severity-info); }
 
 /* ============================================================
-   Prose / Markdown resets inside dark cards
+   Prose / markdown inside glass panels
    ============================================================ */
 
 .prose-dark {
@@ -412,38 +714,30 @@ pre {
   font-size: 13px;
   line-height: 1.7;
 }
-
 .prose-dark h1, .prose-dark h2, .prose-dark h3 {
   color: var(--text-primary);
   font-weight: 600;
   margin-top: 1rem;
   margin-bottom: 0.4rem;
 }
-
-.prose-dark p {
-  margin-bottom: 0.6rem;
-}
-
-.prose-dark ul, .prose-dark ol {
-  padding-left: 1.2rem;
-  margin-bottom: 0.6rem;
-}
-
-.prose-dark li {
-  margin-bottom: 0.2rem;
-}
-
-.prose-dark code {
-  font-size: 11px;
-}
-
+.prose-dark p  { margin-bottom: 0.6rem; }
+.prose-dark ul, .prose-dark ol { padding-left: 1.2rem; margin-bottom: 0.6rem; }
+.prose-dark li { margin-bottom: 0.2rem; }
+.prose-dark code { font-size: 11px; }
 .prose-dark a {
   color: var(--accent-cyan);
   text-decoration: underline;
   text-decoration-color: transparent;
   transition: text-decoration-color 0.15s;
 }
+.prose-dark a:hover { text-decoration-color: var(--accent-cyan); }
 
-.prose-dark a:hover {
-  text-decoration-color: var(--accent-cyan);
+/* ============================================================
+   CTA breathe — slow ambient glow loop
+   ============================================================ */
+
+@keyframes cta-breathe {
+  0%, 100% { box-shadow: 0 10px 28px rgba(34, 211, 238, 0.25), 0 0 0 rgba(34, 211, 238, 0.0); }
+  50%      { box-shadow: 0 14px 40px rgba(34, 211, 238, 0.35), 0 0 18px rgba(34, 211, 238, 0.25); }
 }
+.cta-breathe { animation: cta-breathe 4s ease-in-out infinite; }
