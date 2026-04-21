@@ -59,13 +59,15 @@ func brainFromSnapshotState(state map[string]any) (Brain, error) {
 
 func buildBrainSnapshotSummary(brain *Brain) map[string]any {
 	summary := map[string]any{
-		"lead_count":      0,
-		"finding_count":   0,
-		"exclusion_count": 0,
-		"auth_present":    false,
-		"graph_nodes":     0,
-		"graph_edges":     0,
-		"proof_classes":   map[string]int{},
+		"lead_count":          0,
+		"finding_count":       0,
+		"hallucination_count": 0,
+		"defence_count":       0,
+		"exclusion_count":     0,
+		"auth_present":        false,
+		"graph_nodes":         0,
+		"graph_edges":         0,
+		"proof_classes":       map[string]int{},
 	}
 	if brain == nil {
 		return summary
@@ -73,6 +75,8 @@ func buildBrainSnapshotSummary(brain *Brain) map[string]any {
 
 	summary["lead_count"] = len(brain.Leads)
 	summary["finding_count"] = len(brain.Findings)
+	summary["hallucination_count"] = len(brain.HallucinationBin)
+	summary["defence_count"] = len(brain.KnownDefences)
 	summary["exclusion_count"] = len(brain.Exclusions)
 	if strings.TrimSpace(brain.PivotContext) != "" {
 		summary["pivot_present"] = true
