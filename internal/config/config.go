@@ -24,6 +24,7 @@ type Config struct {
 	OpenAIAPIKey      string // Optional fallback: raw API key
 	OpenAIModel       string
 	OpenAITemperature float64
+	LLMProxyURL       string // If set, forward Codex requests through this proxy (e.g. http://localhost:8765)
 
 	// Auth
 	JWTSecret     string
@@ -54,6 +55,7 @@ func Load() (*Config, error) {
 		OpenAIAPIKey:      getEnv("OPENAI_API_KEY", ""),
 		OpenAIModel:       getEnv("OPENAI_MODEL", "gpt-4o"),
 		OpenAITemperature: temp,
+		LLMProxyURL:       getEnv("LLM_PROXY_URL", ""),
 		JWTSecret:         getEnv("JWT_SECRET", ""),
 		AuthRequired:      strings.EqualFold(getEnv("AUTH_REQUIRED", "false"), "true"),
 		WebhookSecret:     getEnv("WEBHOOK_SECRET", ""),

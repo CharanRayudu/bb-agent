@@ -112,7 +112,12 @@ func New(cfg *config.Config, db *sql.DB) *Server {
 	var sharedProvider llm.Provider
 	codexAuth := llm.NewCodexTokenProvider(cfg.CodexHome)
 	if codexAuth.IsAvailable() {
-		sharedProvider = llm.NewOpenAIProviderWithCodex(codexAuth, cfg.OpenAIModel, cfg.OpenAITemperature)
+		p := llm.NewOpenAIProviderWithCodex(codexAuth, cfg.OpenAIModel, cfg.OpenAITemperature)
+		if cfg.LLMProxyURL != "" {
+			p.SetProxyURL(cfg.LLMProxyURL)
+			log.Printf("[proxy] LLM requests will be forwarded via %s", cfg.LLMProxyURL)
+		}
+		sharedProvider = p
 	} else if cfg.OpenAIAPIKey != "" {
 		sharedProvider = llm.NewOpenAIProvider(cfg.OpenAIAPIKey, cfg.OpenAIModel, cfg.OpenAITemperature)
 	}
@@ -806,7 +811,11 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 	codexAuth := llm.NewCodexTokenProvider(s.cfg.CodexHome)
 	if codexAuth.IsAvailable() {
 		log.Println("[AUTH] Using Codex CLI OAuth for LLM authentication")
-		provider = llm.NewOpenAIProviderWithCodex(codexAuth, model, s.cfg.OpenAITemperature)
+		p := llm.NewOpenAIProviderWithCodex(codexAuth, model, s.cfg.OpenAITemperature)
+		if s.cfg.LLMProxyURL != "" {
+			p.SetProxyURL(s.cfg.LLMProxyURL)
+		}
+		provider = p
 	} else if s.cfg.OpenAIAPIKey != "" {
 		log.Println("[KEY] Using OpenAI API key for LLM authentication")
 		provider = llm.NewOpenAIProvider(s.cfg.OpenAIAPIKey, model, s.cfg.OpenAITemperature)

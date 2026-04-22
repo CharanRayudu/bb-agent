@@ -39,6 +39,7 @@ type OpenAIProvider struct {
 	model       string
 	temperature float64
 	httpClient  *http.Client
+	proxyURL    string // if set, Codex requests are forwarded through this proxy
 }
 
 // NewOpenAIProvider creates a provider using a raw API key
@@ -63,6 +64,13 @@ func NewOpenAIProviderWithCodex(codexAuth *CodexTokenProvider, model string, tem
 	}
 }
 
+// SetProxyURL configures a local proxy for Codex requests.
+// When set, requests are forwarded to the proxy which adds the auth header
+// and forwards to chatgpt.com — used when the server IP is not on OpenAI's allowlist.
+func (o *OpenAIProvider) SetProxyURL(proxyURL string) {
+	o.proxyURL = proxyURL
+}
+
 func (o *OpenAIProvider) Name() string {
 	if o.authMode == AuthModeCodexOAuth {
 		return "openai (codex oauth)"
@@ -85,6 +93,9 @@ func (o *OpenAIProvider) getAuthToken() (string, error) {
 // Complete sends a request to the appropriate API endpoint
 func (o *OpenAIProvider) Complete(ctx context.Context, req CompletionRequest) (*CompletionResponse, error) {
 	if o.authMode == AuthModeCodexOAuth {
+		if o.proxyURL != "" {
+			return o.completeViaProxy(ctx, req)
+		}
 		return o.completeViaCodexResponses(ctx, req)
 	}
 	return o.completeViaChatCompletions(ctx, req)
@@ -278,6 +289,95 @@ func (o *OpenAIProvider) completeViaCodexResponses(ctx context.Context, req Comp
 	}
 
 	// Parse SSE streaming response
+	return o.parseCodexSSEResponse(ctx, resp.Body)
+}
+
+// completeViaProxy forwards the Codex Responses API request to a local proxy
+// (mirage-proxy.py running on the user's machine via SSH reverse tunnel).
+// The proxy adds the Codex auth header and forwards to chatgpt.com.
+func (o *OpenAIProvider) completeViaProxy(ctx context.Context, req CompletionRequest) (*CompletionResponse, error) {
+	// Build the same payload as completeViaCodexResponses
+	var input []responsesMessage
+	var instructions string
+	for _, m := range req.Messages {
+		if m.Role == "system" || m.Role == "developer" {
+			instructions = m.Content
+			continue
+		}
+		if m.Role == "tool" {
+			input = append(input, responsesMessage{
+				Type:   "function_call_output",
+				CallID: m.ToolCallID,
+				Output: m.Content,
+			})
+		} else {
+			role := m.Role
+			if role == "system" {
+				role = "developer"
+			}
+			input = append(input, responsesMessage{
+				Role:    role,
+				Content: &m.Content,
+			})
+			for _, tc := range m.ToolCalls {
+				input = append(input, responsesMessage{
+					Type:      "function_call",
+					CallID:    tc.ID,
+					Name:      tc.Name,
+					Arguments: tc.Arguments,
+				})
+			}
+		}
+	}
+
+	var tools []responsesTool
+	for _, t := range req.Tools {
+		tools = append(tools, responsesTool{
+			Type:        "function",
+			Name:        t.Name,
+			Description: t.Description,
+			Parameters:  t.Parameters,
+		})
+	}
+
+	model := req.Model
+	if model == "" {
+		model = o.model
+	}
+
+	apiReq := responsesRequest{
+		Model:        model,
+		Instructions: instructions,
+		Input:        input,
+		Tools:        tools,
+		Stream:       true,
+	}
+
+	body, err := json.Marshal(apiReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal proxy request: %w", err)
+	}
+
+	log.Printf("[API] Forwarding Codex request via proxy (%s → %s)...", model, o.proxyURL)
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", o.proxyURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create proxy request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "text/event-stream")
+
+	resp, err := o.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to reach LLM proxy at %s: %w\nIs the proxy running and the SSH tunnel open?", o.proxyURL, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("LLM proxy error (HTTP %d): %s", resp.StatusCode, string(respBody))
+	}
+
 	return o.parseCodexSSEResponse(ctx, resp.Body)
 }
 
