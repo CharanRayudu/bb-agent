@@ -196,6 +196,12 @@ type Orchestrator struct {
 	// Pause/Resume support
 	pausedFlows map[uuid.UUID]context.CancelFunc
 	pauseMu     sync.RWMutex
+
+	// APTS Domain 3/4: Autonomy level and approval gates
+	autonomyLevel  AutonomyLevel
+	autonomyPolicy APTSAutonomyPolicy
+	approvalGates  map[uuid.UUID]*APTSApprovalGate
+	approvalGateMu sync.RWMutex
 }
 
 func buildSpecialists(provider llm.Provider) map[string]Specialist {
@@ -463,6 +469,9 @@ func NewOrchestrator(provider llm.Provider, registry *tools.Registry, db *sql.DB
 		strategist:       NewWAFStrategist(),
 		workers:          make(map[string]*Worker),
 		pausedFlows:      make(map[uuid.UUID]context.CancelFunc),
+		autonomyLevel:    AutonomyDefault,
+		autonomyPolicy:   GetAutonomyPolicy(AutonomyDefault),
+		approvalGates:    make(map[uuid.UUID]*APTSApprovalGate),
 		hypothesisEngine: NewHypothesisEngine(provider, ""),
 		knowledgeGraph:   knowledge.NewInMemoryGraph(),
 		payloadEngine:    NewPayloadEngine(provider),
@@ -641,6 +650,45 @@ func (o *Orchestrator) UnregisterFlowCancel(flowID uuid.UUID) {
 	o.pauseMu.Lock()
 	defer o.pauseMu.Unlock()
 	delete(o.pausedFlows, flowID)
+}
+
+// SetAutonomyLevel configures the APTS autonomy level for this orchestrator instance.
+func (o *Orchestrator) SetAutonomyLevel(level AutonomyLevel) {
+	o.autonomyLevel = level
+	o.autonomyPolicy = GetAutonomyPolicy(level)
+}
+
+// RegisterApprovalGate creates an APTS L2 approval gate for a flow's exploitation phase.
+func (o *Orchestrator) RegisterApprovalGate(flowID uuid.UUID) *APTSApprovalGate {
+	gate := NewAPTSApprovalGate()
+	o.approvalGateMu.Lock()
+	o.approvalGates[flowID] = gate
+	o.approvalGateMu.Unlock()
+	return gate
+}
+
+// ApproveExploitation unblocks an L2 exploitation gate. Returns false if no gate exists.
+func (o *Orchestrator) ApproveExploitation(flowID uuid.UUID) bool {
+	o.approvalGateMu.RLock()
+	gate, ok := o.approvalGates[flowID]
+	o.approvalGateMu.RUnlock()
+	if !ok {
+		return false
+	}
+	gate.Approve()
+	return true
+}
+
+// DenyExploitation rejects an L2 exploitation gate. Returns false if no gate exists.
+func (o *Orchestrator) DenyExploitation(flowID uuid.UUID) bool {
+	o.approvalGateMu.RLock()
+	gate, ok := o.approvalGates[flowID]
+	o.approvalGateMu.RUnlock()
+	if !ok {
+		return false
+	}
+	gate.Deny()
+	return true
 }
 
 // RunFlow executes a complete penetration testing flow using concurrent agents
@@ -948,6 +996,23 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		rem := RemediationFor(finding.Type)
 		finding.Evidence["remediation_summary"] = rem.Summary
 		finding.Evidence["remediation_priority"] = rem.Priority
+
+		// ── OWASP APTS compliance ─────────────────────────────────────────
+		// RP-003: Compute composite confidence score (0-100)
+		aptsScore := CalculateAPTSConfidence(finding, DefaultPlatformTPRates)
+		finding.APTSScore = aptsScore.Total
+		finding.ConfirmationStatus = aptsScore.ConfirmationStatus
+		finding.Evidence["apts_score"] = aptsScore.Total
+		finding.Evidence["apts_confirmation"] = aptsScore.ConfirmationStatus
+		finding.Evidence["apts_score_breakdown"] = aptsScore
+		// AR: SHA-256 integrity hash for tamper-evident evidence binding
+		finding.EvidenceHash = ComputeEvidenceHash(finding)
+		finding.Evidence["evidence_hash"] = finding.EvidenceHash
+		// MR: Check for manipulation in the finding's payload/evidence
+		if check := CheckToolArguments("report_findings", finding.Payload); check.Blocked {
+			finding.Evidence["apts_mr_flag"] = check.Reason
+		}
+
 		brain.Findings = append(brain.Findings, finding)
 		updateFindingAttackGraph(&brain, flow.Target, finding)
 		brainMu.Unlock()

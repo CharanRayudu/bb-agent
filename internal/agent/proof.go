@@ -15,6 +15,14 @@ const (
 	proofClassOOB             proofClass = "oob"
 )
 
+// Exported aliases for APTS compliance files in the same package.
+const (
+	ProofOOB             = proofClassOOB
+	ProofRequestResponse = proofClassRequestResponse
+	ProofBrowser         = proofClassBrowser
+	ProofTiming          = proofClassTiming
+)
+
 func classifyFindingProof(f *Finding) (proofClass, string) {
 	if f == nil {
 		return proofClassNone, "finding is nil"

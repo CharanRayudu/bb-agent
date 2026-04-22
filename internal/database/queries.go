@@ -22,21 +22,25 @@ func NewQueries(db *sql.DB) *Queries {
 
 // ============ Flows ============
 
-func (q *Queries) CreateFlow(name, description, target string) (*models.Flow, error) {
+func (q *Queries) CreateFlow(name, description, target, autonomyLevel string) (*models.Flow, error) {
+	if autonomyLevel == "" {
+		autonomyLevel = "L3"
+	}
 	flow := &models.Flow{
-		ID:          uuid.New(),
-		Name:        name,
-		Description: description,
-		Target:      target,
-		Status:      models.FlowStatusActive,
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		ID:            uuid.New(),
+		Name:          name,
+		Description:   description,
+		Target:        target,
+		Status:        models.FlowStatusActive,
+		AutonomyLevel: autonomyLevel,
+		CreatedAt:     time.Now(),
+		UpdatedAt:     time.Now(),
 	}
 
 	_, err := q.db.Exec(
-		`INSERT INTO flows (id, name, description, target, status, created_at, updated_at) 
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		flow.ID, flow.Name, flow.Description, flow.Target, flow.Status, flow.CreatedAt, flow.UpdatedAt,
+		`INSERT INTO flows (id, name, description, target, status, autonomy_level, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		flow.ID, flow.Name, flow.Description, flow.Target, flow.Status, flow.AutonomyLevel, flow.CreatedAt, flow.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create flow: %w", err)
@@ -47,8 +51,8 @@ func (q *Queries) CreateFlow(name, description, target string) (*models.Flow, er
 func (q *Queries) GetFlow(id uuid.UUID) (*models.Flow, error) {
 	flow := &models.Flow{}
 	err := q.db.QueryRow(
-		`SELECT id, name, description, target, status, created_at, updated_at FROM flows WHERE id = $1`, id,
-	).Scan(&flow.ID, &flow.Name, &flow.Description, &flow.Target, &flow.Status, &flow.CreatedAt, &flow.UpdatedAt)
+		`SELECT id, name, description, target, status, autonomy_level, created_at, updated_at FROM flows WHERE id = $1`, id,
+	).Scan(&flow.ID, &flow.Name, &flow.Description, &flow.Target, &flow.Status, &flow.AutonomyLevel, &flow.CreatedAt, &flow.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get flow: %w", err)
 	}
@@ -57,7 +61,7 @@ func (q *Queries) GetFlow(id uuid.UUID) (*models.Flow, error) {
 
 func (q *Queries) ListFlows() ([]models.Flow, error) {
 	rows, err := q.db.Query(
-		`SELECT id, name, description, target, status, created_at, updated_at FROM flows ORDER BY created_at DESC`,
+		`SELECT id, name, description, target, status, autonomy_level, created_at, updated_at FROM flows ORDER BY created_at DESC`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list flows: %w", err)
@@ -67,7 +71,7 @@ func (q *Queries) ListFlows() ([]models.Flow, error) {
 	flows := []models.Flow{}
 	for rows.Next() {
 		var f models.Flow
-		if err := rows.Scan(&f.ID, &f.Name, &f.Description, &f.Target, &f.Status, &f.CreatedAt, &f.UpdatedAt); err != nil {
+		if err := rows.Scan(&f.ID, &f.Name, &f.Description, &f.Target, &f.Status, &f.AutonomyLevel, &f.CreatedAt, &f.UpdatedAt); err != nil {
 			return nil, err
 		}
 		flows = append(flows, f)
