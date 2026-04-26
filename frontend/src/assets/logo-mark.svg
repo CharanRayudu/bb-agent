@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" stroke-linejoin="round" stroke-linecap="round">
+  <defs>
+    <linearGradient id="mirage-mark-grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#06b6d4"></stop>
+      <stop offset="100%" stop-color="#10b981"></stop>
+    </linearGradient>
+  </defs>
+  
+  <path d="M8 48 L20 16 L32 40 L44 16 L56 48" stroke="url(#mirage-mark-grad)" stroke-width="5" fill="none"></path>
+  
+  <circle cx="32" cy="54" r="2.75" fill="#10b981"></circle>
+</svg>

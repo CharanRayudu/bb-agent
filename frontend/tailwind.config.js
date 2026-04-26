@@ -8,47 +8,55 @@ export default {
     theme: {
         extend: {
             colors: {
-                // Core surfaces
-                "bg": "#05070d",
-                "surface": "#0b0e17",
-                "card": "#111622",
-                "border": "#1a2134",
-                "border-muted": "#141b2c",
+                // ── Core surfaces (DS canonical) ──
+                "bg":            "#0a0b0f",
+                "surface":       "#111318",
+                "card":          "#161b24",
+                "card-hover":    "#1a2030",
+                "deep":          "#070a0f",
 
-                // Legacy compat
-                "primary-bg": "#05070d",
-                "secondary-bg": "#0b0e17",
-                "card-bg": "#111622",
-                "card-hover": "#151b2b",
+                // Legacy compat aliases
+                "primary-bg":    "#0a0b0f",
+                "secondary-bg":  "#111318",
+                "card-bg":       "#161b24",
 
-                // Text
-                "text-primary": "#e6ecff",
-                "text-secondary": "#93a0bf",
-                "text-muted": "#5a6784",
+                // ── Borders ──
+                "border":        "#1e2535",
+                "border-muted":  "#162033",
+                "border-focus":  "#2d3a52",
 
-                // Accents
-                "accent-cyan": "#22d3ee",
-                "accent-green": "#10b981",
-                "accent-purple": "#a78bfa",
+                // ── Text (fg1/fg2/fg3 + legacy names) ──
+                "fg1":           "#e2e8f0",
+                "fg2":           "#8b98b1",
+                "fg3":           "#4b5675",
+                "text-primary":  "#e2e8f0",
+                "text-secondary":"#8b98b1",
+                "text-muted":    "#4b5675",
+
+                // ── Accents ──
+                "accent-cyan":   "#06b6d4",
+                "accent-green":  "#10b981",
+                "accent-purple": "#8b5cf6",
                 "accent-orange": "#f97316",
                 "accent-yellow": "#eab308",
-                "accent-red": "#ef4444",
-                "accent-amber": "#f59e0b",
-                "accent-pink": "#ec4899",
+                "accent-red":    "#ef4444",
+                "accent-amber":  "#f59e0b",
+                "accent-pink":   "#ec4899",
+                "accent-blue":   "#3b82f6",
 
-                // Severity
+                // ── Severity ──
                 "severity-critical": "#ef4444",
-                "severity-high": "#f97316",
-                "severity-medium": "#eab308",
-                "severity-low": "#3b82f6",
-                "severity-info": "#22d3ee",
+                "severity-high":     "#f97316",
+                "severity-medium":   "#eab308",
+                "severity-low":      "#3b82f6",
+                "severity-info":     "#06b6d4",
             },
             fontFamily: {
                 "display": ["Inter", "sans-serif"],
                 "mono": ["JetBrains Mono", "Fira Code", "monospace"],
             },
             spacing: {
-                "sidebar": "240px",
+                "sidebar": "220px",
             },
             borderRadius: {
                 "xl": "14px",

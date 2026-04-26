@@ -1,56 +1,115 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 /* ============================================================
-   Mirage Design System v3 — 21st.dev × macOS Liquid Glass
+   Mirage Design System — tokens (canonical source)
    ============================================================ */
 
 :root {
-  /* Core surfaces (legacy tokens, kept for compatibility) */
-  --bg: #05070d;
-  --surface: #0b0e17;
-  --card: #111622;
-  --card-hover: #151b2b;
+  /* ─── Core surfaces ─────────────────────────────────────── */
+  --bg:            #0a0b0f;
+  --surface:       #111318;
+  --card:          #161b24;
+  --card-hover:    #1a2030;
+  --deep:          #070a0f;
 
-  /* Borders */
-  --border: #1a2134;
-  --border-muted: #141b2c;
+  /* Legacy aliases for compatibility */
+  --primary-bg:    var(--bg);
+  --secondary-bg:  var(--surface);
+  --card-bg:       var(--card);
 
-  /* Text */
-  --text-primary: #e6ecff;
-  --text-secondary: #93a0bf;
-  --text-muted: #5a6784;
+  /* ─── Borders ───────────────────────────────────────────── */
+  --border:        #1e2535;
+  --border-muted:  #162033;
+  --border-focus:  #2d3a52;
 
-  /* Accents */
-  --accent-cyan: #22d3ee;
-  --accent-green: #10b981;
-  --accent-purple: #a78bfa;
+  /* ─── Text ──────────────────────────────────────────────── */
+  --fg1:           #e2e8f0;
+  --fg2:           #8b98b1;
+  --fg3:           #4b5675;
+
+  /* Legacy aliases */
+  --text-primary:   var(--fg1);
+  --text-secondary: var(--fg2);
+  --text-muted:     var(--fg3);
+
+  /* ─── Accents ───────────────────────────────────────────── */
+  --accent-cyan:   #06b6d4;
+  --accent-green:  #10b981;
+  --accent-purple: #8b5cf6;
   --accent-orange: #f97316;
   --accent-yellow: #eab308;
-  --accent-red: #ef4444;
+  --accent-red:    #ef4444;
+  --accent-amber:  #f59e0b;
+  --accent-pink:   #ec4899;
+  --accent-blue:   #3b82f6;
 
-  /* Severity */
-  --severity-critical: #ef4444;
-  --severity-high: #f97316;
-  --severity-medium: #eab308;
-  --severity-low: #3b82f6;
-  --severity-info: #22d3ee;
+  /* ─── Severity ──────────────────────────────────────────── */
+  --sev-critical:  #ef4444;
+  --sev-high:      #f97316;
+  --sev-medium:    #eab308;
+  --sev-low:       #3b82f6;
+  --sev-info:      #06b6d4;
 
-  /* Layout */
-  --sidebar-width: 240px;
-  --sidebar-gap: 16px;
+  /* Legacy severity aliases */
+  --severity-critical: var(--sev-critical);
+  --severity-high:     var(--sev-high);
+  --severity-medium:   var(--sev-medium);
+  --severity-low:      var(--sev-low);
+  --severity-info:     var(--sev-info);
 
-  /* Type */
-  --font-main: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  /* ─── Typography ────────────────────────────────────────── */
+  --font-display:  'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-main:     var(--font-display);
+  --font-mono:     'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
 
-  /* ---------- Liquid Glass tokens ---------- */
-  --lg-tint: rgba(255, 255, 255, 0.05);
+  /* ─── Radii ─────────────────────────────────────────────── */
+  --r-sm:   6px;
+  --r-md:   8px;
+  --r-lg:   12px;
+  --r-xl:   16px;
+  --r-2xl:  24px;
+  --r-full: 9999px;
+
+  /* ─── Spacing scale ─────────────────────────────────────── */
+  --s-1:  4px;  --s-2:  8px;  --s-3:  12px; --s-4:  16px;
+  --s-5:  20px; --s-6:  24px; --s-8:  32px; --s-10: 40px;
+  --s-12: 48px; --s-16: 64px;
+
+  /* ─── Shadows ───────────────────────────────────────────── */
+  --shadow-sm:    0 1px 3px rgba(0, 0, 0, 0.40);
+  --shadow-md:    0 4px 16px rgba(0, 0, 0, 0.50);
+  --shadow-lg:    0 8px 32px rgba(0, 0, 0, 0.60);
+  --shadow-card:  0 2px 8px rgba(0, 0, 0, 0.40);
+  --shadow-glass: 0 18px 80px rgba(15, 23, 42, 0.95);
+  --shadow-modal: 0 24px 80px rgba(0, 0, 0, 0.80);
+
+  /* Glow */
+  --glow-cyan-sm:  0 0 12px rgba(0, 212, 255, 0.60);
+  --glow-cyan-md:  0 0 20px rgba(6, 182, 212, 0.20);
+  --glow-cyan-lg:  0 0 45px rgba(0, 212, 255, 0.45);
+  --glow-purple:   0 0 40px rgba(168, 85, 247, 0.25);
+
+  /* ─── Layout ────────────────────────────────────────────── */
+  --sidebar-width: 220px;
+  --sidebar-gap:   16px;
+
+  /* ─── Motion ────────────────────────────────────────────── */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-std: cubic-bezier(0.4, 0, 0.6, 1);
+  --dur-quick: 150ms;
+  --dur-base:  200ms;
+  --dur-slow:  500ms;
+
+  /* ─── Liquid Glass tokens ───────────────────────────────── */
+  --lg-tint:        rgba(255, 255, 255, 0.05);
   --lg-tint-strong: rgba(255, 255, 255, 0.09);
-  --lg-tint-hot: rgba(255, 255, 255, 0.14);
-  --lg-stroke: rgba(255, 255, 255, 0.10);
-  --lg-stroke-hot: rgba(255, 255, 255, 0.22);
+  --lg-tint-hot:    rgba(255, 255, 255, 0.14);
+  --lg-stroke:      rgba(255, 255, 255, 0.10);
+  --lg-stroke-hot:  rgba(255, 255, 255, 0.22);
   --lg-inner: inset 0 1px 0 rgba(255, 255, 255, 0.14),
               inset 0 -1px 0 rgba(0, 0, 0, 0.45);
   --lg-inner-strong: inset 0 1px 0 rgba(255, 255, 255, 0.22),
@@ -62,9 +121,34 @@
                   0 4px 12px rgba(0, 0, 0, 0.55);
 
   /* Ambient halos */
-  --halo-cyan: radial-gradient(circle at 30% 20%, rgba(34, 211, 238, 0.35), transparent 55%);
-  --halo-purple: radial-gradient(circle at 80% 80%, rgba(167, 139, 250, 0.35), transparent 55%);
+  --halo-cyan:   radial-gradient(circle at 30% 20%, rgba(6, 182, 212, 0.35), transparent 55%);
+  --halo-purple: radial-gradient(circle at 80% 80%, rgba(139, 92, 246, 0.35), transparent 55%);
 }
+
+/* ============================================================
+   Semantic type classes
+   ============================================================ */
+
+.ds-h1 {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: clamp(32px, 5vw, 52px);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  color: var(--fg1);
+  background: linear-gradient(90deg, var(--fg1), var(--fg3));
+  -webkit-background-clip: text;
+          background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.ds-h2 { font-family: var(--font-display); font-weight: 700; font-size: 24px; line-height: 1.2; letter-spacing: -0.01em; color: var(--fg1); }
+.ds-h3 { font-family: var(--font-display); font-weight: 600; font-size: 18px; line-height: 1.3; color: var(--fg1); }
+.ds-body { font-family: var(--font-display); font-weight: 400; font-size: 14px; line-height: 1.6; color: var(--fg2); }
+.ds-small { font-family: var(--font-display); font-weight: 400; font-size: 12px; line-height: 1.5; color: var(--fg2); }
+.ds-eyebrow { font-family: var(--font-mono); font-weight: 600; font-size: 10px; line-height: 1.2; letter-spacing: 0.18em; text-transform: uppercase; color: var(--fg3); }
+.ds-chip { font-family: var(--font-mono); font-weight: 600; font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; }
+.ds-mono { font-family: var(--font-mono); font-size: 12px; line-height: 1.6; color: var(--fg2); }
+.ds-stat { font-family: var(--font-mono); font-weight: 800; font-size: 28px; line-height: 1; color: var(--fg1); }
 
 /* ============================================================
    Reset & base
