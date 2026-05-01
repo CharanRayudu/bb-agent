@@ -66,6 +66,7 @@ import (
 	"github.com/bb-agent/mirage/internal/agents/xss"
 	"github.com/bb-agent/mirage/internal/agents/xxe"
 	"github.com/bb-agent/mirage/internal/agents/llmpentest"
+	"github.com/bb-agent/mirage/internal/agents/cloudsecurity"
 	"github.com/bb-agent/mirage/internal/config"
 	"github.com/bb-agent/mirage/internal/database"
 	"github.com/bb-agent/mirage/internal/llm"
@@ -272,6 +273,7 @@ func buildSpecialists(provider llm.Provider) map[string]Specialist {
 		"xss":               xss.New(),
 		"xxe":               xxe.New(),
 		"llmpentest":        llmpentest.New(),
+		"cloudsecurity":     cloudsecurity.New(),
 	}
 }
 
@@ -460,6 +462,8 @@ func NewOrchestrator(provider llm.Provider, registry *tools.Registry, db *sql.DB
 	qm.Register("websocket", 30, 2.0)
 	// LLM/AI Red Team agent — lower rate limit since probes are slower (LLM response time)
 	qm.Register("llmpentest", 20, 1.0)
+	// Cloud Security agent — rate-limited to avoid triggering cloud WAF/rate limits
+	qm.Register("cloudsecurity", 30, 2.0)
 
 	o := &Orchestrator{
 		llmProvider:      provider,
@@ -2704,6 +2708,16 @@ func normalizeSpecialistName(name string) string {
 		"Server-Side Template Injection": "ssti",
 		"websocket":           "websocket",
 		"WebSocket":           "websocket",
+		// Cloud Security
+		"cloudsecurity":       "cloudsecurity",
+		"Cloud Security":      "cloudsecurity",
+		"AWS Security":        "cloudsecurity",
+		"Azure Security":      "cloudsecurity",
+		"GCP Security":        "cloudsecurity",
+		"IMDS":                "cloudsecurity",
+		"Cloud Misconfig":     "cloudsecurity",
+		"S3 Misconfig":        "cloudsecurity",
+		"Cloud Credentials":   "cloudsecurity",
 		// LLM/AI Red Team
 		"llmpentest":          "llmpentest",
 		"LLM Pentest":         "llmpentest",

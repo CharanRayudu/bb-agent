@@ -196,6 +196,83 @@ function SeverityBreakdown({ findings }) {
     )
 }
 
+const CLOUD_FINDING_TYPES = {
+    CLOUD_AWS_IMDS_EXPOSED:        { label: 'AWS IMDS Exposed',        provider: 'AWS',   color: '#ff4757' },
+    CLOUD_AWS_IAM_CREDENTIALS_EXPOSED: { label: 'IAM Credentials Leaked', provider: 'AWS', color: '#ff4757' },
+    CLOUD_AWS_CREDENTIAL_EXPOSURE: { label: 'AWS Credential File',     provider: 'AWS',   color: '#ff6b81' },
+    CLOUD_S3_PUBLIC_BUCKET:        { label: 'S3 Public Bucket',        provider: 'AWS',   color: '#ffa502' },
+    CLOUD_S3_BUCKET_EXISTS:        { label: 'S3 Bucket Enumerated',    provider: 'AWS',   color: '#eccc68' },
+    CLOUD_AZURE_IMDS_EXPOSED:      { label: 'Azure IMDS Exposed',      provider: 'Azure', color: '#ff4757' },
+    CLOUD_AZURE_AD_ENUM:           { label: 'Azure AD Enumeration',    provider: 'Azure', color: '#eccc68' },
+    CLOUD_AZURE_BLOB_PUBLIC:       { label: 'Azure Blob Public',       provider: 'Azure', color: '#ffa502' },
+    CLOUD_GCP_METADATA_EXPOSED:    { label: 'GCP Metadata Exposed',    provider: 'GCP',   color: '#ff4757' },
+    CLOUD_GCS_PUBLIC_BUCKET:       { label: 'GCS Public Bucket',       provider: 'GCP',   color: '#ffa502' },
+    CLOUD_K8S_UNAUTHENTICATED:     { label: 'K8s Unauthenticated API', provider: 'K8s',   color: '#ff4757' },
+    CLOUD_CREDENTIAL_LEAK:         { label: 'Cloud Credential Leak',   provider: 'Multi', color: '#ff4757' },
+}
+
+const PROVIDER_COLORS = { AWS: '#ff9500', Azure: '#0078d4', GCP: '#4285f4', K8s: '#326ce5', Multi: '#a855f7' }
+
+function CloudSecurityPanel({ findings }) {
+    const cloudFindings = findings.filter(f => f.type && f.type.startsWith('CLOUD_'))
+    const byProvider = {}
+    cloudFindings.forEach(f => {
+        const meta = CLOUD_FINDING_TYPES[f.type] || { label: f.type, provider: 'Cloud', color: '#888' }
+        const p = meta.provider
+        if (!byProvider[p]) byProvider[p] = []
+        byProvider[p].push({ ...f, meta })
+    })
+
+    const providers = Object.keys(byProvider)
+
+    return (
+        <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl p-5">
+            <h3 className="text-[11px] font-mono uppercase tracking-widest text-text-muted mb-4 flex items-center gap-2">
+                <Lock className="w-3.5 h-3.5 text-accent-cyan" />
+                Cloud Security
+                {cloudFindings.length > 0 && (
+                    <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-accent-red/20 border border-accent-red/30 text-accent-red font-bold">
+                        {cloudFindings.length} FOUND
+                    </span>
+                )}
+            </h3>
+
+            {cloudFindings.length === 0 ? (
+                <div className="text-center py-4 space-y-1">
+                    <p className="text-[11px] text-text-muted">No cloud findings</p>
+                    <p className="text-[10px] text-text-muted/60">Run a scan to probe AWS/Azure/GCP</p>
+                </div>
+            ) : (
+                <div className="space-y-3">
+                    {providers.map(provider => (
+                        <div key={provider}>
+                            <div className="flex items-center gap-2 mb-1.5">
+                                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded border"
+                                    style={{ color: PROVIDER_COLORS[provider] || '#888', borderColor: (PROVIDER_COLORS[provider] || '#888') + '44', background: (PROVIDER_COLORS[provider] || '#888') + '11' }}>
+                                    {provider}
+                                </span>
+                                <span className="text-[10px] text-text-muted">{byProvider[provider].length} finding{byProvider[provider].length !== 1 ? 's' : ''}</span>
+                            </div>
+                            <div className="space-y-1 pl-2">
+                                {byProvider[provider].slice(0, 4).map((f, i) => (
+                                    <div key={i} className="flex items-center gap-2">
+                                        <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: f.meta.color }} />
+                                        <span className="text-[10px] text-text-secondary truncate">{f.meta.label}</span>
+                                        <span className="ml-auto text-[9px] font-mono text-text-muted">{f.severity || 'info'}</span>
+                                    </div>
+                                ))}
+                                {byProvider[provider].length > 4 && (
+                                    <p className="text-[10px] text-text-muted pl-3.5">+{byProvider[provider].length - 4} more</p>
+                                )}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    )
+}
+
 export default function Assets() {
     const [flows, setFlows] = useState([])
     const [findings, setFindings] = useState([])
@@ -358,6 +435,9 @@ export default function Assets() {
                                 ))}
                             </div>
                         </div>
+
+                        {/* Cloud Security Findings */}
+                        <CloudSecurityPanel findings={allFindings} />
 
                         {/* Quick Actions */}
                         <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl p-5">
