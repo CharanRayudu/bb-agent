@@ -67,6 +67,7 @@ import (
 	"github.com/bb-agent/mirage/internal/agents/xxe"
 	"github.com/bb-agent/mirage/internal/agents/llmpentest"
 	"github.com/bb-agent/mirage/internal/agents/cloudsecurity"
+	"github.com/bb-agent/mirage/internal/agents/netpentest"
 	"github.com/bb-agent/mirage/internal/config"
 	"github.com/bb-agent/mirage/internal/database"
 	"github.com/bb-agent/mirage/internal/llm"
@@ -274,6 +275,7 @@ func buildSpecialists(provider llm.Provider) map[string]Specialist {
 		"xxe":               xxe.New(),
 		"llmpentest":        llmpentest.New(),
 		"cloudsecurity":     cloudsecurity.New(),
+		"netpentest":        netpentest.New(),
 	}
 }
 
@@ -464,6 +466,8 @@ func NewOrchestrator(provider llm.Provider, registry *tools.Registry, db *sql.DB
 	qm.Register("llmpentest", 20, 1.0)
 	// Cloud Security agent — rate-limited to avoid triggering cloud WAF/rate limits
 	qm.Register("cloudsecurity", 30, 2.0)
+	// Network Pentest — port scan is burst-heavy; subdomain/CT is slower
+	qm.Register("netpentest", 20, 1.0)
 
 	o := &Orchestrator{
 		llmProvider:      provider,
@@ -2708,6 +2712,17 @@ func normalizeSpecialistName(name string) string {
 		"Server-Side Template Injection": "ssti",
 		"websocket":           "websocket",
 		"WebSocket":           "websocket",
+		// Network Pentest
+		"netpentest":          "netpentest",
+		"Network Pentest":     "netpentest",
+		"Port Scan":           "netpentest",
+		"Port Scanner":        "netpentest",
+		"Network Recon":       "netpentest",
+		"Subdomain Takeover":  "netpentest",
+		"Subdomain Enum":      "netpentest",
+		"Default Creds":       "netpentest",
+		"Default Credentials": "netpentest",
+		"CT Log":              "netpentest",
 		// Cloud Security
 		"cloudsecurity":       "cloudsecurity",
 		"Cloud Security":      "cloudsecurity",

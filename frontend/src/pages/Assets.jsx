@@ -196,6 +196,84 @@ function SeverityBreakdown({ findings }) {
     )
 }
 
+const NET_FINDING_TYPES = {
+    NET_OPEN_PORT:                    { label: 'Open Port',               color: '#eccc68', icon: '🔌' },
+    NET_REDIS_UNAUTHENTICATED:        { label: 'Redis No Auth',           color: '#ff4757', icon: '🚨' },
+    NET_MONGODB_UNAUTHENTICATED:      { label: 'MongoDB No Auth',         color: '#ff4757', icon: '🚨' },
+    NET_ELASTICSEARCH_UNAUTHENTICATED:{ label: 'Elasticsearch No Auth',   color: '#ff4757', icon: '🚨' },
+    NET_DOCKER_API_EXPOSED:           { label: 'Docker API Exposed',      color: '#ff4757', icon: '🐳' },
+    NET_FTP_ANONYMOUS:                { label: 'FTP Anonymous Login',     color: '#ffa502', icon: '📂' },
+    NET_DEFAULT_CREDENTIALS:          { label: 'Default Credentials',     color: '#ff4757', icon: '🔑' },
+    NET_SUBDOMAIN_TAKEOVER:           { label: 'Subdomain Takeover',      color: '#ff6b81', icon: '💀' },
+    NET_SUBDOMAIN_TAKEOVER_CANDIDATE: { label: 'Takeover Candidate',      color: '#ffa502', icon: '⚠️' },
+    NET_CT_SUBDOMAIN_ENUM:            { label: 'CT Subdomains Found',     color: '#2ed573', icon: '📜' },
+    NET_SUBDOMAIN_BRUTE:              { label: 'Active Subdomains Found', color: '#2ed573', icon: '🌐' },
+    NET_WILDCARD_CERT:                { label: 'Wildcard Certificate',    color: '#eccc68', icon: '🔒' },
+}
+
+function NetworkReconPanel({ findings }) {
+    const netFindings = findings.filter(f => f.type && f.type.startsWith('NET_'))
+    const criticalNet = netFindings.filter(f => f.severity === 'critical')
+    const highNet = netFindings.filter(f => f.severity === 'high')
+    const openPorts = netFindings.filter(f => f.type === 'NET_OPEN_PORT')
+    const takeovers = netFindings.filter(f => f.type === 'NET_SUBDOMAIN_TAKEOVER' || f.type === 'NET_SUBDOMAIN_TAKEOVER_CANDIDATE')
+    const subdomains = netFindings.find(f => f.type === 'NET_CT_SUBDOMAIN_ENUM' || f.type === 'NET_SUBDOMAIN_BRUTE')
+
+    return (
+        <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl p-5">
+            <h3 className="text-[11px] font-mono uppercase tracking-widest text-text-muted mb-4 flex items-center gap-2">
+                <Server className="w-3.5 h-3.5 text-accent-purple" />
+                Network Recon
+                {criticalNet.length > 0 && (
+                    <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-accent-red/20 border border-accent-red/30 text-accent-red font-bold">
+                        {criticalNet.length} CRITICAL
+                    </span>
+                )}
+            </h3>
+
+            {netFindings.length === 0 ? (
+                <div className="text-center py-4 space-y-1">
+                    <p className="text-[11px] text-text-muted">No network findings</p>
+                    <p className="text-[10px] text-text-muted/60">Run a scan to probe ports, services & subdomains</p>
+                </div>
+            ) : (
+                <div className="space-y-2">
+                    {[
+                        { label: 'Open Ports', value: openPorts.length, color: '#eccc68' },
+                        { label: 'Critical Services', value: criticalNet.length, color: '#ff4757' },
+                        { label: 'High Severity', value: highNet.length, color: '#ffa502' },
+                        { label: 'Takeover Risks', value: takeovers.length, color: '#ff6b81' },
+                    ].map(s => (
+                        <div key={s.label} className="flex items-center justify-between text-[11px]">
+                            <span className="text-text-muted">{s.label}</span>
+                            <span className="font-mono font-bold" style={{ color: s.value > 0 ? s.color : '#666' }}>{s.value}</span>
+                        </div>
+                    ))}
+
+                    {subdomains && (
+                        <div className="mt-3 pt-3 border-t border-white/[0.06]">
+                            <p className="text-[10px] text-text-muted">
+                                {subdomains.type === 'NET_CT_SUBDOMAIN_ENUM' ? '📜' : '🌐'} {subdomains.evidence?.subdomains_found || 0} subdomains via {subdomains.type === 'NET_CT_SUBDOMAIN_ENUM' ? 'CT logs' : 'DNS brute-force'}
+                            </p>
+                        </div>
+                    )}
+
+                    {takeovers.length > 0 && (
+                        <div className="mt-2 space-y-1">
+                            {takeovers.slice(0, 3).map((f, i) => (
+                                <div key={i} className="flex items-center gap-2 rounded-lg bg-accent-red/5 border border-accent-red/20 px-2 py-1">
+                                    <span className="text-[10px]">💀</span>
+                                    <span className="text-[10px] text-accent-red truncate">{f.evidence?.subdomain || f.url}</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    )
+}
+
 const CLOUD_FINDING_TYPES = {
     CLOUD_AWS_IMDS_EXPOSED:        { label: 'AWS IMDS Exposed',        provider: 'AWS',   color: '#ff4757' },
     CLOUD_AWS_IAM_CREDENTIALS_EXPOSED: { label: 'IAM Credentials Leaked', provider: 'AWS', color: '#ff4757' },
@@ -435,6 +513,9 @@ export default function Assets() {
                                 ))}
                             </div>
                         </div>
+
+                        {/* Network Recon Findings */}
+                        <NetworkReconPanel findings={allFindings} />
 
                         {/* Cloud Security Findings */}
                         <CloudSecurityPanel findings={allFindings} />
