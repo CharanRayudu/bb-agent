@@ -21,6 +21,12 @@ func (s *Server) registerExtendedRoutes() {
 
 	// Schema migrations info
 	s.mux.HandleFunc("/api/system/migrations", s.handleMigrations)
+
+	// Asset inventory
+	s.mux.HandleFunc("/api/assets", s.handleAssets)
+
+	// Notification test endpoint
+	s.mux.HandleFunc("/api/notifications/test", s.handleNotificationTest)
 }
 
 func (s *Server) handleKnowledgeGraph(w http.ResponseWriter, r *http.Request) {

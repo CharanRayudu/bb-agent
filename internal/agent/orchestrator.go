@@ -202,6 +202,9 @@ type Orchestrator struct {
 	autonomyPolicy APTSAutonomyPolicy
 	approvalGates  map[uuid.UUID]*APTSApprovalGate
 	approvalGateMu sync.RWMutex
+
+	// Webhook notifier for critical/high finding alerts
+	webhookNotifier *WebhookNotifier
 }
 
 func buildSpecialists(provider llm.Provider) map[string]Specialist {
@@ -652,6 +655,11 @@ func (o *Orchestrator) UnregisterFlowCancel(flowID uuid.UUID) {
 	delete(o.pausedFlows, flowID)
 }
 
+// SetWebhookNotifier attaches a webhook notifier for critical/high finding alerts.
+func (o *Orchestrator) SetWebhookNotifier(n *WebhookNotifier) {
+	o.webhookNotifier = n
+}
+
 // SetAutonomyLevel configures the APTS autonomy level for this orchestrator instance.
 func (o *Orchestrator) SetAutonomyLevel(level AutonomyLevel) {
 	o.autonomyLevel = level
@@ -1017,6 +1025,17 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		updateFindingAttackGraph(&brain, flow.Target, finding)
 		brainMu.Unlock()
 		persistBrainState("finding")
+
+		// Fire webhook notification for critical/high findings
+		if o.webhookNotifier != nil {
+			sev := strings.ToLower(finding.Severity)
+			if sev == "critical" || sev == "high" {
+				go func(f Finding) {
+					_ = o.webhookNotifier.NotifyFinding(&f)
+				}(*finding)
+			}
+		}
+
 		note := fmt.Sprintf("%s %s", finding.Type, finding.URL)
 		o.emit(flowID.String(), Event{
 			Type:    EventToolResult,

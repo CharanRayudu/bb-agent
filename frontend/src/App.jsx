@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { LayoutDashboard, Zap, Database, Settings, Search, Command } from 'lucide-react'
+import { LayoutDashboard, Zap, Database, Settings, Search, Command, Globe, FileText } from 'lucide-react'
 import Sidebar from './components/Sidebar'
 import Dashboard from './pages/Dashboard'
 import NewTask from './pages/NewTask'
 import FlowDetail from './pages/FlowDetail'
 import KnowledgeGraph from './pages/KnowledgeGraph'
 import SettingsPage from './pages/Settings'
+import Assets from './pages/Assets'
+import Reports from './pages/Reports'
 
 // ============================================================
 // Command Palette
@@ -21,6 +23,8 @@ function CommandPalette() {
     const options = [
         { label: 'Go to Dashboard', action: () => navigate('/'), icon: LayoutDashboard },
         { label: 'Start New Scan', action: () => navigate('/new'), icon: Zap },
+        { label: 'Asset Inventory', action: () => navigate('/assets'), icon: Globe },
+        { label: 'Reports & Exports', action: () => navigate('/reports'), icon: FileText },
         { label: 'Knowledge Graph', action: () => navigate('/graph'), icon: Database },
         { label: 'Settings', action: () => navigate('/settings'), icon: Settings },
     ]
@@ -249,6 +253,18 @@ function AppShell() {
                             path="/knowledge"
                             element={
                                 <PageWrapper><KnowledgeGraph /></PageWrapper>
+                            }
+                        />
+                        <Route
+                            path="/assets"
+                            element={
+                                <PageWrapper><Assets /></PageWrapper>
+                            }
+                        />
+                        <Route
+                            path="/reports"
+                            element={
+                                <PageWrapper><Reports /></PageWrapper>
                             }
                         />
                         <Route

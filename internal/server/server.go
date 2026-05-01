@@ -871,6 +871,18 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 		s.broadcast(event)
 	})
 
+	// Wire webhook notifier from config store
+	s.configStoreMu.RLock()
+	webhookURL, _ := s.configStore["webhook_url"].(string)
+	webhookSecret, _ := s.configStore["webhook_secret"].(string)
+	s.configStoreMu.RUnlock()
+	if webhookURL != "" {
+		notifier := agent.NewWebhookNotifier([]agent.WebhookConfig{
+			{URL: webhookURL, Secret: webhookSecret, Events: []string{"critical_finding", "high_finding", "scan_complete"}},
+		})
+		orchestrator.SetWebhookNotifier(notifier)
+	}
+
 	// Wrap Orchestrator with Conductor
 	conductor := agent.NewConductor(orchestrator, orchestrator.GetEventBus())
 	if timeout != 0 {

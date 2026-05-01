@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, Settings as SettingsIcon, Save, Server, Puzzle } from 'lucide-react'
+import { ArrowLeft, Settings as SettingsIcon, Save, Server, Puzzle, Bell, CheckCircle, AlertTriangle } from 'lucide-react'
 
 const API_BASE = '/api'
 
@@ -10,9 +10,16 @@ function Settings() {
         providers: {
             openai: { enabled: true, model: 'gpt-4o', apiKey: '' },
         },
+        webhook_url: '',
+        webhook_secret: '',
+        notify_critical: true,
+        notify_high: true,
+        notify_complete: true,
     })
     const [saving, setSaving] = useState(false)
     const [message, setMessage] = useState('')
+    const [testingWebhook, setTestingWebhook] = useState(false)
+    const [testResult, setTestResult] = useState(null)
 
     useEffect(() => {
         fetchConfig()
@@ -51,8 +58,27 @@ function Settings() {
         setTimeout(() => setMessage(''), 3000)
     }
 
+    async function testWebhook() {
+        if (!config.webhook_url) return
+        setTestingWebhook(true)
+        setTestResult(null)
+        try {
+            const resp = await fetch(`${API_BASE}/notifications/test`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: config.webhook_url, secret: config.webhook_secret }),
+            })
+            setTestResult(resp.ok ? 'success' : 'failed')
+        } catch {
+            setTestResult('failed')
+        }
+        setTestingWebhook(false)
+        setTimeout(() => setTestResult(null), 4000)
+    }
+
     const tabs = [
         { id: 'providers', label: 'LLM Provider', icon: Server },
+        { id: 'notifications', label: 'Notifications', icon: Bell },
         { id: 'plugins', label: 'Plugins', icon: Puzzle },
     ]
 
@@ -147,6 +173,97 @@ function Settings() {
                                     />
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                )}
+
+                {activeTab === 'notifications' && (
+                    <div className="space-y-5">
+                        <div>
+                            <h3 className="text-sm font-bold text-text-primary">Webhook Notifications</h3>
+                            <p className="text-xs text-text-muted mt-1">Send alerts to Slack, Discord, or any HTTP endpoint when critical or high findings are discovered.</p>
+                        </div>
+
+                        <div className="space-y-3">
+                            <div>
+                                <label className="text-[10px] text-text-muted block mb-1 uppercase tracking-widest">Webhook URL</label>
+                                <input
+                                    type="url"
+                                    value={config.webhook_url || ''}
+                                    onChange={e => setConfig(prev => ({ ...prev, webhook_url: e.target.value }))}
+                                    placeholder="https://hooks.slack.com/services/... or any HTTPS endpoint"
+                                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-text-primary outline-none focus:border-accent-cyan/40 font-mono"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-[10px] text-text-muted block mb-1 uppercase tracking-widest">Signing Secret (optional)</label>
+                                <input
+                                    type="password"
+                                    value={config.webhook_secret || ''}
+                                    onChange={e => setConfig(prev => ({ ...prev, webhook_secret: e.target.value }))}
+                                    placeholder="HMAC-SHA256 signing secret"
+                                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-text-primary outline-none focus:border-accent-cyan/40 font-mono"
+                                />
+                                <p className="text-[10px] text-text-muted mt-1">If set, every request includes <code className="bg-white/10 px-1 rounded">X-Mirage-Signature: sha256=...</code></p>
+                            </div>
+                        </div>
+
+                        <div className="rounded-lg bg-white/[0.03] border border-white/10 p-4 space-y-3">
+                            <h4 className="text-[10px] font-mono uppercase tracking-widest text-text-muted">Trigger Events</h4>
+                            {[
+                                { key: 'notify_critical', label: 'Critical Findings', desc: 'Fire immediately when a critical vulnerability is confirmed', color: '#ff4757' },
+                                { key: 'notify_high', label: 'High Findings', desc: 'Fire when a high severity vulnerability is confirmed', color: '#ff7f50' },
+                                { key: 'notify_complete', label: 'Scan Complete', desc: 'Summary notification when a scan finishes', color: '#6ee7b7' },
+                            ].map(({ key, label, desc, color }) => (
+                                <label key={key} className="flex items-start gap-3 cursor-pointer group">
+                                    <div className="relative mt-0.5 flex-shrink-0">
+                                        <input
+                                            type="checkbox"
+                                            checked={config[key] !== false}
+                                            onChange={e => setConfig(prev => ({ ...prev, [key]: e.target.checked }))}
+                                            className="sr-only"
+                                        />
+                                        <div className={`w-4 h-4 rounded border flex items-center justify-center transition-all ${config[key] !== false ? 'border-transparent' : 'border-white/20 bg-white/5'}`} style={config[key] !== false ? { background: color, borderColor: color } : {}}>
+                                            {config[key] !== false && <CheckCircle className="w-3 h-3 text-white" />}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div className="text-xs font-medium text-text-primary group-hover:text-white transition-colors">{label}</div>
+                                        <div className="text-[10px] text-text-muted mt-0.5">{desc}</div>
+                                    </div>
+                                </label>
+                            ))}
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                            <button
+                                onClick={testWebhook}
+                                disabled={!config.webhook_url || testingWebhook}
+                                className="flex items-center gap-2 px-4 py-2 rounded-xl border border-white/15 bg-white/5 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-white/10 transition-colors disabled:opacity-50"
+                            >
+                                {testingWebhook ? <div className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" /> : <Bell className="w-3 h-3" />}
+                                Send Test Ping
+                            </button>
+                            {testResult === 'success' && (
+                                <span className="flex items-center gap-1.5 text-xs text-accent-green">
+                                    <CheckCircle className="w-3.5 h-3.5" /> Webhook delivered successfully
+                                </span>
+                            )}
+                            {testResult === 'failed' && (
+                                <span className="flex items-center gap-1.5 text-xs text-accent-red">
+                                    <AlertTriangle className="w-3.5 h-3.5" /> Delivery failed — check URL
+                                </span>
+                            )}
+                        </div>
+
+                        <div className="rounded-lg bg-white/[0.03] border border-white/[0.08] p-4">
+                            <h4 className="text-[10px] font-mono uppercase tracking-widest text-text-muted mb-2">Slack Setup Guide</h4>
+                            <ol className="text-[11px] text-text-muted space-y-1 list-decimal list-inside">
+                                <li>Go to <span className="text-accent-cyan">api.slack.com/apps</span> → Create App → Incoming Webhooks</li>
+                                <li>Enable Incoming Webhooks and click "Add New Webhook to Workspace"</li>
+                                <li>Select a channel and copy the generated URL above</li>
+                                <li>Save and run a test scan — alerts appear in your channel instantly</li>
+                            </ol>
                         </div>
                     </div>
                 )}

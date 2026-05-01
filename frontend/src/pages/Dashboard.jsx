@@ -5,6 +5,7 @@ import { Search, Zap, Clock, Activity, Target, ArrowRight, Trash2, X, ExternalLi
 import ReactMarkdown from 'react-markdown'
 import TrendChart from '../components/TrendChart'
 import StatsRow from '../components/StatsRow'
+import RiskOverview from '../components/RiskOverview'
 import remarkGfm from 'remark-gfm'
 
 const API_BASE = '/api'
@@ -300,6 +301,11 @@ function Dashboard() {
             {/* Stats Row */}
             <div className="relative z-10">
                 <StatsRow flows={flows} findings={findings} />
+            </div>
+
+            {/* Risk Overview — score gauge + severity chart */}
+            <div className="relative z-10">
+                <RiskOverview findings={findings} flows={flows} />
             </div>
 
             {/* Top Level Tabs */}
