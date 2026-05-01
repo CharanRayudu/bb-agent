@@ -470,6 +470,147 @@ function CausalNode({ node, typeColor, statusColor }) {
     )
 }
 
+// LLM vulnerability class colors
+const LLM_CLASS_COLORS = {
+    LLM_JAILBREAK: '#ff7f50',
+    LLM_JAILBREAK_SYSTEMATIC: '#ff4757',
+    LLM_PROMPT_INJECTION: '#ff6b81',
+    LLM_SYSTEM_PROMPT_LEAK: '#ffa502',
+    LLM_PII_LEAK: '#ff4757',
+    LLM_RAG_POISONING: '#eccc68',
+    LLM_EXCESSIVE_AGENCY: '#ff4757',
+    LLM_ENDPOINT_DISCOVERED: '#2ed573',
+}
+
+const LLM_CLASS_LABELS = {
+    LLM_JAILBREAK: 'Policy Bypass',
+    LLM_JAILBREAK_SYSTEMATIC: 'Systematic Bypass',
+    LLM_PROMPT_INJECTION: 'Prompt Injection',
+    LLM_SYSTEM_PROMPT_LEAK: 'System Prompt Leak',
+    LLM_PII_LEAK: 'PII Leakage',
+    LLM_RAG_POISONING: 'RAG Poisoning',
+    LLM_EXCESSIVE_AGENCY: 'Excessive Agency',
+    LLM_ENDPOINT_DISCOVERED: 'AI Endpoint',
+}
+
+function AIRedTeamPanel({ findings }) {
+    const llmFindings = findings.filter(e =>
+        e.type === 'tool_result' &&
+        e.metadata?.tool === 'report_findings' &&
+        e.metadata?.finding_type?.startsWith('LLM_')
+    )
+
+    // Also scan raw events for LLM finding patterns
+    const rawLLMFindings = findings.filter(e =>
+        e.content && typeof e.content === 'string' &&
+        (e.content.includes('LLM_JAILBREAK') || e.content.includes('LLM_PROMPT_INJECTION') ||
+         e.content.includes('LLM_PII_LEAK') || e.content.includes('LLM_EXCESSIVE_AGENCY') ||
+         e.content.includes('LLM_SYSTEM_PROMPT_LEAK') || e.content.includes('LLM_RAG_POISONING') ||
+         e.content.includes('LLM_ENDPOINT_DISCOVERED'))
+    )
+
+    const allLLM = [...llmFindings, ...rawLLMFindings]
+
+    // Compute category breakdown
+    const byType = {}
+    for (const f of allLLM) {
+        const t = f.metadata?.finding_type || 'UNKNOWN'
+        byType[t] = (byType[t] || 0) + 1
+    }
+
+    const criticalCount = allLLM.filter(f => f.metadata?.severity === 'critical').length
+    const highCount = allLLM.filter(f => f.metadata?.severity === 'high').length
+    const jailbreakRate = allLLM.length > 0
+        ? Math.round((allLLM.filter(f => f.metadata?.finding_type === 'LLM_JAILBREAK' || f.metadata?.finding_type === 'LLM_JAILBREAK_SYSTEMATIC').length / allLLM.length) * 100)
+        : 0
+
+    const owaspClasses = [
+        { id: 'LLM01', label: 'Prompt Injection', detected: allLLM.some(f => f.metadata?.finding_type === 'LLM_PROMPT_INJECTION') },
+        { id: 'LLM02', label: 'Sensitive Info Disclosure', detected: allLLM.some(f => f.metadata?.finding_type === 'LLM_SYSTEM_PROMPT_LEAK' || f.metadata?.finding_type === 'LLM_PII_LEAK') },
+        { id: 'LLM03', label: 'Supply Chain / RAG Poisoning', detected: allLLM.some(f => f.metadata?.finding_type === 'LLM_RAG_POISONING') },
+        { id: 'LLM06', label: 'Excessive Agency', detected: allLLM.some(f => f.metadata?.finding_type === 'LLM_EXCESSIVE_AGENCY') },
+        { id: 'LLM07', label: 'System Prompt Confidentiality', detected: allLLM.some(f => f.metadata?.finding_type === 'LLM_SYSTEM_PROMPT_LEAK') },
+        { id: 'LLM08', label: 'Jailbreaking / Policy Bypass', detected: allLLM.some(f => f.metadata?.finding_type?.includes('JAILBREAK')) },
+    ]
+
+    if (allLLM.length === 0) {
+        return (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+                <div className="w-14 h-14 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center mb-4 text-2xl">🤖</div>
+                <p className="text-sm font-medium text-text-primary">No AI Red Team findings yet</p>
+                <p className="text-xs text-text-muted mt-1">Run a scan with the LLM Red Team agent to test AI-powered endpoints for prompt injection, jailbreaks, and policy bypass.</p>
+                <div className="mt-5 rounded-xl bg-white/4 border border-white/10 p-4 text-left max-w-sm">
+                    <p className="text-[10px] font-mono text-text-muted uppercase tracking-widest mb-2">To trigger AI red teaming:</p>
+                    <p className="text-xs text-text-muted">Set the target to an AI-powered endpoint (e.g. <code className="bg-white/10 px-1 rounded">/api/chat</code>) or include <code className="bg-white/10 px-1 rounded">ai-redteam</code> in the scan profile.</p>
+                </div>
+            </div>
+        )
+    }
+
+    return (
+        <div className="space-y-5">
+            {/* Header stats */}
+            <div className="grid grid-cols-4 gap-3">
+                {[
+                    { label: 'Total Findings', value: allLLM.length, color: '#00d4ff' },
+                    { label: 'Critical', value: criticalCount, color: '#ff4757' },
+                    { label: 'High', value: highCount, color: '#ff7f50' },
+                    { label: 'Bypass Rate', value: jailbreakRate + '%', color: '#ffa502' },
+                ].map(stat => (
+                    <div key={stat.label} className="rounded-xl bg-white/4 border border-white/10 p-3 text-center">
+                        <div className="text-xl font-bold font-mono" style={{ color: stat.color }}>{stat.value}</div>
+                        <div className="text-[10px] text-text-muted mt-0.5">{stat.label}</div>
+                    </div>
+                ))}
+            </div>
+
+            {/* OWASP LLM Top 10 coverage */}
+            <div className="rounded-xl bg-white/4 border border-white/10 p-4">
+                <h3 className="text-[10px] font-mono uppercase tracking-widest text-text-muted mb-3">OWASP LLM Top 10 — Detected Vulnerabilities</h3>
+                <div className="grid grid-cols-2 gap-2">
+                    {owaspClasses.map(cls => (
+                        <div key={cls.id} className={`flex items-center gap-2 rounded-lg px-3 py-2 border ${cls.detected ? 'bg-accent-red/10 border-accent-red/30' : 'bg-white/[0.02] border-white/8'}`}>
+                            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${cls.detected ? 'bg-accent-red' : 'bg-white/20'}`} />
+                            <span className="text-[10px] font-mono text-text-muted">{cls.id}</span>
+                            <span className="text-[10px] text-text-primary truncate">{cls.label}</span>
+                            {cls.detected && <span className="ml-auto text-[9px] text-accent-red font-bold uppercase">VULN</span>}
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            {/* Finding list */}
+            <div className="space-y-2">
+                <h3 className="text-[10px] font-mono uppercase tracking-widest text-text-muted">AI Red Team Findings</h3>
+                {allLLM.map((f, idx) => {
+                    const ftype = f.metadata?.finding_type || 'LLM_UNKNOWN'
+                    const color = LLM_CLASS_COLORS[ftype] || '#888'
+                    const label = LLM_CLASS_LABELS[ftype] || ftype
+                    const sev = f.metadata?.severity || 'info'
+                    const sevColors = { critical: '#ff4757', high: '#ff7f50', medium: '#ffa502', low: '#2ed573', info: '#888' }
+                    return (
+                        <div key={idx} className="rounded-xl bg-white/4 border border-white/10 p-3 space-y-1.5">
+                            <div className="flex items-center gap-2">
+                                <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: color }} />
+                                <span className="text-xs font-medium text-text-primary">{label}</span>
+                                <span className="ml-auto text-[10px] font-mono px-2 py-0.5 rounded-full border" style={{ color: sevColors[sev], borderColor: sevColors[sev] + '44', background: sevColors[sev] + '11' }}>
+                                    {sev.toUpperCase()}
+                                </span>
+                            </div>
+                            {f.metadata?.url && (
+                                <p className="text-[10px] text-text-muted font-mono truncate">{f.metadata.url}</p>
+                            )}
+                            {f.metadata?.owasp_class && (
+                                <p className="text-[10px] text-accent-cyan">{f.metadata.owasp_class}</p>
+                            )}
+                        </div>
+                    )
+                })}
+            </div>
+        </div>
+    )
+}
+
 function FlowDetail() {
     const { id } = useParams()
     const navigate = useNavigate()
@@ -1193,7 +1334,7 @@ function FlowDetail() {
                             <div
                                 className="absolute inset-y-0 left-0 rounded-full bg-accent-cyan shadow-[0_0_10px_rgba(0,212,255,0.4)] transition-transform duration-500 ease-out"
                                 style={{
-                                    width: `${100 / 7}%`,
+                                    width: `${100 / 8}%`,
                                     transform:
                                         activeTab === 'timeline'
                                             ? 'translateX(0%)'
@@ -1207,10 +1348,12 @@ function FlowDetail() {
                                                             ? 'translateX(400%)'
                                                             : activeTab === 'screenshots'
                                                                 ? 'translateX(500%)'
-                                                                : 'translateX(600%)',
+                                                                : activeTab === 'hypotheses'
+                                                                    ? 'translateX(600%)'
+                                                                    : 'translateX(700%)',
                                 }}
                             />
-                            {['timeline', 'ledger', 'findings', 'graph', 'raw', 'screenshots', 'hypotheses'].map((tab) => (
+                            {['timeline', 'ledger', 'findings', 'graph', 'raw', 'screenshots', 'hypotheses', 'ai-redteam'].map((tab) => (
                                 <button
                                     key={tab}
                                     type="button"
@@ -1225,6 +1368,7 @@ function FlowDetail() {
                                     {tab === 'raw' && 'Raw Logs'}
                                     {tab === 'screenshots' && 'Screenshots'}
                                     {tab === 'hypotheses' && '🧠 Hypotheses'}
+                                    {tab === 'ai-redteam' && '🤖 AI Red Team'}
                                 </button>
                             ))}
                         </div>
@@ -1334,6 +1478,11 @@ function FlowDetail() {
                                 {activeTab === 'hypotheses' && (
                                     <ErrorBoundary>
                                         <HypothesisTracker flowId={id} />
+                                    </ErrorBoundary>
+                                )}
+                                {activeTab === 'ai-redteam' && (
+                                    <ErrorBoundary>
+                                        <AIRedTeamPanel findings={events} />
                                     </ErrorBoundary>
                                 )}
                             </motion.div>

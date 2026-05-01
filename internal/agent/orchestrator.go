@@ -65,6 +65,7 @@ import (
 	"github.com/bb-agent/mirage/internal/agents/websocket"
 	"github.com/bb-agent/mirage/internal/agents/xss"
 	"github.com/bb-agent/mirage/internal/agents/xxe"
+	"github.com/bb-agent/mirage/internal/agents/llmpentest"
 	"github.com/bb-agent/mirage/internal/config"
 	"github.com/bb-agent/mirage/internal/database"
 	"github.com/bb-agent/mirage/internal/llm"
@@ -270,6 +271,7 @@ func buildSpecialists(provider llm.Provider) map[string]Specialist {
 		"websocket":         websocket.New(),
 		"xss":               xss.New(),
 		"xxe":               xxe.New(),
+		"llmpentest":        llmpentest.New(),
 	}
 }
 
@@ -456,6 +458,8 @@ func NewOrchestrator(provider llm.Provider, registry *tools.Registry, db *sql.DB
 	qm.Register("smuggling", 30, 2.0)
 	qm.Register("ssti", 50, 3.0)
 	qm.Register("websocket", 30, 2.0)
+	// LLM/AI Red Team agent — lower rate limit since probes are slower (LLM response time)
+	qm.Register("llmpentest", 20, 1.0)
 
 	o := &Orchestrator{
 		llmProvider:      provider,
@@ -2700,6 +2704,15 @@ func normalizeSpecialistName(name string) string {
 		"Server-Side Template Injection": "ssti",
 		"websocket":           "websocket",
 		"WebSocket":           "websocket",
+		// LLM/AI Red Team
+		"llmpentest":          "llmpentest",
+		"LLM Pentest":         "llmpentest",
+		"LLM Red Team":        "llmpentest",
+		"AI Red Team":         "llmpentest",
+		"Prompt Injection":    "llmpentest",
+		"Jailbreak":           "llmpentest",
+		"LLM Security":        "llmpentest",
+		"AI Security":         "llmpentest",
 	}
 	if q, ok := nameMap[name]; ok {
 		return q
