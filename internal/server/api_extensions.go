@@ -27,6 +27,9 @@ func (s *Server) registerExtendedRoutes() {
 
 	// Notification test endpoint
 	s.mux.HandleFunc("/api/notifications/test", s.handleNotificationTest)
+
+	// Enterprise integrations (ticketing, compliance, SSO)
+	s.registerIntegrationRoutes()
 }
 
 func (s *Server) handleKnowledgeGraph(w http.ResponseWriter, r *http.Request) {
