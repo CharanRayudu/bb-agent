@@ -45,6 +45,9 @@ func (s *Server) registerExtendedRoutes() {
 
 	// AI security copilot (chat assistant with platform context)
 	s.registerCopilotRoutes()
+
+	// Remediation tracking (lifecycle, SLA, Jira/GitHub integration)
+	s.registerRemediationTrackingRoutes()
 }
 
 func (s *Server) handleKnowledgeGraph(w http.ResponseWriter, r *http.Request) {
