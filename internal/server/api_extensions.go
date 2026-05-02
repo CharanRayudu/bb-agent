@@ -57,6 +57,9 @@ func (s *Server) registerExtendedRoutes() {
 
 	// Scheduled scan plans (profile-aware, enable/disable, run-now)
 	s.registerSchedulePlanRoutes()
+
+	// Notification channels (Slack, webhook, email)
+	s.registerNotifyRoutes()
 }
 
 func (s *Server) handleKnowledgeGraph(w http.ResponseWriter, r *http.Request) {

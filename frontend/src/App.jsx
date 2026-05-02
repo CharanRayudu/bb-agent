@@ -18,6 +18,7 @@ import Remediation from './pages/Remediation'
 import Posture from './pages/Posture'
 import ScanProfiles from './pages/ScanProfiles'
 import ScheduledScans from './pages/ScheduledScans'
+import Notifications from './pages/Notifications'
 
 // ============================================================
 // Command Palette
@@ -315,6 +316,12 @@ function AppShell() {
                             path="/schedules"
                             element={
                                 <PageWrapper><ScheduledScans /></PageWrapper>
+                            }
+                        />
+                        <Route
+                            path="/notifications"
+                            element={
+                                <PageWrapper><Notifications /></PageWrapper>
                             }
                         />
                         <Route

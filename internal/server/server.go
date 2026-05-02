@@ -30,6 +30,7 @@ import (
 	"github.com/bb-agent/mirage/internal/posture"
 	"github.com/bb-agent/mirage/internal/profiles"
 	"github.com/bb-agent/mirage/internal/remediation"
+	"github.com/bb-agent/mirage/internal/notify"
 	"github.com/bb-agent/mirage/internal/schedplan"
 	"github.com/bb-agent/mirage/internal/tools"
 	"github.com/google/uuid"
@@ -119,6 +120,10 @@ type Server struct {
 	// Scheduled scan plan store and runner.
 	schedPlanStore  *schedplan.Store
 	schedPlanRunner *schedplan.Runner
+
+	// Notification channels and dispatcher.
+	notifyStore      *notify.Store
+	notifyDispatcher *notify.Dispatcher
 }
 
 // New creates a new server instance
@@ -213,6 +218,8 @@ func New(cfg *config.Config, db *sql.DB) *Server {
 	s.schedPlanStore = schedplan.NewStore()
 	s.schedPlanRunner = schedplan.NewRunner(s.schedPlanStore, s.firePlan)
 	s.schedPlanRunner.Start()
+	s.notifyStore = notify.NewStore()
+	s.notifyDispatcher = notify.NewDispatcher(s.notifyStore)
 
 	s.setupRoutes()
 	return s
@@ -237,6 +244,12 @@ func (s *Server) firePlan(sc *schedplan.Schedule) {
 		"schedule_id":   sc.ID,
 		"schedule_name": sc.Name,
 	}, "")
+	s.notifyDispatcher.Dispatch("schedule_fired", map[string]interface{}{
+		"schedule": sc.Name,
+		"target":   sc.Target,
+		"profile":  sc.ProfileName,
+		"flow_id":  flow.ID.String(),
+	})
 	go s.runAgent(flow.ID, "Automated scheduled scan via profile: "+sc.ProfileName, "", 0, 0)
 }
 
@@ -1007,6 +1020,14 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 		}
 	} else {
 		s.queries.UpdateFlowStatus(flowID, models.FlowStatusCompleted)
+		flow, ferr := s.queries.GetFlow(flowID)
+		if ferr == nil {
+			s.notifyDispatcher.Dispatch("scan_complete", map[string]interface{}{
+				"flow_id": flowID.String(),
+				"target":  flow.Target,
+				"name":    flow.Name,
+			})
+		}
 	}
 }
 
