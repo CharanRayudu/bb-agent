@@ -39,6 +39,9 @@ func (s *Server) registerExtendedRoutes() {
 
 	// Continuous monitoring (monitors, deltas, alert channels)
 	s.registerMonitoringRoutes()
+
+	// AI-powered report generation (Claude API streaming)
+	s.registerReportGenerationRoutes()
 }
 
 func (s *Server) handleKnowledgeGraph(w http.ResponseWriter, r *http.Request) {
