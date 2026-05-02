@@ -19,6 +19,7 @@ import Posture from './pages/Posture'
 import ScanProfiles from './pages/ScanProfiles'
 import ScheduledScans from './pages/ScheduledScans'
 import Notifications from './pages/Notifications'
+import VulnIntel from './pages/VulnIntel'
 
 // ============================================================
 // Command Palette
@@ -322,6 +323,12 @@ function AppShell() {
                             path="/notifications"
                             element={
                                 <PageWrapper><Notifications /></PageWrapper>
+                            }
+                        />
+                        <Route
+                            path="/vulns"
+                            element={
+                                <PageWrapper><VulnIntel /></PageWrapper>
                             }
                         />
                         <Route

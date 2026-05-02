@@ -60,6 +60,9 @@ func (s *Server) registerExtendedRoutes() {
 
 	// Notification channels (Slack, webhook, email)
 	s.registerNotifyRoutes()
+
+	// Vulnerability intelligence (stats, search, CSV export)
+	s.registerVulnIntelRoutes()
 }
 
 func (s *Server) handleKnowledgeGraph(w http.ResponseWriter, r *http.Request) {
