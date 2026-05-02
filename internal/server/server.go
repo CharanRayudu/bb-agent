@@ -27,6 +27,7 @@ import (
 	"github.com/bb-agent/mirage/internal/models"
 	"github.com/bb-agent/mirage/internal/copilot"
 	"github.com/bb-agent/mirage/internal/monitoring"
+	"github.com/bb-agent/mirage/internal/posture"
 	"github.com/bb-agent/mirage/internal/remediation"
 	"github.com/bb-agent/mirage/internal/tools"
 	"github.com/google/uuid"
@@ -106,6 +107,9 @@ type Server struct {
 
 	// Rich remediation tracking store (separate from the basic remediationTracker).
 	remStore *remediation.Store
+
+	// Security posture score history.
+	postureHistory *posture.HistoryStore
 }
 
 // New creates a new server instance
@@ -195,6 +199,7 @@ func New(cfg *config.Config, db *sql.DB) *Server {
 	s.alertDispatcher = monitoring.NewDispatcher(s.monitorStore)
 	s.copilotStore = copilot.NewStore()
 	s.remStore = remediation.NewStore()
+	s.postureHistory = posture.NewHistoryStore()
 
 	s.setupRoutes()
 	return s

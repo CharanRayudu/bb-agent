@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Shield, LayoutDashboard, Plus, Network, Settings, Wifi, WifiOff, Activity, Globe, FileText, Code2, Target, CheckSquare } from 'lucide-react'
+import { Shield, LayoutDashboard, Plus, Network, Settings, Wifi, WifiOff, Activity, Globe, FileText, Code2, Target, CheckSquare, TrendingUp } from 'lucide-react'
 
 const NAV_ITEMS = [
     { label: 'Dashboard',        icon: LayoutDashboard, to: '/',            hint: 'Overview' },
+    { label: 'Posture',          icon: TrendingUp,      to: '/posture',     hint: 'Score' },
     { label: 'New Scan',         icon: Plus,            to: '/new',         hint: 'Launch' },
     { label: 'Asset Inventory',  icon: Globe,           to: '/assets',      hint: 'Assets' },
     { label: 'Reports',          icon: FileText,        to: '/reports',     hint: 'Exports' },

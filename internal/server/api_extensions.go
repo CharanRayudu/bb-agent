@@ -48,6 +48,9 @@ func (s *Server) registerExtendedRoutes() {
 
 	// Remediation tracking (lifecycle, SLA, Jira/GitHub integration)
 	s.registerRemediationTrackingRoutes()
+
+	// Security posture scoring and history
+	s.registerPostureRoutes()
 }
 
 func (s *Server) handleKnowledgeGraph(w http.ResponseWriter, r *http.Request) {

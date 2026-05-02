@@ -15,6 +15,7 @@ import DevSecOps from './pages/DevSecOps'
 import ThreatIntel from './pages/ThreatIntel'
 import Monitoring from './pages/Monitoring'
 import Remediation from './pages/Remediation'
+import Posture from './pages/Posture'
 
 // ============================================================
 // Command Palette
@@ -294,6 +295,12 @@ function AppShell() {
                             path="/remediation"
                             element={
                                 <PageWrapper><Remediation /></PageWrapper>
+                            }
+                        />
+                        <Route
+                            path="/posture"
+                            element={
+                                <PageWrapper><Posture /></PageWrapper>
                             }
                         />
                         <Route
