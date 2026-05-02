@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, useLocation, useNavigate } from 'react-ro
 import { AnimatePresence, motion } from 'framer-motion'
 import { LayoutDashboard, Zap, Database, Settings, Search, Command, Globe, FileText } from 'lucide-react'
 import Sidebar from './components/Sidebar'
+import CopilotPanel from './components/CopilotPanel'
 import Dashboard from './pages/Dashboard'
 import NewTask from './pages/NewTask'
 import FlowDetail from './pages/FlowDetail'
@@ -298,6 +299,7 @@ function AppShell() {
                 </AnimatePresence>
             </main>
             <CommandPalette />
+            <CopilotPanel />
         </div>
     )
 }

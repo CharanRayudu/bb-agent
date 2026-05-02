@@ -42,6 +42,9 @@ func (s *Server) registerExtendedRoutes() {
 
 	// AI-powered report generation (Claude API streaming)
 	s.registerReportGenerationRoutes()
+
+	// AI security copilot (chat assistant with platform context)
+	s.registerCopilotRoutes()
 }
 
 func (s *Server) handleKnowledgeGraph(w http.ResponseWriter, r *http.Request) {
