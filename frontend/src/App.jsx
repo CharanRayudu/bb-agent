@@ -16,6 +16,7 @@ import ThreatIntel from './pages/ThreatIntel'
 import Monitoring from './pages/Monitoring'
 import Remediation from './pages/Remediation'
 import Posture from './pages/Posture'
+import ScanProfiles from './pages/ScanProfiles'
 
 // ============================================================
 // Command Palette
@@ -301,6 +302,12 @@ function AppShell() {
                             path="/posture"
                             element={
                                 <PageWrapper><Posture /></PageWrapper>
+                            }
+                        />
+                        <Route
+                            path="/profiles"
+                            element={
+                                <PageWrapper><ScanProfiles /></PageWrapper>
                             }
                         />
                         <Route

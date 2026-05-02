@@ -385,7 +385,7 @@ export default function Posture() {
                         <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl p-6">
                             <div className="flex items-center justify-between mb-5">
                                 <p className="text-[11px] font-mono uppercase tracking-widest text-text-muted flex items-center gap-2">
-                                    <Target className="w-3.5 h-3.5 text-accent-purple" /> OWASP Top 10 2021
+                                    <Target className="w-3.5 h-3.5 text-accent-purple" /> OWASP Top 10 2025
                                 </p>
                                 <div className="flex items-center gap-3 text-[10px] text-text-muted">
                                     <span className="flex items-center gap-1"><AlertTriangle className="w-2.5 h-2.5 text-[#ff7f50]" /> Exposed</span>

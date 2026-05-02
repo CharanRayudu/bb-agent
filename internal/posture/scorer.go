@@ -37,7 +37,7 @@ const (
 	wSurface      = 0.10
 )
 
-// OWASPCategory shows coverage for one OWASP Top 10 2021 item.
+// OWASPCategory shows coverage for one OWASP Top 10 2025 item.
 type OWASPCategory struct {
 	ID       string `json:"id"`       // A01:2021
 	Name     string `json:"name"`
@@ -200,23 +200,23 @@ func grade(score float64) string {
 	}
 }
 
-// ── OWASP Top 10 2021 ─────────────────────────────────────────────────────────
+// ── OWASP Top 10 2025 ─────────────────────────────────────────────────────────
 
 var owaspCategories = []struct {
 	ID       string
 	Name     string
 	Keywords []string
 }{
-	{"A01:2021", "Broken Access Control", []string{"IDOR", "Path Traversal", "LFI", "Auth Bypass", "Directory Listing"}},
-	{"A02:2021", "Cryptographic Failures", []string{"Weak TLS", "Insecure Cookie", "JWT", "HTTP without HTTPS"}},
-	{"A03:2021", "Injection", []string{"SQL", "SQLi", "Command Injection", "CMDi", "SSTI", "XSS", "XXE", "LDAP"}},
-	{"A04:2021", "Insecure Design", []string{"SSRF", "Open Redirect", "Business Logic"}},
-	{"A05:2021", "Security Misconfiguration", []string{"Container", "Misconfiguration", "CORS", "Security Header", "Default Credential"}},
-	{"A06:2021", "Vulnerable Components", []string{"SCA", "CVE", "Dependency", "Log4", "Supply Chain"}},
-	{"A07:2021", "Auth & Session Failures", []string{"Authentication", "Session Fixation", "OAuth", "SAML", "Brute Force"}},
-	{"A08:2021", "Software Integrity Failures", []string{"Deserialization", "Integrity", "CICD", "Pipeline"}},
-	{"A09:2021", "Logging & Monitoring Gaps", []string{"Secret", "Sensitive Data", "Information Disclosure"}},
-	{"A10:2021", "SSRF", []string{"SSRF", "Server-Side Request"}},
+	{"A01:2025", "Broken Access Control", []string{"IDOR", "Path Traversal", "LFI", "Auth Bypass", "Directory Listing"}},
+	{"A02:2025", "Cryptographic Failures", []string{"Weak TLS", "Insecure Cookie", "JWT", "HTTP without HTTPS"}},
+	{"A03:2025", "Injection", []string{"SQL", "SQLi", "Command Injection", "CMDi", "SSTI", "XSS", "XXE", "LDAP"}},
+	{"A04:2025", "Insecure Design", []string{"SSRF", "Open Redirect", "Business Logic"}},
+	{"A05:2025", "Security Misconfiguration", []string{"Container", "Misconfiguration", "CORS", "Security Header", "Default Credential"}},
+	{"A06:2025", "Vulnerable & Outdated Components", []string{"SCA", "CVE", "Dependency", "Log4", "Supply Chain"}},
+	{"A07:2025", "Auth & Session Failures", []string{"Authentication", "Session Fixation", "OAuth", "SAML", "Brute Force"}},
+	{"A08:2025", "Software & Data Integrity Failures", []string{"Deserialization", "Integrity", "CICD", "Pipeline"}},
+	{"A09:2025", "Security Logging & Monitoring Failures", []string{"Secret", "Sensitive Data", "Information Disclosure"}},
+	{"A10:2025", "Server-Side Request Forgery", []string{"SSRF", "Server-Side Request"}},
 }
 
 func buildOWASP(findingTypes []string, counts map[string]int) []OWASPCategory {

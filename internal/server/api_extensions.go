@@ -51,6 +51,9 @@ func (s *Server) registerExtendedRoutes() {
 
 	// Security posture scoring and history
 	s.registerPostureRoutes()
+
+	// Scan profile marketplace
+	s.registerProfilesRoutes()
 }
 
 func (s *Server) handleKnowledgeGraph(w http.ResponseWriter, r *http.Request) {
