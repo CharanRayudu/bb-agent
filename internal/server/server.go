@@ -25,6 +25,7 @@ import (
 	"github.com/bb-agent/mirage/internal/knowledge"
 	"github.com/bb-agent/mirage/internal/llm"
 	"github.com/bb-agent/mirage/internal/models"
+	"github.com/bb-agent/mirage/internal/monitoring"
 	"github.com/bb-agent/mirage/internal/tools"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -93,6 +94,10 @@ type Server struct {
 	// In-memory config store for /api/config GET/PUT.
 	configStore   map[string]interface{}
 	configStoreMu sync.RWMutex
+
+	// Continuous monitoring subsystem.
+	monitorStore    *monitoring.Store
+	alertDispatcher *monitoring.Dispatcher
 }
 
 // New creates a new server instance
@@ -176,6 +181,10 @@ func New(cfg *config.Config, db *sql.DB) *Server {
 		surfaceStore:       surfaceStore,
 		llmProvider:        sharedProvider,
 	}
+
+	// Continuous monitoring subsystem
+	s.monitorStore = monitoring.NewStore()
+	s.alertDispatcher = monitoring.NewDispatcher(s.monitorStore)
 
 	s.setupRoutes()
 	return s

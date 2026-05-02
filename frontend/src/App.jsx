@@ -12,6 +12,7 @@ import Assets from './pages/Assets'
 import Reports from './pages/Reports'
 import DevSecOps from './pages/DevSecOps'
 import ThreatIntel from './pages/ThreatIntel'
+import Monitoring from './pages/Monitoring'
 
 // ============================================================
 // Command Palette
@@ -279,6 +280,12 @@ function AppShell() {
                             path="/threatintel"
                             element={
                                 <PageWrapper><ThreatIntel /></PageWrapper>
+                            }
+                        />
+                        <Route
+                            path="/monitoring"
+                            element={
+                                <PageWrapper><Monitoring /></PageWrapper>
                             }
                         />
                         <Route

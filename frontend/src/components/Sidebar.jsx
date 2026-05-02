@@ -10,6 +10,7 @@ const NAV_ITEMS = [
     { label: 'Reports',          icon: FileText,        to: '/reports',     hint: 'Exports' },
     { label: 'DevSecOps',        icon: Code2,           to: '/devsecops',   hint: 'Pipeline' },
     { label: 'Threat Intel',     icon: Target,          to: '/threatintel', hint: 'ATT&CK' },
+    { label: 'Monitoring',       icon: Activity,        to: '/monitoring',  hint: 'CASM' },
     { label: 'Knowledge Graph',  icon: Network,         to: '/graph',       hint: 'Graph' },
     { label: 'Settings',         icon: Settings,        to: '/settings',    hint: 'Config' },
 ]

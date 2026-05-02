@@ -36,6 +36,9 @@ func (s *Server) registerExtendedRoutes() {
 
 	// Threat Intelligence (ATT&CK, chains, risk scoring, EPSS/KEV)
 	s.registerThreatIntelRoutes()
+
+	// Continuous monitoring (monitors, deltas, alert channels)
+	s.registerMonitoringRoutes()
 }
 
 func (s *Server) handleKnowledgeGraph(w http.ResponseWriter, r *http.Request) {
