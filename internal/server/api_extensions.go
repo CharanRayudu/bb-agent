@@ -54,6 +54,9 @@ func (s *Server) registerExtendedRoutes() {
 
 	// Scan profile marketplace
 	s.registerProfilesRoutes()
+
+	// Scheduled scan plans (profile-aware, enable/disable, run-now)
+	s.registerSchedulePlanRoutes()
 }
 
 func (s *Server) handleKnowledgeGraph(w http.ResponseWriter, r *http.Request) {

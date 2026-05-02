@@ -30,6 +30,7 @@ import (
 	"github.com/bb-agent/mirage/internal/posture"
 	"github.com/bb-agent/mirage/internal/profiles"
 	"github.com/bb-agent/mirage/internal/remediation"
+	"github.com/bb-agent/mirage/internal/schedplan"
 	"github.com/bb-agent/mirage/internal/tools"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -114,6 +115,10 @@ type Server struct {
 
 	// Scan profile store.
 	profileStore *profiles.Store
+
+	// Scheduled scan plan store and runner.
+	schedPlanStore  *schedplan.Store
+	schedPlanRunner *schedplan.Runner
 }
 
 // New creates a new server instance
@@ -205,9 +210,34 @@ func New(cfg *config.Config, db *sql.DB) *Server {
 	s.remStore = remediation.NewStore()
 	s.postureHistory = posture.NewHistoryStore()
 	s.profileStore = profiles.NewStore()
+	s.schedPlanStore = schedplan.NewStore()
+	s.schedPlanRunner = schedplan.NewRunner(s.schedPlanStore, s.firePlan)
+	s.schedPlanRunner.Start()
 
 	s.setupRoutes()
 	return s
+}
+
+// firePlan is the FireFunc called by the schedplan Runner when a schedule fires.
+func (s *Server) firePlan(sc *schedplan.Schedule) {
+	flow, err := s.queries.CreateFlow(
+		"Scheduled: "+sc.Name,
+		"Automated scan — profile: "+sc.ProfileName,
+		sc.Target,
+		"L3",
+	)
+	if err != nil {
+		log.Printf("[SCHEDPLAN] Failed to create flow for %s: %v", sc.Target, err)
+		return
+	}
+	s.auditLog.Record("scheduler", "scan_started", flow.ID.String(), map[string]interface{}{
+		"target":        sc.Target,
+		"profile_id":    sc.ProfileID,
+		"profile_name":  sc.ProfileName,
+		"schedule_id":   sc.ID,
+		"schedule_name": sc.Name,
+	}, "")
+	go s.runAgent(flow.ID, "Automated scheduled scan via profile: "+sc.ProfileName, "", 0, 0)
 }
 
 // schedulerTrigger is the callback invoked by the Scheduler to start a new scan.

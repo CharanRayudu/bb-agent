@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Shield, LayoutDashboard, Plus, Network, Settings, Wifi, WifiOff, Activity, Globe, FileText, Code2, Target, CheckSquare, TrendingUp, Tag } from 'lucide-react'
+import { Shield, LayoutDashboard, Plus, Network, Settings, Wifi, WifiOff, Activity, Globe, FileText, Code2, Target, CheckSquare, TrendingUp, Tag, Calendar } from 'lucide-react'
 
 const NAV_ITEMS = [
     { label: 'Dashboard',        icon: LayoutDashboard, to: '/',            hint: 'Overview' },
@@ -14,6 +14,7 @@ const NAV_ITEMS = [
     { label: 'Monitoring',       icon: Activity,        to: '/monitoring',  hint: 'CASM' },
     { label: 'Remediation',      icon: CheckSquare,     to: '/remediation', hint: 'Track' },
     { label: 'Scan Profiles',    icon: Tag,             to: '/profiles',    hint: 'Templates' },
+    { label: 'Schedules',        icon: Calendar,        to: '/schedules',   hint: 'Automate' },
     { label: 'Knowledge Graph',  icon: Network,         to: '/graph',       hint: 'Graph' },
     { label: 'Settings',         icon: Settings,        to: '/settings',    hint: 'Config' },
 ]
