@@ -10,6 +10,7 @@ import KnowledgeGraph from './pages/KnowledgeGraph'
 import SettingsPage from './pages/Settings'
 import Assets from './pages/Assets'
 import Reports from './pages/Reports'
+import DevSecOps from './pages/DevSecOps'
 
 // ============================================================
 // Command Palette
@@ -265,6 +266,12 @@ function AppShell() {
                             path="/reports"
                             element={
                                 <PageWrapper><Reports /></PageWrapper>
+                            }
+                        />
+                        <Route
+                            path="/devsecops"
+                            element={
+                                <PageWrapper><DevSecOps /></PageWrapper>
                             }
                         />
                         <Route

@@ -68,6 +68,7 @@ import (
 	"github.com/bb-agent/mirage/internal/agents/llmpentest"
 	"github.com/bb-agent/mirage/internal/agents/cloudsecurity"
 	"github.com/bb-agent/mirage/internal/agents/netpentest"
+	"github.com/bb-agent/mirage/internal/agents/devsecops"
 	"github.com/bb-agent/mirage/internal/config"
 	"github.com/bb-agent/mirage/internal/database"
 	"github.com/bb-agent/mirage/internal/llm"
@@ -276,6 +277,7 @@ func buildSpecialists(provider llm.Provider) map[string]Specialist {
 		"llmpentest":        llmpentest.New(),
 		"cloudsecurity":     cloudsecurity.New(),
 		"netpentest":        netpentest.New(),
+		"devsecops":         devsecops.New(),
 	}
 }
 
@@ -468,6 +470,8 @@ func NewOrchestrator(provider llm.Provider, registry *tools.Registry, db *sql.DB
 	qm.Register("cloudsecurity", 30, 2.0)
 	// Network Pentest — port scan is burst-heavy; subdomain/CT is slower
 	qm.Register("netpentest", 20, 1.0)
+	// DevSecOps — SAST/SCA/secrets/container scanning; low rate limit (file-based)
+	qm.Register("devsecops", 10, 0.5)
 
 	o := &Orchestrator{
 		llmProvider:      provider,
@@ -2742,6 +2746,22 @@ func normalizeSpecialistName(name string) string {
 		"Jailbreak":           "llmpentest",
 		"LLM Security":        "llmpentest",
 		"AI Security":         "llmpentest",
+		// DevSecOps pipeline
+		"devsecops":           "devsecops",
+		"DevSecOps":           "devsecops",
+		"SAST":                "devsecops",
+		"SCA":                 "devsecops",
+		"Secret Scan":         "devsecops",
+		"Secret Detection":    "devsecops",
+		"Container Scan":      "devsecops",
+		"Container Security":  "devsecops",
+		"Dependency Scan":     "devsecops",
+		"Supply Chain":        "devsecops",
+		"Pipeline Security":   "devsecops",
+		"CI Security":         "devsecops",
+		"Semgrep":             "devsecops",
+		"Grype":               "devsecops",
+		"Trivy":               "devsecops",
 	}
 	if q, ok := nameMap[name]; ok {
 		return q

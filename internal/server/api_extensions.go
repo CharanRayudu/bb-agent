@@ -30,6 +30,9 @@ func (s *Server) registerExtendedRoutes() {
 
 	// Enterprise integrations (ticketing, compliance, SSO)
 	s.registerIntegrationRoutes()
+
+	// GitHub App webhook (DevSecOps PR scanning)
+	s.registerGitHubAppRoutes()
 }
 
 func (s *Server) handleKnowledgeGraph(w http.ResponseWriter, r *http.Request) {
