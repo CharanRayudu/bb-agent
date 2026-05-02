@@ -11,6 +11,7 @@ import SettingsPage from './pages/Settings'
 import Assets from './pages/Assets'
 import Reports from './pages/Reports'
 import DevSecOps from './pages/DevSecOps'
+import ThreatIntel from './pages/ThreatIntel'
 
 // ============================================================
 // Command Palette
@@ -272,6 +273,12 @@ function AppShell() {
                             path="/devsecops"
                             element={
                                 <PageWrapper><DevSecOps /></PageWrapper>
+                            }
+                        />
+                        <Route
+                            path="/threatintel"
+                            element={
+                                <PageWrapper><ThreatIntel /></PageWrapper>
                             }
                         />
                         <Route

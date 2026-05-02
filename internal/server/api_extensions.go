@@ -33,6 +33,9 @@ func (s *Server) registerExtendedRoutes() {
 
 	// GitHub App webhook (DevSecOps PR scanning)
 	s.registerGitHubAppRoutes()
+
+	// Threat Intelligence (ATT&CK, chains, risk scoring, EPSS/KEV)
+	s.registerThreatIntelRoutes()
 }
 
 func (s *Server) handleKnowledgeGraph(w http.ResponseWriter, r *http.Request) {

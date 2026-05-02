@@ -1,16 +1,17 @@
 import React, { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Shield, LayoutDashboard, Plus, Network, Settings, Wifi, WifiOff, Activity, Globe, FileText, Code2 } from 'lucide-react'
+import { Shield, LayoutDashboard, Plus, Network, Settings, Wifi, WifiOff, Activity, Globe, FileText, Code2, Target } from 'lucide-react'
 
 const NAV_ITEMS = [
-    { label: 'Dashboard',        icon: LayoutDashboard, to: '/',           hint: 'Overview' },
-    { label: 'New Scan',         icon: Plus,            to: '/new',        hint: 'Launch' },
-    { label: 'Asset Inventory',  icon: Globe,           to: '/assets',     hint: 'Assets' },
-    { label: 'Reports',          icon: FileText,        to: '/reports',    hint: 'Exports' },
-    { label: 'DevSecOps',        icon: Code2,           to: '/devsecops',  hint: 'Pipeline' },
-    { label: 'Knowledge Graph',  icon: Network,         to: '/graph',      hint: 'Graph' },
-    { label: 'Settings',         icon: Settings,        to: '/settings',   hint: 'Config' },
+    { label: 'Dashboard',        icon: LayoutDashboard, to: '/',            hint: 'Overview' },
+    { label: 'New Scan',         icon: Plus,            to: '/new',         hint: 'Launch' },
+    { label: 'Asset Inventory',  icon: Globe,           to: '/assets',      hint: 'Assets' },
+    { label: 'Reports',          icon: FileText,        to: '/reports',     hint: 'Exports' },
+    { label: 'DevSecOps',        icon: Code2,           to: '/devsecops',   hint: 'Pipeline' },
+    { label: 'Threat Intel',     icon: Target,          to: '/threatintel', hint: 'ATT&CK' },
+    { label: 'Knowledge Graph',  icon: Network,         to: '/graph',       hint: 'Graph' },
+    { label: 'Settings',         icon: Settings,        to: '/settings',    hint: 'Config' },
 ]
 
 function NavItem({ item, isActive }) {
