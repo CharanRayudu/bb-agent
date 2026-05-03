@@ -136,7 +136,7 @@ var sastPatterns = []sastPattern{
 	// Hardcoded Credentials
 	{
 		id: "SAST-HardCred-001", name: "Hardcoded Password in Source",
-		regex:      regexp.MustCompile(`(?i)(password|passwd|secret|apikey|api_key)\s*[:=]\s*['\"](?!.*{)([A-Za-z0-9!@#$%^&*()_+\-=]{8,})['\"]`),
+		regex:      regexp.MustCompile(`(?i)(password|passwd|secret|apikey|api_key)\s*[:=]\s*['"]([A-Za-z0-9!@#$%^&*()_+\-=]{8,})['"]`),
 		languages:  []string{".py", ".js", ".ts", ".go", ".java", ".php", ".rb", ".kt", ".swift"},
 		severity:   base.SeverityHigh,
 		confidence: 0.73,

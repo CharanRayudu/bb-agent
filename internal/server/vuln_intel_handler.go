@@ -45,6 +45,11 @@ func (s *Server) handleFindingStats(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 
+	if !s.queries.HasDB() {
+		json.NewEncoder(w).Encode(emptyStats())
+		return
+	}
+
 	findings, err := s.queries.GetAllFindings()
 	if err != nil {
 		json.NewEncoder(w).Encode(emptyStats())
@@ -155,9 +160,14 @@ func (s *Server) handleFindingSearch(w http.ResponseWriter, r *http.Request) {
 		toT = toT.Add(24 * time.Hour)
 	}
 
+	if !s.queries.HasDB() {
+		json.NewEncoder(w).Encode(map[string]interface{}{"findings": []interface{}{}, "total": 0, "page": page, "limit": limit, "pages": 0})
+		return
+	}
+
 	findings, err := s.queries.GetAllFindings()
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"findings": []interface{}{}, "total": 0})
+		json.NewEncoder(w).Encode(map[string]interface{}{"findings": []interface{}{}, "total": 0, "page": page, "limit": limit, "pages": 0})
 		return
 	}
 
@@ -216,10 +226,14 @@ func (s *Server) handleFindingExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	findings, err := s.queries.GetAllFindings()
-	if err != nil {
-		http.Error(w, "failed to fetch findings", http.StatusInternalServerError)
-		return
+	var findings []database.GlobalFinding
+	if s.queries.HasDB() {
+		var err error
+		findings, err = s.queries.GetAllFindings()
+		if err != nil {
+			http.Error(w, "failed to fetch findings", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")

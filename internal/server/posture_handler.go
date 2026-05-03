@@ -17,7 +17,18 @@ func (s *Server) registerPostureRoutes() {
 // handlePosture computes and returns the current security posture snapshot.
 // GET /api/posture
 func (s *Server) handlePosture(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
+
+	if !s.queries.HasDB() {
+		snap := posture.Compute(posture.Input{})
+		s.postureHistory.Push(snap)
+		json.NewEncoder(w).Encode(snap)
+		return
+	}
 
 	findings, err := s.queries.GetAllFindings()
 	if err != nil {
@@ -91,6 +102,10 @@ func (s *Server) handlePosture(w http.ResponseWriter, r *http.Request) {
 // handlePostureHistory returns the rolling history of posture snapshots.
 // GET /api/posture/history
 func (s *Server) handlePostureHistory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	history := s.postureHistory.All()
 	json.NewEncoder(w).Encode(map[string]interface{}{

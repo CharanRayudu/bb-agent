@@ -20,6 +20,11 @@ func NewQueries(db *sql.DB) *Queries {
 	return &Queries{db: db}
 }
 
+// HasDB reports whether the underlying database connection is set.
+func (q *Queries) HasDB() bool {
+	return q != nil && q.db != nil
+}
+
 // ============ Flows ============
 
 func (q *Queries) CreateFlow(name, description, target, autonomyLevel string) (*models.Flow, error) {
