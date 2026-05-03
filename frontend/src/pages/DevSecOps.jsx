@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import {
-    Shield, Code2, Package, Key, Container, GitPullRequest,
+    Shield, Code2, Package, Key, Container,
     CheckCircle, AlertTriangle, XCircle, Info, ChevronDown,
-    ChevronRight, Loader, RefreshCw, Github, Zap, Clock,
-    FileCode, FileText, Activity, ExternalLink, Play
+    ChevronRight, Loader, Github, Zap, Clock,
+    ExternalLink, Play
 } from 'lucide-react'
 
 const API_BASE = '/api'

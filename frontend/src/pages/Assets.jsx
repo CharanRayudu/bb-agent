@@ -3,8 +3,8 @@ import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
     Globe, Server, AlertTriangle, CheckCircle, Clock, ArrowRight,
-    Cpu, Shield, Target, ChevronDown, ChevronRight, Activity, Zap,
-    Lock, Layers, X
+    Shield, Target, ChevronDown, ChevronRight, Activity, Zap,
+    Lock, Layers
 } from 'lucide-react'
 
 const API_BASE = '/api'
@@ -196,7 +196,7 @@ function SeverityBreakdown({ findings }) {
     )
 }
 
-const NET_FINDING_TYPES = {
+const _NET_FINDING_TYPES = {
     NET_OPEN_PORT:                    { label: 'Open Port',               color: '#eccc68', icon: '🔌' },
     NET_REDIS_UNAUTHENTICATED:        { label: 'Redis No Auth',           color: '#ff4757', icon: '🚨' },
     NET_MONGODB_UNAUTHENTICATED:      { label: 'MongoDB No Auth',         color: '#ff4757', icon: '🚨' },

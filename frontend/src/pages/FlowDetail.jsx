@@ -169,7 +169,7 @@ function PipelineTracker({ currentPhase }) {
                     {PIPELINE_PHASES.map((phase, idx) => {
                         const isComplete = idx < currentIndex
                         const isCurrent = idx === currentIndex
-                        const isFuture = idx > currentIndex || currentIndex < 0
+                        const _isFuture = idx > currentIndex || currentIndex < 0
                         const Icon = phase.icon
 
                         return (
@@ -644,6 +644,7 @@ function FlowDetail() {
         return null
     }, [events, flow?.status])
 
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => {
         fetchFlow()
         fetchEvents()
@@ -661,6 +662,7 @@ function FlowDetail() {
         }
     }, [id])
 
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => {
         if (!flow || (flow.status !== 'active' && flow.status !== 'running' && flow.status !== 'pending')) {
             return undefined

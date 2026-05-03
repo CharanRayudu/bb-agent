@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Search, Zap, Clock, Activity, Target, ArrowRight, Trash2, X, ExternalLink, ChevronDown, ChevronUp, TrendingUp, ShieldCheck, Bell, Calendar, Wrench } from 'lucide-react'
@@ -130,7 +130,7 @@ function PlatformStatus() {
 function Dashboard() {
     const [flows, setFlows] = useState([])
     const [loading, setLoading] = useState(true)
-    const [error, setError] = useState(null)
+    const [_error, setError] = useState(null)
     const [findings, setFindings] = useState([])
     const [findingsLoading, setFindingsLoading] = useState(false)
     const [statusFilter, setStatusFilter] = useState('all')

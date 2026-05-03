@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Zap, Search, Globe, Network, Shield, Lightbulb, ChevronRight, Server, Database, Terminal, Ghost, Bug, Tag } from 'lucide-react'
+import { Zap, Globe, Lightbulb, ChevronRight, Server, Database, Terminal, Ghost, Bug, Tag } from 'lucide-react'
 
 const API_BASE = '/api'
 
@@ -420,7 +420,7 @@ function NewTask() {
                             <span className="font-bold text-sm text-accent-purple uppercase tracking-widest">Pro Tip</span>
                         </div>
                         <p className="text-xs text-text-muted leading-relaxed relative z-10">
-                            The Sandboxed Agent parses your instructions natively using the selected LLM. Natural language scoping (e.g. "Ignore port 443" or "Run Nikto before Nmap") works perfectly.
+                            The Sandboxed Agent parses your instructions natively using the selected LLM. Natural language scoping (e.g. &quot;Ignore port 443&quot; or &quot;Run Nikto before Nmap&quot;) works perfectly.
                         </p>
                     </div>
                 </div>

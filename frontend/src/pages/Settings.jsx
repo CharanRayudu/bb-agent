@@ -298,7 +298,7 @@ function Settings() {
                             <h4 className="text-[10px] font-mono uppercase tracking-widest text-text-muted mb-2">Slack Setup Guide</h4>
                             <ol className="text-[11px] text-text-muted space-y-1 list-decimal list-inside">
                                 <li>Go to <span className="text-accent-cyan">api.slack.com/apps</span> → Create App → Incoming Webhooks</li>
-                                <li>Enable Incoming Webhooks and click "Add New Webhook to Workspace"</li>
+                                <li>Enable Incoming Webhooks and click &quot;Add New Webhook to Workspace&quot;</li>
                                 <li>Select a channel and copy the generated URL above</li>
                                 <li>Save and run a test scan — alerts appear in your channel instantly</li>
                             </ol>

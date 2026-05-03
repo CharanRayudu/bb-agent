@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-    Activity, Plus, Play, Pause, Trash2, Bell, BellOff,
-    CheckCircle, XCircle, AlertTriangle, ArrowUpRight,
+    Activity, Plus, Play, Pause, Trash2, Bell,
+    AlertTriangle, ArrowUpRight,
     ArrowDownRight, Minus, RefreshCw, Loader, Clock,
-    Calendar, Zap, ChevronDown, ChevronRight, Settings,
+    Zap, ChevronDown, ChevronRight,
     Slack, MessageSquare, Globe, Target
 } from 'lucide-react'
 
@@ -308,7 +308,7 @@ function CreateMonitorModal({ channels, onClose, onCreate }) {
 }
 
 // ── Alert Channels Panel ─────────────────────────────────────────────────────
-function ChannelsPanel({ channels, onAdd, onDelete, onTest }) {
+function ChannelsPanel({ channels, onAdd, onDelete, onTest: _onTest }) {
     const [showAdd, setShowAdd] = useState(false)
     const [form, setForm] = useState({ name: '', type: 'slack', url: '', min_severity: 'high' })
     const [testing, setTesting] = useState(null)

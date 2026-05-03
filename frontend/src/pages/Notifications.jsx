@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
     Bell, Plus, Trash2, Send, CheckCircle, XCircle,
     Loader, RefreshCw, X, AlertTriangle, Slack, Globe,
-    Mail, ToggleLeft, ToggleRight, ChevronDown, Edit2, Zap,
+    Mail, ToggleLeft, ToggleRight, Edit2, Zap,
 } from 'lucide-react'
 
 // ── constants ─────────────────────────────────────────────────────────────────
@@ -181,7 +181,7 @@ function ChannelModal({ editing, allEvents, onClose, onSave }) {
         }
     }
 
-    const selectedType = CHANNEL_TYPES.find(t => t.value === form.type)
+    const _selectedType = CHANNEL_TYPES.find(t => t.value === form.type)
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md" onClick={onClose}>

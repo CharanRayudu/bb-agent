@@ -1,6 +1,6 @@
 import React from 'react'
 import { motion } from 'framer-motion'
-import { Shield, AlertTriangle, TrendingDown, TrendingUp, Minus } from 'lucide-react'
+import { AlertTriangle } from 'lucide-react'
 
 function riskScore(findings) {
     if (!findings.length) return 100
@@ -28,7 +28,7 @@ const SEVERITY_CONFIG = [
 export default function RiskOverview({ findings = [], flows = [] }) {
     const score = riskScore(findings)
     const meta = riskMeta(score)
-    const total = findings.length || 1
+    const _total = findings.length || 1
     const circumference = 2 * Math.PI * 52 // r=52
     const dash = (score / 100) * circumference
 
