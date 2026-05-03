@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import {
     Shield, TrendingUp, TrendingDown, AlertTriangle, CheckCircle,
-    Clock, Target, Activity, Zap, RefreshCw, ArrowRight
+    Target, Activity, Zap, RefreshCw
 } from 'lucide-react'
 
 const API_BASE = '/api'
@@ -33,7 +33,7 @@ function ScoreGauge({ score, grade }) {
     // 240° sweep from 210° to 330° (clockwise, bottom-left to bottom-right)
     const sweep = 240
     const startDeg = 210
-    const arcLen = (sweep / 360) * (2 * Math.PI * r)
+    const _arcLen = (sweep / 360) * (2 * Math.PI * r)
 
     function polar(deg) {
         const rad = (deg * Math.PI) / 180

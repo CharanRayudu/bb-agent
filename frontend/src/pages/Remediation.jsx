@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-    CheckCircle, Clock, AlertTriangle, Zap, Plus, ChevronRight,
+    CheckCircle, Clock, AlertTriangle, Plus, ChevronRight,
     ExternalLink, MessageSquare, RefreshCw, Shield, BarChart2,
-    Tag, User, Calendar, Trash2, ArrowRight, TrendingDown,
+    Tag, User, Trash2, ArrowRight, TrendingDown,
     GitPullRequest, Ticket
 } from 'lucide-react'
 

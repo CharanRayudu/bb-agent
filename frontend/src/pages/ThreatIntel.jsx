@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-    Target, Shield, Link2, AlertTriangle, CheckCircle,
-    XCircle, ChevronRight, RefreshCw, Loader, ExternalLink,
-    Info, Zap, TrendingUp, Activity, ArrowRight, Lock,
-    Globe, Code2, Package, Key, Database, Network, Cloud
+    Target, Shield, Link2, AlertTriangle,
+    XCircle, RefreshCw, Loader, ExternalLink,
+    Zap, TrendingUp, Activity, ArrowRight
 } from 'lucide-react'
 
 const API_BASE = '/api'
@@ -157,7 +156,7 @@ function ChainCard({ chain, idx }) {
 // ── Risk-Ranked Finding Row ──────────────────────────────────────────────────
 function RankedFindingRow({ finding, idx }) {
     const [expanded, setExpanded] = useState(false)
-    const riskStyle = RISK_STYLES[finding.risk_label] || RISK_STYLES.low
+    const _riskStyle = RISK_STYLES[finding.risk_label] || RISK_STYLES.low
 
     return (
         <motion.div

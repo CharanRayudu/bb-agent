@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, Settings as SettingsIcon, Save, Server, Puzzle, Bell, CheckCircle, AlertTriangle, Link2, Shield, Key } from 'lucide-react'
+import { ArrowLeft, Settings as SettingsIcon, Save, Server, Puzzle, Bell, CheckCircle, AlertTriangle, Link2, Key } from 'lucide-react'
 
 const API_BASE = '/api'
 
@@ -51,7 +51,7 @@ function Settings() {
             } else {
                 setMessage('Failed to save configuration')
             }
-        } catch (err) {
+        } catch {
             setMessage('Error saving configuration')
         }
         setSaving(false)

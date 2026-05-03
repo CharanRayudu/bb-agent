@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react'
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ArrowLeft, Target, Clock, Activity, Cpu, Wrench, MessageSquare, CheckCircle, XCircle, ChevronRight, Terminal, Trash2, AlertTriangle, Shield, Zap, Bug, Eye, FileText, Search, Crosshair, Wifi, Download, Pause, Play } from 'lucide-react'
@@ -644,7 +644,6 @@ function FlowDetail() {
         return null
     }, [events, flow?.status])
 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => {
         fetchFlow()
         fetchEvents()
@@ -660,9 +659,8 @@ function FlowDetail() {
                 wsRef.current = null
             }
         }
-    }, [id])
+    }, [id, connectWebSocket, fetchEvents, fetchFlow, fetchLedger])
 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => {
         if (!flow || (flow.status !== 'active' && flow.status !== 'running' && flow.status !== 'pending')) {
             return undefined
@@ -673,13 +671,13 @@ function FlowDetail() {
         }, 5000)
 
         return () => clearInterval(timer)
-    }, [flow?.status, id])
+    }, [flow, fetchLedger])
 
     useEffect(() => {
         eventsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
     }, [events])
 
-    async function fetchFlow() {
+    const fetchFlow = useCallback(async function fetchFlow() {
         try {
             const res = await fetch(`${API_BASE}/flows/${id}`)
             if (res.ok) {
@@ -691,9 +689,9 @@ function FlowDetail() {
         } finally {
             setLoading(false)
         }
-    }
+    }, [id])
 
-    async function fetchEvents() {
+    const fetchEvents = useCallback(async function fetchEvents() {
         try {
             const res = await fetch(`${API_BASE}/flows/${id}/events`)
             if (res.ok) {
@@ -731,9 +729,9 @@ function FlowDetail() {
             console.error('Failed to fetch historical events:', err)
             setEventsError('Failed to load historical events')
         }
-    }
+    }, [id])
 
-    async function fetchLedger() {
+    const fetchLedger = useCallback(async function fetchLedger() {
         try {
             const res = await fetch(`${API_BASE}/flows/${id}/ledger`)
             if (!res.ok) {
@@ -747,9 +745,9 @@ function FlowDetail() {
             console.error('Failed to fetch ledger:', err)
             setLedgerError('Failed to load execution ledger')
         }
-    }
+    }, [id])
 
-    function connectWebSocket() {
+    const connectWebSocket = useCallback(function connectWebSocket() {
         if (wsRef.current) return;
 
         // Prefer an explicit VITE_WS_URL (set in .env) so the same build can
@@ -840,7 +838,7 @@ function FlowDetail() {
             setConnected(false)
             wsRef.current = null
         }
-    }
+    }, [id, fetchFlow, fetchLedger])
 
     function formatTime(timestamp) {
         if (!timestamp) return ''

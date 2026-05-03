@@ -266,7 +266,7 @@ function GenerateTab({ flows }) {
         URL.revokeObjectURL(a.href)
     }
 
-    const selectedTmpl = TEMPLATES.find(t => t.id === template)
+    const _selectedTmpl = TEMPLATES.find(t => t.id === template)
 
     return (
         <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
@@ -720,7 +720,7 @@ export default function Reports() {
                                 { label: 'Done', value: completedFlows.length, color: '#6ee7b7', icon: CheckCircle },
                                 { label: 'Critical', value: critical, color: '#ff4757', icon: AlertTriangle },
                                 { label: 'High', value: high, color: '#ff7f50', icon: Zap },
-                            ].map(({ label, value, color, icon: Icon }) => (
+                            ].map(({ label, value, color, icon: _Icon }) => (
                                 <div key={label} className="text-center px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08]">
                                     <div className="text-lg font-bold font-mono" style={{ color }}>{value}</div>
                                     <div className="text-[9px] text-text-muted uppercase tracking-wider">{label}</div>

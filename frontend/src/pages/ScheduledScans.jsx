@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
     Clock, Plus, Play, Trash2, ToggleLeft, ToggleRight,
     RefreshCw, CheckCircle, XCircle, Loader, Calendar,
-    Target, Tag, ChevronDown, X, Edit2, AlertTriangle,
+    Tag, ChevronDown, X, Edit2, AlertTriangle,
 } from 'lucide-react'
 
 // ── helpers ──────────────────────────────────────────────────────────────────
