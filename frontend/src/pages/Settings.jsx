@@ -203,9 +203,23 @@ function Settings() {
 
                 {activeTab === 'notifications' && (
                     <div className="space-y-5">
+                        {/* Banner pointing to the dedicated Notifications page */}
+                        <div className="flex items-start gap-3 rounded-xl border border-accent-cyan/25 bg-accent-cyan/[0.07] p-4">
+                            <Bell className="w-4 h-4 text-accent-cyan mt-0.5 flex-shrink-0" />
+                            <div className="flex-1 min-w-0">
+                                <p className="text-xs font-semibold text-text-primary">Full Notification Hub available</p>
+                                <p className="text-[11px] text-text-muted mt-0.5">Manage Slack, webhook, and email channels with per-event rules, test pings, and delivery history in the dedicated Notifications page.</p>
+                            </div>
+                            <Link
+                                to="/notifications"
+                                className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-cyan/15 border border-accent-cyan/30 text-[11px] text-accent-cyan font-medium hover:bg-accent-cyan/25 transition-colors"
+                            >
+                                Go to Notifications →
+                            </Link>
+                        </div>
                         <div>
-                            <h3 className="text-sm font-bold text-text-primary">Webhook Notifications</h3>
-                            <p className="text-xs text-text-muted mt-1">Send alerts to Slack, Discord, or any HTTP endpoint when critical or high findings are discovered.</p>
+                            <h3 className="text-sm font-bold text-text-primary">Quick Webhook Test</h3>
+                            <p className="text-xs text-text-muted mt-1">Send a one-off test ping to any HTTP endpoint. For persistent channel management use the Notifications page above.</p>
                         </div>
 
                         <div className="space-y-3">

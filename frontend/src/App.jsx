@@ -20,6 +20,7 @@ import ScanProfiles from './pages/ScanProfiles'
 import ScheduledScans from './pages/ScheduledScans'
 import Notifications from './pages/Notifications'
 import VulnIntel from './pages/VulnIntel'
+import AuditLog from './pages/AuditLog'
 
 // ============================================================
 // Command Palette
@@ -329,6 +330,12 @@ function AppShell() {
                             path="/vulns"
                             element={
                                 <PageWrapper><VulnIntel /></PageWrapper>
+                            }
+                        />
+                        <Route
+                            path="/audit-log"
+                            element={
+                                <PageWrapper><AuditLog /></PageWrapper>
                             }
                         />
                         <Route

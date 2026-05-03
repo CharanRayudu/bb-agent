@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Zap, Search, Globe, Network, Shield, Lightbulb, ChevronRight, Server, Database, Terminal, Ghost, Bug } from 'lucide-react'
+import { Zap, Search, Globe, Network, Shield, Lightbulb, ChevronRight, Server, Database, Terminal, Ghost, Bug, Tag } from 'lucide-react'
 
 const API_BASE = '/api'
 
 function NewTask() {
     const navigate = useNavigate()
+    const location = useLocation()
     const [form, setForm] = useState({
         name: '',
         target: '',
@@ -19,10 +20,34 @@ function NewTask() {
     const [modelsLoading, setModelsLoading] = useState(true)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState('')
+    const [apiProfiles, setApiProfiles] = useState([])
+    const [profileBanner, setProfileBanner] = useState(null)
 
     useEffect(() => {
         fetchModels()
+        fetchProfiles()
     }, [])
+
+    // Read ?profile=<id>&profileName=<name> from ScanProfiles "Use Profile" button
+    useEffect(() => {
+        const params = new URLSearchParams(location.search)
+        const profileId = params.get('profile')
+        const profileName = params.get('profileName')
+        if (profileId) {
+            setForm(prev => ({ ...prev, profile: profileId }))
+            setProfileBanner(profileName || profileId)
+        }
+    }, [location.search])
+
+    async function fetchProfiles() {
+        try {
+            const res = await fetch(`${API_BASE}/profiles`)
+            if (res.ok) {
+                const data = await res.json()
+                setApiProfiles(data.profiles || [])
+            }
+        } catch { /* fall back to hardcoded presets */ }
+    }
 
     async function fetchModels() {
         try {
@@ -290,28 +315,43 @@ function NewTask() {
                             {/* Scan Profile */}
                             <div>
                                 <label className="block text-sm font-semibold text-text-primary mb-2 flex items-center gap-2">
-                                    <Shield className="w-4 h-4 text-accent-cyan" />
+                                    <Tag className="w-4 h-4 text-accent-cyan" />
                                     Scan Profile
+                                    <a href="/profiles" className="ml-auto text-[10px] text-accent-cyan/70 hover:text-accent-cyan font-mono flex items-center gap-1 transition-colors">
+                                        Browse profiles →
+                                    </a>
                                 </label>
-                                <div className="grid grid-cols-3 gap-2">
-                                    {[
-                                        { id: 'quick', label: 'Quick', desc: 'Fast recon + top vulns' },
-                                        { id: 'owasp', label: 'OWASP', desc: 'OWASP Top 10 coverage' },
-                                        { id: 'api', label: 'API', desc: 'API security focused' },
-                                        { id: 'pci', label: 'PCI-DSS', desc: 'PCI compliance checks' },
-                                        { id: 'stealth', label: 'Stealth', desc: 'Low-noise, slow checks' },
-                                        { id: 'full', label: 'Full', desc: 'Everything, max depth' },
-                                    ].map((p) => (
-                                        <button
-                                            key={p.id}
-                                            type="button"
-                                            onClick={() => setForm((prev) => ({ ...prev, profile: p.id }))}
-                                            className={`p-3 rounded-xl border text-left transition-all ${form.profile === p.id ? 'border-accent-cyan bg-accent-cyan/10 text-accent-cyan' : 'border-border bg-[#0d1321] text-text-muted hover:border-border-focus'}`}
-                                        >
-                                            <div className="font-bold text-xs">{p.label}</div>
-                                            <div className="text-[10px] opacity-70 mt-0.5">{p.desc}</div>
-                                        </button>
-                                    ))}
+                                {profileBanner && (
+                                    <div className="mb-2 flex items-center gap-2 px-3 py-2 rounded-xl bg-accent-cyan/10 border border-accent-cyan/30 text-accent-cyan text-[12px]">
+                                        <Tag className="w-3.5 h-3.5 flex-shrink-0" />
+                                        Profile from marketplace: <strong>{profileBanner}</strong>
+                                        <button type="button" onClick={() => { setProfileBanner(null); setForm(p => ({ ...p, profile: 'full' })) }}
+                                            className="ml-auto opacity-60 hover:opacity-100">×</button>
+                                    </div>
+                                )}
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                    {(apiProfiles.length > 0 ? apiProfiles : [
+                                        { id: 'quick-recon',    name: 'Quick Recon',      description: 'Fast surface enumeration and triage' },
+                                        { id: 'owasp-top10',    name: 'OWASP Top 10',     description: 'OWASP Top 10 2025 coverage' },
+                                        { id: 'api-security',   name: 'API Security',      description: 'REST and GraphQL API testing' },
+                                        { id: 'cloud-container',name: 'Cloud & Container', description: 'Cloud misconfiguration detection' },
+                                        { id: 'devsecops-full', name: 'DevSecOps',         description: 'SAST, SCA, secrets detection' },
+                                        { id: 'full-pentest',   name: 'Full Pentest',      description: 'All agents, maximum depth' },
+                                    ]).map((p) => {
+                                        const isActive = form.profile === p.id
+                                        return (
+                                            <button
+                                                key={p.id}
+                                                type="button"
+                                                onClick={() => { setForm((prev) => ({ ...prev, profile: p.id })); setProfileBanner(null) }}
+                                                className={`p-3 rounded-xl border text-left transition-all ${isActive ? 'border-accent-cyan bg-accent-cyan/10 text-accent-cyan' : 'border-border bg-[#0d1321] text-text-muted hover:border-border-focus'}`}
+                                                style={isActive && p.color ? { borderColor: p.color + '80', backgroundColor: p.color + '18', color: p.color } : {}}
+                                            >
+                                                <div className="font-bold text-xs truncate">{p.name}</div>
+                                                <div className="text-[10px] opacity-70 mt-0.5 truncate">{p.description}</div>
+                                            </button>
+                                        )
+                                    })}
                                 </div>
                             </div>
 
