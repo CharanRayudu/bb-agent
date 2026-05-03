@@ -174,13 +174,13 @@ func (m *Memory) FormatInsightsForPrompt(target string) string {
 // SaveBrainFindings persists all Brain findings as memory at end of a flow
 func (m *Memory) SaveBrainFindings(target string, flowID uuid.UUID, leads []string, findings []*Finding, exclusions []string) {
 	for _, f := range findings {
-		m.SaveInsight(target, "known_vuln", fmt.Sprintf("%s: %s (param: %s)", f.Type, f.URL, f.Parameter), flowID)
+		_ = m.SaveInsight(target, "known_vuln", fmt.Sprintf("%s: %s (param: %s)", f.Type, f.URL, f.Parameter), flowID)
 	}
 	for _, l := range leads {
-		m.SaveInsight(target, "recon_lead", l, flowID)
+		_ = m.SaveInsight(target, "recon_lead", l, flowID)
 	}
 	for _, e := range exclusions {
-		m.SaveInsight(target, "dead_end", e, flowID)
+		_ = m.SaveInsight(target, "dead_end", e, flowID)
 	}
 }
 
@@ -226,7 +226,7 @@ func (m *Memory) RecordPayloadResult(tech, vuln, payload string, success bool) {
 		success_count = payload_performance.success_count + CASE WHEN $4 THEN 1 ELSE 0 END,
 		failure_count = payload_performance.failure_count + CASE WHEN $4 THEN 0 ELSE 1 END
 	`
-	m.db.Exec(query, tech, vuln, payload, success)
+	_, _ = m.db.Exec(query, tech, vuln, payload, success)
 }
 
 // GetTopPayloads returns the best payloads according to performance memory
@@ -518,24 +518,24 @@ func (m *Memory) PersistFlowLearnings(target string, flowID uuid.UUID, techStack
 			}
 			content := fmt.Sprintf("Confirmed %s on %s via %s (param: %s, confidence: %.2f)",
 				f.Type, f.URL, f.Payload, f.Parameter, f.Confidence)
-			m.SaveLongTermInsight(target, "exploit_chain", content, techStack, flowID)
+			_ = m.SaveLongTermInsight(target, "exploit_chain", content, techStack, flowID)
 		}
 
 		// Save dead ends so we don't repeat them
 		for _, exc := range brain.Exclusions {
-			m.SaveLongTermInsight(target, "dead_end", exc, techStack, flowID)
+			_ = m.SaveLongTermInsight(target, "dead_end", exc, techStack, flowID)
 		}
 
 		// Save auth patterns discovered
 		if brain.Auth != nil && brain.Auth.AuthMethod != "" {
 			content := fmt.Sprintf("Auth method: %s, login URL: %s", brain.Auth.AuthMethod, brain.Auth.LoginURL)
-			m.SaveLongTermInsight(target, "target_profile", content, techStack, flowID)
+			_ = m.SaveLongTermInsight(target, "target_profile", content, techStack, flowID)
 		}
 	}
 
 	// Save target profile
 	if techStack != "" {
-		m.SaveLongTermInsight(target, "target_profile",
+		_ = m.SaveLongTermInsight(target, "target_profile",
 			fmt.Sprintf("Tech stack: %s", techStack), techStack, flowID)
 	}
 }

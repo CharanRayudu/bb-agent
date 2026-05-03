@@ -4,27 +4,52 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/bb-agent/mirage/internal/notify"
 )
 
-// fakeServer starts an httptest.Server that records received requests.
-func fakeServer(t *testing.T) (*httptest.Server, *[][]byte) {
+// safeBodyList is a goroutine-safe slice of captured request bodies.
+type safeBodyList struct {
+	mu   sync.Mutex
+	data [][]byte
+}
+
+func (s *safeBodyList) append(b []byte) {
+	s.mu.Lock()
+	s.data = append(s.data, b)
+	s.mu.Unlock()
+}
+
+func (s *safeBodyList) len() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.data)
+}
+
+func (s *safeBodyList) get(i int) []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.data[i]
+}
+
+// fakeServer starts an httptest.Server that records received request bodies thread-safely.
+func fakeServer(t *testing.T) (*httptest.Server, *safeBodyList) {
 	t.Helper()
-	var bodies [][]byte
+	bodies := &safeBodyList{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var buf []byte
-		if r.Body != nil {
+		if r.Body != nil && r.ContentLength > 0 {
 			buf = make([]byte, r.ContentLength)
 			r.Body.Read(buf) //nolint
 		}
-		bodies = append(bodies, buf)
+		bodies.append(buf)
 		w.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(srv.Close)
-	return srv, &bodies
+	return srv, bodies
 }
 
 func TestDispatcher_Dispatch_WebhookDelivery(t *testing.T) {
@@ -42,18 +67,17 @@ func TestDispatcher_Dispatch_WebhookDelivery(t *testing.T) {
 	d := notify.NewDispatcher(st)
 	d.Dispatch("scan_complete", map[string]interface{}{"target": "https://example.com"})
 
-	// Wait for async goroutine
 	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) && len(*bodies) == 0 {
+	for time.Now().Before(deadline) && bodies.len() == 0 {
 		time.Sleep(20 * time.Millisecond)
 	}
 
-	if len(*bodies) == 0 {
+	if bodies.len() == 0 {
 		t.Fatal("expected webhook body, got none")
 	}
 
 	var payload map[string]interface{}
-	if err := json.Unmarshal((*bodies)[0], &payload); err != nil {
+	if err := json.Unmarshal(bodies.get(0), &payload); err != nil {
 		t.Fatalf("unmarshal payload: %v", err)
 	}
 	if payload["event"] != "scan_complete" {
@@ -64,7 +88,6 @@ func TestDispatcher_Dispatch_WebhookDelivery(t *testing.T) {
 func TestDispatcher_Dispatch_NoChannels(t *testing.T) {
 	st := notify.NewStore()
 	d := notify.NewDispatcher(st)
-	// Should not panic with zero channels
 	d.Dispatch("scan_complete", map[string]interface{}{})
 }
 
@@ -81,8 +104,8 @@ func TestDispatcher_Dispatch_SkipsDisabledChannels(t *testing.T) {
 	d.Dispatch("critical_finding", map[string]interface{}{})
 
 	time.Sleep(100 * time.Millisecond)
-	if len(*bodies) != 0 {
-		t.Errorf("expected 0 deliveries to disabled channel, got %d", len(*bodies))
+	if bodies.len() != 0 {
+		t.Errorf("expected 0 deliveries to disabled channel, got %d", bodies.len())
 	}
 }
 
@@ -90,7 +113,7 @@ func TestDispatcher_Dispatch_SlackFormat(t *testing.T) {
 	srv, bodies := fakeServer(t)
 
 	st := notify.NewStore()
-	st.Create("slack-ch", notify.ChannelSlack, notify.ChannelConfig{
+	st.Create("slack-ch", notify.ChannelSlack, notify.ChannelConfig{ //nolint
 		WebhookURL: srv.URL,
 	}, []string{"critical_finding"})
 
@@ -98,19 +121,18 @@ func TestDispatcher_Dispatch_SlackFormat(t *testing.T) {
 	d.Dispatch("critical_finding", map[string]interface{}{"title": "SQLi detected", "target": "https://api.example.com"})
 
 	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) && len(*bodies) == 0 {
+	for time.Now().Before(deadline) && bodies.len() == 0 {
 		time.Sleep(20 * time.Millisecond)
 	}
 
-	if len(*bodies) == 0 {
+	if bodies.len() == 0 {
 		t.Fatal("expected slack payload, got none")
 	}
 
 	var payload map[string]interface{}
-	if err := json.Unmarshal((*bodies)[0], &payload); err != nil {
+	if err := json.Unmarshal(bodies.get(0), &payload); err != nil {
 		t.Fatalf("unmarshal slack payload: %v", err)
 	}
-	// Slack format should have a "text" field (not "event")
 	if _, ok := payload["text"]; !ok {
 		t.Error("slack payload missing 'text' field")
 	}
@@ -137,18 +159,17 @@ func TestDispatcher_Test_WebhookSendsTestPayload(t *testing.T) {
 		t.Fatalf("Test: %v", err)
 	}
 
-	if len(*bodies) == 0 {
+	if bodies.len() == 0 {
 		t.Fatal("expected test payload delivery, got none")
 	}
 
 	var payload map[string]interface{}
-	if err := json.Unmarshal((*bodies)[0], &payload); err != nil {
+	if err := json.Unmarshal(bodies.get(0), &payload); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if payload["event"] != "test" {
 		t.Errorf("test payload event = %v, want test", payload["event"])
 	}
-	// MarkTested should have been called
 	got, _ := st.Get(ch.ID)
 	if got.TestedAt == nil {
 		t.Error("TestedAt should be set after successful Test()")
@@ -157,26 +178,20 @@ func TestDispatcher_Test_WebhookSendsTestPayload(t *testing.T) {
 
 func TestDispatcher_Test_EmailMissingConfig(t *testing.T) {
 	st := notify.NewStore()
-	ch, _ := st.Create("email-ch", notify.ChannelEmail, notify.ChannelConfig{
-		// No smtp_host or to — should fail
-	}, nil)
+	ch, _ := st.Create("email-ch", notify.ChannelEmail, notify.ChannelConfig{}, nil)
 
 	d := notify.NewDispatcher(st)
-	err := d.Test(ch.ID)
-	if err == nil {
+	if err := d.Test(ch.ID); err == nil {
 		t.Error("expected error for email channel with missing config")
 	}
 }
 
 func TestDispatcher_Test_WebhookBadURL(t *testing.T) {
 	st := notify.NewStore()
-	ch, _ := st.Create("bad-wh", notify.ChannelWebhook, notify.ChannelConfig{
-		WebhookURL: "", // empty
-	}, nil)
+	ch, _ := st.Create("bad-wh", notify.ChannelWebhook, notify.ChannelConfig{WebhookURL: ""}, nil)
 
 	d := notify.NewDispatcher(st)
-	err := d.Test(ch.ID)
-	if err == nil {
+	if err := d.Test(ch.ID); err == nil {
 		t.Error("expected error for webhook with empty URL")
 	}
 }
@@ -186,21 +201,21 @@ func TestDispatcher_Dispatch_MultipleChannels(t *testing.T) {
 	srv2, bodies2 := fakeServer(t)
 
 	st := notify.NewStore()
-	st.Create("ch1", notify.ChannelWebhook, notify.ChannelConfig{WebhookURL: srv1.URL}, []string{"high_finding"})
-	st.Create("ch2", notify.ChannelWebhook, notify.ChannelConfig{WebhookURL: srv2.URL}, []string{"high_finding"})
+	st.Create("ch1", notify.ChannelWebhook, notify.ChannelConfig{WebhookURL: srv1.URL}, []string{"high_finding"}) //nolint
+	st.Create("ch2", notify.ChannelWebhook, notify.ChannelConfig{WebhookURL: srv2.URL}, []string{"high_finding"}) //nolint
 
 	d := notify.NewDispatcher(st)
 	d.Dispatch("high_finding", map[string]interface{}{"severity": "high"})
 
 	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) && (len(*bodies1) == 0 || len(*bodies2) == 0) {
+	for time.Now().Before(deadline) && (bodies1.len() == 0 || bodies2.len() == 0) {
 		time.Sleep(20 * time.Millisecond)
 	}
 
-	if len(*bodies1) == 0 {
+	if bodies1.len() == 0 {
 		t.Error("ch1 did not receive delivery")
 	}
-	if len(*bodies2) == 0 {
+	if bodies2.len() == 0 {
 		t.Error("ch2 did not receive delivery")
 	}
 }

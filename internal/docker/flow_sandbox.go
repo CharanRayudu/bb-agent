@@ -241,13 +241,6 @@ func (fs *FlowSandbox) resolveImage(profile SandboxProfile) string {
 	}
 }
 
-// executeInContainer is a shared helper for running shell commands in any
-// container. Deprecated: prefer executeInContainerArgv with an explicit
-// argv to avoid shell injection.
-func executeInContainer(ctx context.Context, cli *client.Client, containerID, command string, timeoutSec int) (*ExecResult, error) {
-	return executeInContainerArgv(ctx, cli, containerID, []string{"/bin/bash", "-c", command}, timeoutSec)
-}
-
 // executeInContainerArgv runs an explicit argv in the container without
 // invoking a shell parser.
 func executeInContainerArgv(ctx context.Context, cli *client.Client, containerID string, argv []string, timeoutSec int) (*ExecResult, error) {

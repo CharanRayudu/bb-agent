@@ -216,10 +216,7 @@ func (mp *MetaPrompter) mergeRegions(protected, newOptimizable string) string {
 
 	// Replace optimizable sections between protected blocks
 	for _, pp := range protectedParts {
-		placeholder := pp
-		if strings.Contains(result, placeholder) {
-			result = strings.Replace(result, placeholder, placeholder, 1)
-		}
+		result = strings.Replace(result, pp, pp, 1)
 	}
 
 	// If we can't do smart merging, fall back to prepending protected + new content

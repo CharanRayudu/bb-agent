@@ -72,13 +72,13 @@ func CreateJiraIssue(ctx context.Context, cfg JiraConfig, it *Item) (*JiraTicket
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("Jira request failed: %w", err)
+		return nil, fmt.Errorf("jira request failed: %w", err)
 	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("Jira returned HTTP %d: %s", resp.StatusCode, string(b))
+		return nil, fmt.Errorf("jira returned HTTP %d: %s", resp.StatusCode, string(b))
 	}
 
 	var result struct {
@@ -170,7 +170,7 @@ func CreateGitHubIssue(ctx context.Context, cfg GitHubConfig, it *Item) (*GitHub
 func buildGitHubBody(it *Item) string {
 	var sb strings.Builder
 	sb.WriteString("## Security Finding\n\n")
-	sb.WriteString(fmt.Sprintf("| Field | Value |\n|-------|-------|\n"))
+	sb.WriteString("| Field | Value |\n|-------|-------|\n")
 	sb.WriteString(fmt.Sprintf("| **Severity** | `%s` |\n", strings.ToUpper(it.Severity)))
 	sb.WriteString(fmt.Sprintf("| **Type** | %s |\n", it.FindingType))
 	sb.WriteString(fmt.Sprintf("| **Target** | `%s` |\n", it.Target))

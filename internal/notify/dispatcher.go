@@ -40,12 +40,11 @@ func (d *Dispatcher) Dispatch(event string, data map[string]interface{}) {
 		Data:      data,
 	}
 	for _, ch := range channels {
-		ch := ch
-		go func() {
+		go func(ch *Channel) {
 			if err := d.send(ch, p); err != nil {
 				log.Printf("[NOTIFY] %s → %s (%s): %v", event, ch.Name, ch.Type, err)
 			}
-		}()
+		}(ch)
 	}
 }
 

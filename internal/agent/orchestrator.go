@@ -631,7 +631,7 @@ func (o *Orchestrator) PauseFlow(flowID uuid.UUID) error {
 	delete(o.pausedFlows, flowID)
 
 	if o.queries != nil {
-		o.queries.UpdateFlowStatus(flowID, models.FlowStatusPaused)
+		_ = o.queries.UpdateFlowStatus(flowID, models.FlowStatusPaused)
 	}
 	return nil
 }
@@ -1676,12 +1676,12 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 				break // exit iterative loop; reporting phase runs after
 			}
 		} else {
-			stableLoops = 0
+			stableLoops = 0 //nolint:ineffassign
 		}
-		prevFindingCount = currentFindingCount
+		prevFindingCount = currentFindingCount //nolint:ineffassign,staticcheck // read at top of next iteration
 		// ─────────────────────────────────────────────────────────────────────
 
-		var swarmResults string = "Asynchronous swarm analysis completed."
+		swarmResults := "Asynchronous swarm analysis completed."
 
 		// ── Mythos: Hypothesis Refinement ──────────────────────────────────────
 		// After each exploitation round, refine hypothesis confidence based on
@@ -1878,7 +1878,7 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 							TaskID:  task.ID.String(),
 							Content: "[WARN] Browser automation became unavailable during visual validation. Remaining browser-driven checks will be skipped.",
 						})
-						browserUnavailableNotified = true
+						browserUnavailableNotified = true //nolint:ineffassign
 					}
 					break
 				}
@@ -2491,7 +2491,7 @@ func formatFindingReport(f *Finding) string {
 		description += fmt.Sprintf(" using payload `%s`", f.Payload)
 	}
 
-	return fmt.Sprintf("## %s\n**Severity**: %s\n\n%s", f.Type, strings.Title(strings.ToLower(f.Severity)), description)
+	return fmt.Sprintf("## %s\n**Severity**: %s\n\n%s", f.Type, strings.Title(strings.ToLower(f.Severity)), description) //nolint:staticcheck
 }
 
 func (o *Orchestrator) updateTechStackFromNote(ts *TechStack, note string) {

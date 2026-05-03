@@ -153,7 +153,7 @@ func testProbe(ctx context.Context, client *http.Client, targetURL, realHost str
 	// 5. URL containing attacker domain in Location header
 	locationPoisoned := strings.Contains(strings.ToLower(resp.Header.Get("Location")), strings.ToLower(p.value))
 
-	if !attackReflected && !locationPoisoned && !foundAdminContent && !(statusChanged && sizeDiff) {
+	if !attackReflected && !locationPoisoned && !foundAdminContent && (!statusChanged || !sizeDiff) {
 		return nil
 	}
 

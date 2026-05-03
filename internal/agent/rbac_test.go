@@ -53,7 +53,6 @@ func TestRBAC_Permissions(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(string(tc.role), func(t *testing.T) {
 			t.Parallel()
 			key, _ := r.AddUser("u_"+string(tc.role), tc.role)

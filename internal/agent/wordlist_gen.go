@@ -182,16 +182,12 @@ func extractHTMLKeywords(html string) []string {
 
 	// Page titles
 	for _, m := range pageTitleRe.FindAllStringSubmatch(html, -1) {
-		for _, w := range tokenizeWords(m[1]) {
-			kws = append(kws, w)
-		}
+		kws = append(kws, tokenizeWords(m[1])...)
 	}
 
 	// HTML comments
 	for _, m := range htmlCommentRe.FindAllStringSubmatch(html, -1) {
-		for _, w := range tokenizeWords(m[1]) {
-			kws = append(kws, w)
-		}
+		kws = append(kws, tokenizeWords(m[1])...)
 	}
 
 	// JS variable names
@@ -271,10 +267,7 @@ func isValidToken(s string) bool {
 			break
 		}
 	}
-	if allDigits {
-		return false
-	}
-	return true
+	return !allDigits
 }
 
 func minInt(a, b int) int {

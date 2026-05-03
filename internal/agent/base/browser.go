@@ -166,7 +166,7 @@ func RunHeadless(ctx context.Context, targetURL string, opts BrowserOptions) (*B
 			metadata.AlertDetected = true
 			metadata.AlertText = e.Message
 			go func() {
-				chromedp.Run(browserCtx, page.HandleJavaScriptDialog(true))
+				_ = chromedp.Run(browserCtx, page.HandleJavaScriptDialog(true))
 			}()
 		case *runtime.EventConsoleAPICalled:
 			for _, arg := range e.Args {
@@ -269,7 +269,7 @@ func RunHeadlessPOST(ctx context.Context, actionURL string, data map[string]stri
 
 func saveScreenshot(buf []byte) (string, error) {
 	dir := "logs/screenshots"
-	os.MkdirAll(dir, 0755)
+	_ = os.MkdirAll(dir, 0755)
 	filename := fmt.Sprintf("ss_%d.png", time.Now().UnixNano())
 	path := filepath.Join(dir, filename)
 	err := os.WriteFile(path, buf, 0644)

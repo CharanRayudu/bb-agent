@@ -81,7 +81,6 @@ func (a *Agent) ProcessItem(ctx context.Context, item *queue.Item) ([]*base.Find
 		// Run all scanners concurrently
 		type result struct {
 			findings []*base.Finding
-			err      error
 		}
 
 		secretsCh := make(chan result, 1)

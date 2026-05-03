@@ -664,13 +664,13 @@ func (s *Server) handleFlowEvents(w http.ResponseWriter, r *http.Request, id uui
 
 	// Add reconstructed events from actions if not already present
 	for _, a := range actions {
-		sType := string(a.Type)
 		var toolName string
-		if sType == "command" {
+		switch sType := string(a.Type); sType {
+		case "command":
 			toolName = "execute_command"
-		} else if sType == "analyze" || sType == "llm_call" {
+		case "analyze", "llm_call":
 			toolName = "think"
-		} else if sType == "report" {
+		case "report":
 			toolName = "report_findings"
 		}
 
@@ -850,7 +850,6 @@ func (s *Server) handleCreateFlow(w http.ResponseWriter, r *http.Request) {
 		additionalTargets = additionalTargets[:5]
 	}
 	for _, additionalTarget := range additionalTargets {
-		additionalTarget := additionalTarget // capture loop variable
 		if additionalTarget == "" {
 			continue
 		}
@@ -1169,31 +1168,6 @@ func (s *Server) handleRemediationList(w http.ResponseWriter, r *http.Request) {
 }
 
 // ============ RBAC / Users ============
-
-func (s *Server) authMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Bootstrapping mode: if no users exist, allow all requests.
-		if s.rbac.UserCount() == 0 {
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		apiKey := r.Header.Get("X-API-Key")
-		if apiKey == "" {
-			http.Error(w, `{"error":"X-API-Key header required"}`, http.StatusUnauthorized)
-			return
-		}
-
-		user, ok := s.rbac.Authenticate(apiKey)
-		if !ok {
-			http.Error(w, `{"error":"invalid API key"}`, http.StatusUnauthorized)
-			return
-		}
-
-		ctx := context.WithValue(r.Context(), agentUserKey, user)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
 
 type agentContextKey string
 

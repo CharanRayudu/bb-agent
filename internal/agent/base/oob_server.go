@@ -40,15 +40,15 @@ func (o *OOBServer) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/cb/", o.handleCallback)
 
-	o.server = &http.Server{
+	srv := &http.Server{
 		Addr:    o.addr,
 		Handler: mux,
 	}
+	o.server = srv // assign before goroutines read it
 
 	// Run in background; ignore the normal "server closed" error.
 	go func() {
-		if err := o.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			// Best-effort: server already stopped
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			_ = err
 		}
 	}()
@@ -58,7 +58,7 @@ func (o *OOBServer) Start(ctx context.Context) error {
 		<-ctx.Done()
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_ = o.server.Shutdown(shutCtx)
+		_ = srv.Shutdown(shutCtx)
 	}()
 
 	return nil

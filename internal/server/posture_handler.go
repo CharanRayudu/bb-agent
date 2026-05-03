@@ -54,9 +54,10 @@ func (s *Server) handlePosture(w http.ResponseWriter, r *http.Request) {
 
 		// Count open (untracked) critical/high
 		if existing := s.remStore.ByFindingID(f.ID); existing == nil {
-			if f.Severity == "critical" {
+			switch f.Severity {
+			case "critical":
 				openCritical++
-			} else if f.Severity == "high" {
+			case "high":
 				openHigh++
 			}
 		}

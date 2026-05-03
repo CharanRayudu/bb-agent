@@ -90,44 +90,11 @@ func githubLabel(severity string) string {
 	}
 }
 
-// buildJiraDescription formats a finding into Jira wiki markup.
-func buildJiraDescription(f *Finding) string {
-	var sb strings.Builder
-	sb.WriteString("h2. Finding Summary\n\n")
-	sb.WriteString(fmt.Sprintf("*Type:* %s\n", f.Type))
-	sb.WriteString(fmt.Sprintf("*URL:* %s\n", f.URL))
-	sb.WriteString(fmt.Sprintf("*Severity:* %s\n", strings.ToUpper(f.Severity)))
-	sb.WriteString(fmt.Sprintf("*Confidence:* %.0f%%\n", f.Confidence*100))
-	sb.WriteString(fmt.Sprintf("*Flow ID:* %s\n\n", f.FlowID))
-
-	if f.Description != "" {
-		sb.WriteString("h2. Description\n\n")
-		sb.WriteString(f.Description + "\n\n")
-	}
-
-	if f.Remediation != "" {
-		sb.WriteString("h2. Remediation\n\n")
-		sb.WriteString(f.Remediation + "\n\n")
-	}
-
-	if len(f.Evidence) > 0 {
-		sb.WriteString("h2. Evidence\n\n")
-		sb.WriteString("{code:json}\n")
-		if b, err := json.MarshalIndent(f.Evidence, "", "  "); err == nil {
-			sb.WriteString(string(b))
-		}
-		sb.WriteString("\n{code}\n\n")
-	}
-
-	sb.WriteString("----\n_Created by Mirage Autonomous Pentest Platform_\n")
-	return sb.String()
-}
-
 // buildGitHubBody formats a finding into GitHub Markdown.
 func buildGitHubBody(f *Finding) string {
 	var sb strings.Builder
 	sb.WriteString("## Finding Summary\n\n")
-	sb.WriteString(fmt.Sprintf("| Field | Value |\n|---|---|\n"))
+	sb.WriteString("| Field | Value |\n|---|---|\n")
 	sb.WriteString(fmt.Sprintf("| **Type** | `%s` |\n", f.Type))
 	sb.WriteString(fmt.Sprintf("| **URL** | `%s` |\n", f.URL))
 	sb.WriteString(fmt.Sprintf("| **Severity** | **%s** |\n", strings.ToUpper(f.Severity)))

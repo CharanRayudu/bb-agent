@@ -87,7 +87,7 @@ func NewOOBManager(serverURL string) *OOBManager {
 // GenerateToken creates a unique token for OOB tracking.
 func (m *OOBManager) GenerateToken() string {
 	b := make([]byte, 16)
-	rand.Read(b)
+	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
 }
 

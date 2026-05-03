@@ -90,7 +90,7 @@ func ValidateFinding(f *Finding) error {
 	if f.Payload != "" {
 		for _, pattern := range ConversationalPatterns {
 			if pattern.MatchString(f.Payload) {
-				return fmt.Errorf("conversational payload detected: %.50s...", f.Payload)
+				return fmt.Errorf("conversational payload detected: %.50s", f.Payload)
 			}
 		}
 	}

@@ -152,7 +152,7 @@ func RankFindings(
 		// Best EPSS/KEV across all CVEs for this finding
 		var bestEPSS *EPSSScore
 		inKEV := false
-		var bestCVSS float64 = f.CVSSScore
+		bestCVSS := f.CVSSScore
 
 		for _, cve := range f.CVEIDs {
 			if epss, ok := epssMap[cve]; ok {

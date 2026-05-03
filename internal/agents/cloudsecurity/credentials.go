@@ -99,24 +99,6 @@ func redactCredential(value, name string) string {
 	return value[:4] + strings.Repeat("*", len(value)-8) + value[len(value)-4:]
 }
 
-// isIMDSResponse checks if a response body looks like a metadata service response.
-func isIMDSResponse(body string) bool {
-	imdsSignals := []string{
-		"ami-id", "instance-id", "iam/security-credentials",
-		"AccessKeyId", "SecretAccessKey", "Token",
-		"instanceId", "subscriptionId", "resourceGroupName",
-		"instance/id", "service-accounts", "project/project-id",
-		"computeMetadata", "latest/meta-data",
-	}
-	lower := strings.ToLower(body)
-	for _, sig := range imdsSignals {
-		if strings.Contains(lower, strings.ToLower(sig)) {
-			return true
-		}
-	}
-	return false
-}
-
 // isS3ListingResponse detects S3 directory listing responses.
 func isS3ListingResponse(body string) bool {
 	return strings.Contains(body, "<ListBucketResult") ||

@@ -45,9 +45,8 @@ func (r *Runner) Stop() {
 
 func (r *Runner) poll() {
 	for _, sc := range r.store.Due() {
-		sc := sc
 		r.store.MarkRunning(sc.ID)
-		go func() {
+		go func(sc *Schedule) {
 			log.Printf("[SCHEDPLAN] firing %s → %s (profile: %s)", sc.Name, sc.Target, sc.ProfileName)
 			defer func() {
 				if p := recover(); p != nil {
@@ -57,6 +56,6 @@ func (r *Runner) poll() {
 			}()
 			r.fire(sc)
 			r.store.MarkComplete(sc.ID, "ok")
-		}()
+		}(sc)
 	}
 }

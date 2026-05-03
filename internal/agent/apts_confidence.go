@@ -67,7 +67,7 @@ func evidenceQualityScore(f *Finding) float64 {
 		return 0.70 // Timing differential = statistical, slightly weaker
 	default:
 		// Unclassified: check evidence map for version banners or indirect signals
-		if f.Evidence != nil && len(f.Evidence) > 0 {
+		if len(f.Evidence) > 0 {
 			return 0.30 // Indirect indicator (version banner, header, etc.)
 		}
 		return 0.10 // No evidence at all

@@ -22,7 +22,6 @@ func TestGetProfile_KnownProfiles(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			p, ok := GetProfile(tc.name)

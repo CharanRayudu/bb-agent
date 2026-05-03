@@ -202,7 +202,7 @@ fwDone:
 	for _, srv := range servers {
 		for _, hint := range []string{"apache", "nginx", "iis", "tomcat", "jetty", "gunicorn", "uvicorn"} {
 			if strings.Contains(srv, hint) {
-				stack.Server = strings.Title(hint)
+				stack.Server = strings.Title(hint) //nolint:staticcheck
 				goto srvDone
 			}
 		}
@@ -211,7 +211,7 @@ srvDone:
 
 	// 4. Language detection
 	if len(languages) > 0 {
-		stack.Lang = strings.Title(languages[0])
+		stack.Lang = strings.Title(languages[0]) //nolint:staticcheck
 	} else if stack.Server != "generic" {
 		if lang, ok := serverToLang[strings.ToLower(stack.Server)]; ok && lang != "varies" {
 			stack.Lang = lang

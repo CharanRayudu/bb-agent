@@ -201,7 +201,7 @@ func (s *Server) handleItemTicket(w http.ResponseWriter, r *http.Request, id str
 			json.NewEncoder(w).Encode(map[string]string{"status": "error", "error": err.Error()})
 			return
 		}
-		s.remStore.SetTicket(id, ticket.Key, ticket.URL, 0, "")
+		_ = s.remStore.SetTicket(id, ticket.Key, ticket.URL, 0, "")
 		json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "jira_key": ticket.Key, "url": ticket.URL})
 
 	case "github":
@@ -216,7 +216,7 @@ func (s *Server) handleItemTicket(w http.ResponseWriter, r *http.Request, id str
 			return
 		}
 		_ = intVal("_") // suppress lint
-		s.remStore.SetTicket(id, "", "", issue.Number, issue.URL)
+		_ = s.remStore.SetTicket(id, "", "", issue.Number, issue.URL)
 		json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok", "issue": issue.Number, "url": issue.URL})
 
 	default:

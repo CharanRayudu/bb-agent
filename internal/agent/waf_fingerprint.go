@@ -295,17 +295,6 @@ func flattenHeaders(headers http.Header) string {
 	return sb.String()
 }
 
-// http_canonicalHeader converts a lowercase header name to canonical form (e.g. "cf-ray" -> "Cf-Ray").
-func http_canonicalHeader(s string) string {
-	parts := strings.Split(s, "-")
-	for i, p := range parts {
-		if len(p) > 0 {
-			parts[i] = strings.ToUpper(p[:1]) + strings.ToLower(p[1:])
-		}
-	}
-	return strings.Join(parts, "-")
-}
-
 // urlDoubleEncode percent-encodes s then percent-encodes the result.
 func urlDoubleEncode(s string) string {
 	var sb strings.Builder
