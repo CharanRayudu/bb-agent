@@ -204,6 +204,7 @@ export default function CopilotPanel() {
             const decoder = new TextDecoder()
             let buf = ''
             let accumulated = ''
+            let terminalEventSeen = false
 
             while (true) {
                 const { done, value } = await reader.read()
@@ -223,20 +224,31 @@ export default function CopilotPanel() {
                             accumulated += ev.text
                             setStreamingContent(accumulated)
                         } else if (ev.type === 'done') {
+                            terminalEventSeen = true
                             setMessages(prev => [...prev, { role: 'assistant', content: accumulated }])
                             setStreamingContent('')
                             setSending(false)
                         } else if (ev.type === 'error') {
-                            setMessages(prev => [...prev, { role: 'assistant', content: `⚠️ ${ev.error}` }])
+                            terminalEventSeen = true
+                            setMessages(prev => [...prev, { role: 'assistant', content: `Warning: ${ev.error}` }])
                             setStreamingContent('')
                             setSending(false)
                         }
                     } catch { /* malformed SSE */ }
                 }
             }
+            if (!terminalEventSeen) {
+                if (accumulated) {
+                    setMessages(prev => [...prev, { role: 'assistant', content: accumulated }])
+                } else {
+                    setMessages(prev => [...prev, { role: 'assistant', content: 'Warning: response stream ended before the assistant returned content.' }])
+                }
+                setStreamingContent('')
+                setSending(false)
+            }
         } catch (err) {
             if (err.name !== 'AbortError') {
-                setMessages(prev => [...prev, { role: 'assistant', content: `⚠️ ${err.message}` }])
+                setMessages(prev => [...prev, { role: 'assistant', content: `Warning: ${err.message}` }])
             }
             setStreamingContent('')
             setSending(false)
@@ -279,7 +291,7 @@ export default function CopilotPanel() {
                         transition={{ type: 'spring', stiffness: 400, damping: 25 }}
                         type="button"
                         onClick={() => setOpen(true)}
-                        className="fixed bottom-6 right-6 z-40 w-13 h-13 rounded-2xl flex items-center justify-center shadow-[0_8px_32px_rgba(0,0,0,0.5),0_0_0_1px_rgba(255,255,255,0.1),inset_0_1px_0_rgba(255,255,255,0.15)] bg-gradient-to-br from-accent-purple/40 to-accent-cyan/30 backdrop-blur-xl border border-white/15 hover:shadow-[0_8px_32px_rgba(139,92,246,0.35)] transition-shadow group"
+                        className="fixed bottom-6 right-6 z-40 w-[52px] h-[52px] rounded-2xl flex items-center justify-center shadow-[0_8px_32px_rgba(0,0,0,0.5),0_0_0_1px_rgba(255,255,255,0.1),inset_0_1px_0_rgba(255,255,255,0.15)] bg-gradient-to-br from-accent-purple/40 to-accent-cyan/30 backdrop-blur-xl border border-white/[0.15] hover:shadow-[0_8px_32px_rgba(139,92,246,0.35)] transition-shadow group"
                         title="AI Security Copilot (⌘/)"
                         style={{ width: 52, height: 52 }}
                     >
@@ -316,14 +328,14 @@ export default function CopilotPanel() {
                             {/* Header */}
                             <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.08] flex-shrink-0">
                                 <div className="flex items-center gap-2.5">
-                                    <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-accent-purple/30 to-accent-cyan/20 border border-white/15 flex items-center justify-center">
+                                    <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-accent-purple/30 to-accent-cyan/20 border border-white/[0.15] flex items-center justify-center">
                                         <Bot className="w-3.5 h-3.5 text-white" />
                                     </div>
                                     <div>
                                         <div className="text-[13px] font-semibold text-text-primary leading-none">Security Copilot</div>
                                         <div className="text-[10px] text-text-muted mt-0.5 flex items-center gap-1">
                                             <span className={`w-1.5 h-1.5 rounded-full ${available ? 'bg-accent-green' : 'bg-yellow-400'}`} />
-                                            {available === false ? 'API key not set' : 'claude-sonnet-4-6'}
+                                            {available === false ? 'Codex login needed' : 'Codex LLM'}
                                         </div>
                                     </div>
                                 </div>
@@ -369,7 +381,7 @@ export default function CopilotPanel() {
                                         {available === false && (
                                             <div className="w-full rounded-xl border border-yellow-400/25 bg-yellow-400/10 px-3 py-2 flex items-start gap-2">
                                                 <AlertTriangle className="w-3.5 h-3.5 text-yellow-400 mt-0.5 flex-shrink-0" />
-                                                <p className="text-[11px] text-yellow-300">Set <code className="font-mono">ANTHROPIC_API_KEY</code> to enable AI responses.</p>
+                                                <p className="text-[11px] text-yellow-300">Run <code className="font-mono">codex login</code> or configure the shared OpenAI provider to enable AI responses.</p>
                                             </div>
                                         )}
                                         {suggestions.length > 0 && (
@@ -414,7 +426,7 @@ export default function CopilotPanel() {
                                             e.target.style.height = Math.min(e.target.scrollHeight, 96) + 'px'
                                         }}
                                         onKeyDown={handleKeyDown}
-                                        placeholder={available === false ? "Set ANTHROPIC_API_KEY first…" : "Ask about findings, risks, or remediations…"}
+                                        placeholder={available === false ? "Connect Codex first…" : "Ask about findings, risks, or remediations…"}
                                         disabled={sending}
                                         className="flex-1 bg-transparent text-[13px] text-text-primary placeholder:text-text-muted outline-none resize-none leading-relaxed disabled:opacity-50"
                                         style={{ minHeight: 20, maxHeight: 96 }}

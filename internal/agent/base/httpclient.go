@@ -223,9 +223,9 @@ func DetectXSSExecution(body, payload string) bool {
 }
 
 var (
-	mysqlErrorRe = regexp.MustCompile(`(?i)(you have an error in your sql syntax|mysql_fetch|supplied argument is not a valid mysql|mysql_numrows|call to undefined function mysql)`)
-	pgErrorRe    = regexp.MustCompile(`(?i)(pg_query\(\)|supplied argument is not a valid postgresql|unterminated quoted string at|pg_exec\(\)|error:.*syntax error at or near|postgresql.*error)`)
-	mssqlErrorRe = regexp.MustCompile(`(?i)(microsoft sql server|syntax error converting|unclosed quotation mark|incorrect syntax near|sql server.*driver|odbc.*sql server)`)
+	mysqlErrorRe  = regexp.MustCompile(`(?i)(you have an error in your sql syntax|mysql_fetch|supplied argument is not a valid mysql|mysql_numrows|call to undefined function mysql)`)
+	pgErrorRe     = regexp.MustCompile(`(?i)(pg_query\(\)|supplied argument is not a valid postgresql|unterminated quoted string at|pg_exec\(\)|error:.*syntax error at or near|postgresql.*error)`)
+	mssqlErrorRe  = regexp.MustCompile(`(?i)(microsoft sql server|syntax error converting|unclosed quotation mark|incorrect syntax near|sql server.*driver|odbc.*sql server)`)
 	oracleErrorRe = regexp.MustCompile(`(?i)(ora-\d{4,5}|oracle.*error|quoted string not properly terminated)`)
 	sqliteErrorRe = regexp.MustCompile(`(?i)(sqlite_error|sqlite3.*error|unrecognized token:)`)
 )
@@ -267,9 +267,9 @@ func DetectSSRFResponse(body string) bool {
 }
 
 var (
-	rceUnixRe = regexp.MustCompile(`uid=\d+\(\w+\)\s+gid=\d+`)
-	rcePasswdRe = regexp.MustCompile(`root:x?:0:0:`)
-	rceWindowsRe = regexp.MustCompile(`(?i)(nt authority\\system|windows\s+ip\s+configuration|volume\s+serial\s+number)`)
+	rceUnixRe     = regexp.MustCompile(`uid=\d+\(\w+\)\s+gid=\d+`)
+	rcePasswdRe   = regexp.MustCompile(`root:x?:0:0:`)
+	rceWindowsRe  = regexp.MustCompile(`(?i)(nt authority\\system|windows\s+ip\s+configuration|volume\s+serial\s+number)`)
 	rceHostnameRe = regexp.MustCompile(`(?i)([a-z0-9\-]{3,63}\.(local|internal|corp|lan)\b)`)
 )
 

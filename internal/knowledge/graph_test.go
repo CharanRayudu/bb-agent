@@ -89,7 +89,7 @@ func TestFindNodes_ByType(t *testing.T) {
 
 func TestFindNodes_WithFilter(t *testing.T) {
 	g := newGraph()
-	g.AddNode(&knowledge.KGNode{ID: "n1", Type: knowledge.NodeHost, Label: "h1", Properties: map[string]interface{}{"env": "prod"}})   //nolint
+	g.AddNode(&knowledge.KGNode{ID: "n1", Type: knowledge.NodeHost, Label: "h1", Properties: map[string]interface{}{"env": "prod"}})    //nolint
 	g.AddNode(&knowledge.KGNode{ID: "n2", Type: knowledge.NodeHost, Label: "h2", Properties: map[string]interface{}{"env": "staging"}}) //nolint
 
 	res, _ := g.FindNodes(knowledge.NodeHost, map[string]interface{}{"env": "prod"})
@@ -102,7 +102,7 @@ func TestFindNodes_WithFilter(t *testing.T) {
 
 func TestAddEdge_Dedup(t *testing.T) {
 	g := newGraph()
-	g.AddNode(&knowledge.KGNode{ID: "a", Type: knowledge.NodeHost, Label: "a"})            //nolint
+	g.AddNode(&knowledge.KGNode{ID: "a", Type: knowledge.NodeHost, Label: "a"})             //nolint
 	g.AddNode(&knowledge.KGNode{ID: "b", Type: knowledge.NodeVulnerability, Label: "vuln"}) //nolint
 
 	e := &knowledge.KGEdge{SourceID: "a", TargetID: "b", Type: knowledge.EdgeVulnTo}
@@ -148,9 +148,9 @@ func TestGetEdges_BothDirections(t *testing.T) {
 
 func TestFindSimilarTargets(t *testing.T) {
 	g := newGraph()
-	g.AddNode(&knowledge.KGNode{ID: "h1", Type: knowledge.NodeHost, Label: "h1", Properties: map[string]interface{}{"tech_stack": "Django Python"}})  //nolint
-	g.AddNode(&knowledge.KGNode{ID: "h2", Type: knowledge.NodeHost, Label: "h2", Properties: map[string]interface{}{"tech_stack": "Rails Ruby"}})      //nolint
-	g.AddNode(&knowledge.KGNode{ID: "h3", Type: knowledge.NodeHost, Label: "h3", Properties: map[string]interface{}{"tech_stack": "Django REST"}})     //nolint
+	g.AddNode(&knowledge.KGNode{ID: "h1", Type: knowledge.NodeHost, Label: "h1", Properties: map[string]interface{}{"tech_stack": "Django Python"}}) //nolint
+	g.AddNode(&knowledge.KGNode{ID: "h2", Type: knowledge.NodeHost, Label: "h2", Properties: map[string]interface{}{"tech_stack": "Rails Ruby"}})    //nolint
+	g.AddNode(&knowledge.KGNode{ID: "h3", Type: knowledge.NodeHost, Label: "h3", Properties: map[string]interface{}{"tech_stack": "Django REST"}})   //nolint
 
 	res, err := g.FindSimilarTargets("django")
 	if err != nil {
@@ -169,7 +169,7 @@ func TestGetAttackChains(t *testing.T) {
 	g.AddNode(&knowledge.KGNode{ID: "vuln1", Type: knowledge.NodeVulnerability, Label: "sqli"}) //nolint
 	g.AddNode(&knowledge.KGNode{ID: "tech1", Type: knowledge.NodeTechnique, Label: "union"})    //nolint
 
-	g.AddEdge(&knowledge.KGEdge{SourceID: "host1", TargetID: "vuln1", Type: knowledge.EdgeVulnTo})    //nolint
+	g.AddEdge(&knowledge.KGEdge{SourceID: "host1", TargetID: "vuln1", Type: knowledge.EdgeVulnTo})      //nolint
 	g.AddEdge(&knowledge.KGEdge{SourceID: "vuln1", TargetID: "tech1", Type: knowledge.EdgeExploitedBy}) //nolint
 
 	chains, err := g.GetAttackChains("host1")
@@ -202,7 +202,7 @@ func TestGetAttackChains_NoVulns(t *testing.T) {
 func TestGetVulnerabilities(t *testing.T) {
 	g := newGraph()
 	g.AddNode(&knowledge.KGNode{ID: "h", Type: knowledge.NodeHost, Label: "h"})              //nolint
-	g.AddNode(&knowledge.KGNode{ID: "v1", Type: knowledge.NodeVulnerability, Label: "xss"}) //nolint
+	g.AddNode(&knowledge.KGNode{ID: "v1", Type: knowledge.NodeVulnerability, Label: "xss"})  //nolint
 	g.AddNode(&knowledge.KGNode{ID: "v2", Type: knowledge.NodeVulnerability, Label: "sqli"}) //nolint
 
 	g.AddEdge(&knowledge.KGEdge{SourceID: "h", TargetID: "v1", Type: knowledge.EdgeVulnTo}) //nolint

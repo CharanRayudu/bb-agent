@@ -30,10 +30,10 @@ func TestMonitors_ListEmpty(t *testing.T) {
 func TestMonitors_Create(t *testing.T) {
 	h := newTestHandler(t)
 	rr := do(t, h, http.MethodPost, "/api/monitors", map[string]interface{}{
-		"name":          "Production Monitor",
-		"target":        "https://api.example.com",
-		"profile":       "quick-recon",
-		"cron_expr":     "0 6 * * *",
+		"name":           "Production Monitor",
+		"target":         "https://api.example.com",
+		"profile":        "quick-recon",
+		"cron_expr":      "0 6 * * *",
 		"alert_channels": []string{},
 	})
 	if rr.Code != http.StatusOK && rr.Code != http.StatusCreated {

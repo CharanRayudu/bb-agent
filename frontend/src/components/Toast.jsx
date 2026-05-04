@@ -52,7 +52,7 @@ function ToastItem({ toast, onDismiss }) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.94 }}
             transition={{ duration: 0.22, ease: [0.2, 0.8, 0.2, 1] }}
-            className={`relative flex items-start gap-3 min-w-[280px] max-w-sm w-full px-4 py-3.5 rounded-2xl bg-surface-2/90 backdrop-blur-xl border ${s.border} ${s.glow} overflow-hidden`}
+            className={`relative flex items-start gap-3 min-w-[280px] max-w-sm w-full px-4 py-3.5 rounded-2xl bg-surface/90 backdrop-blur-xl border ${s.border} ${s.glow} overflow-hidden`}
         >
             {/* Progress bar */}
             {duration > 0 && (
@@ -64,7 +64,7 @@ function ToastItem({ toast, onDismiss }) {
                 />
             )}
 
-            <Icon className={`w-4.5 h-4.5 mt-0.5 flex-shrink-0 ${s.icon}`} style={{ width: 18, height: 18 }} />
+            <Icon className={`w-[18px] h-[18px] mt-0.5 flex-shrink-0 ${s.icon}`} style={{ width: 18, height: 18 }} />
 
             <div className="flex-1 min-w-0">
                 {toast.title && (

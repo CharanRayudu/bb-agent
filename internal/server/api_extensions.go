@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/bb-agent/mirage/internal/knowledge"
 )
@@ -11,13 +12,13 @@ import (
 func (s *Server) registerExtendedRoutes() {
 	// Auth routes
 	s.mux.HandleFunc("/api/auth/login", s.handleLogin)
-	s.mux.HandleFunc("/api/auth/keys", s.handleAPIKeys)
+	s.mux.HandleFunc("/api/auth/keys", s.authGate(RoleAdmin, s.handleAPIKeys))
 
 	// Knowledge graph API
 	s.mux.HandleFunc("/api/knowledge/graph", s.handleKnowledgeGraph)
 
 	// Configuration API
-	s.mux.HandleFunc("/api/config", s.handleConfig)
+	s.mux.HandleFunc("/api/config", s.authGate(RoleAdmin, s.handleConfig))
 
 	// Schema migrations info
 	s.mux.HandleFunc("/api/system/migrations", s.handleMigrations)
@@ -26,7 +27,7 @@ func (s *Server) registerExtendedRoutes() {
 	s.mux.HandleFunc("/api/assets", s.handleAssets)
 
 	// Notification test endpoint
-	s.mux.HandleFunc("/api/notifications/test", s.handleNotificationTest)
+	s.mux.HandleFunc("/api/notifications/test", s.authGate(RoleOperator, s.handleNotificationTest))
 
 	// Enterprise integrations (ticketing, compliance, SSO)
 	s.registerIntegrationRoutes()
@@ -40,7 +41,7 @@ func (s *Server) registerExtendedRoutes() {
 	// Continuous monitoring (monitors, deltas, alert channels)
 	s.registerMonitoringRoutes()
 
-	// AI-powered report generation (Claude API streaming)
+	// AI-powered report generation via the shared LLM provider.
 	s.registerReportGenerationRoutes()
 
 	// AI security copilot (chat assistant with platform context)
@@ -107,11 +108,27 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		s.configStoreMu.Lock()
 		s.configStore = body
 		s.configStoreMu.Unlock()
+		s.applyRuntimeConfig(body)
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func (s *Server) applyRuntimeConfig(body map[string]interface{}) {
+	if s == nil || s.cfg == nil {
+		return
+	}
+	providers, _ := body["providers"].(map[string]interface{})
+	openai, _ := providers["openai"].(map[string]interface{})
+	if model, _ := openai["model"].(string); strings.TrimSpace(model) != "" {
+		s.cfg.OpenAIModel = strings.TrimSpace(model)
+	}
+	if apiKey, _ := openai["apiKey"].(string); strings.TrimSpace(apiKey) != "" {
+		s.cfg.OpenAIAPIKey = strings.TrimSpace(apiKey)
+	}
+	s.llmProvider = s.currentLLMProvider("")
 }
 
 func (s *Server) handleMigrations(w http.ResponseWriter, r *http.Request) {

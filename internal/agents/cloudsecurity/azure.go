@@ -237,12 +237,12 @@ func probeAzureStorage(ctx context.Context, fc *http.Client, storageAccount stri
 				Agent:      "cloudsecurity",
 				Timestamp:  time.Now(),
 				Evidence: map[string]interface{}{
-					"storage_account": storageAccount,
-					"container":       container,
-					"http_status":     resp.StatusCode,
+					"storage_account":  storageAccount,
+					"container":        container,
+					"http_status":      resp.StatusCode,
 					"response_excerpt": excerpt,
-					"mitre_attack":    "T1530 — Data from Cloud Storage Object",
-					"remediation":     "Set container access level to Private; use Azure AD authentication for all storage access",
+					"mitre_attack":     "T1530 — Data from Cloud Storage Object",
+					"remediation":      "Set container access level to Private; use Azure AD authentication for all storage access",
 				},
 			})
 		}

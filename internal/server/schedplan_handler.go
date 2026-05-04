@@ -9,8 +9,8 @@ import (
 )
 
 func (s *Server) registerSchedulePlanRoutes() {
-	s.mux.HandleFunc("/api/schedule-plans", s.handleSchedulePlans)
-	s.mux.HandleFunc("/api/schedule-plans/", s.handleSchedulePlan)
+	s.mux.HandleFunc("/api/schedule-plans", s.authGateMethods(RoleOperator, s.handleSchedulePlans, http.MethodPost))
+	s.mux.HandleFunc("/api/schedule-plans/", s.authGateMethods(RoleOperator, s.handleSchedulePlan, http.MethodPost, http.MethodPut, http.MethodDelete))
 }
 
 func (s *Server) handleSchedulePlans(w http.ResponseWriter, r *http.Request) {

@@ -10,13 +10,13 @@ import (
 
 // Snapshot is a point-in-time posture score with component breakdown.
 type Snapshot struct {
-	Score              float64            `json:"score"`            // 0-100
-	Grade              string             `json:"grade"`            // A-F
-	Components         ComponentScores    `json:"components"`
-	FindingCounts      map[string]int     `json:"finding_counts"`
-	OWASPCoverage      []OWASPCategory    `json:"owasp_coverage"`
-	UrgentActions      []Action           `json:"urgent_actions"`
-	Timestamp          time.Time          `json:"timestamp"`
+	Score         float64         `json:"score"` // 0-100
+	Grade         string          `json:"grade"` // A-F
+	Components    ComponentScores `json:"components"`
+	FindingCounts map[string]int  `json:"finding_counts"`
+	OWASPCoverage []OWASPCategory `json:"owasp_coverage"`
+	UrgentActions []Action        `json:"urgent_actions"`
+	Timestamp     time.Time       `json:"timestamp"`
 }
 
 // ComponentScores are the weighted inputs to the composite score.
@@ -30,16 +30,16 @@ type ComponentScores struct {
 
 // weights must sum to 1.0
 const (
-	wExposure     = 0.35
-	wRemediation  = 0.25
-	wSLA          = 0.20
-	wMonitoring   = 0.10
-	wSurface      = 0.10
+	wExposure    = 0.35
+	wRemediation = 0.25
+	wSLA         = 0.20
+	wMonitoring  = 0.10
+	wSurface     = 0.10
 )
 
 // OWASPCategory shows coverage for one OWASP Top 10 2025 item.
 type OWASPCategory struct {
-	ID       string `json:"id"`       // A01:2021
+	ID       string `json:"id"` // A01:2021
 	Name     string `json:"name"`
 	Exposed  bool   `json:"exposed"`  // findings found in this category
 	Severity string `json:"severity"` // highest severity among matching findings
@@ -88,16 +88,16 @@ func (h *HistoryStore) All() []Snapshot {
 
 // Input is a summary of platform state used to compute the posture score.
 type Input struct {
-	FindingCounts    map[string]int // severity → count
-	FindingTypes     []string       // unique finding type strings
-	RemItems         int            // total remediation items tracked
-	RemFixed         int            // fixed/verified
-	SLABreached      int            // items with SLA breach
-	SLACompliant     int            // items within SLA
-	MonitorCount     int            // active monitors
-	UniqueTargets    int            // total unique targets scanned
-	OpenCritical     int            // open critical findings
-	OpenHigh         int            // open high findings
+	FindingCounts map[string]int // severity → count
+	FindingTypes  []string       // unique finding type strings
+	RemItems      int            // total remediation items tracked
+	RemFixed      int            // fixed/verified
+	SLABreached   int            // items with SLA breach
+	SLACompliant  int            // items within SLA
+	MonitorCount  int            // active monitors
+	UniqueTargets int            // total unique targets scanned
+	OpenCritical  int            // open critical findings
+	OpenHigh      int            // open high findings
 }
 
 // Compute returns a fully populated Snapshot.

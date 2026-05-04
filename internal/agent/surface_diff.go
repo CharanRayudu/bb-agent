@@ -76,7 +76,7 @@ func paramSetsEqual(a, b []string) bool {
 
 // SurfaceStore stores endpoint records per flow, thread-safely.
 type SurfaceStore struct {
-	mu      sync.RWMutex
+	mu       sync.RWMutex
 	surfaces map[uuid.UUID][]EndpointRecord
 }
 

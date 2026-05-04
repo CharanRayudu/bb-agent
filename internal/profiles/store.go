@@ -21,8 +21,8 @@ type Profile struct {
 	Name        string        `json:"name"`
 	Description string        `json:"description"`
 	Category    string        `json:"category"` // web|api|cloud|devsecops|compliance|custom
-	Icon        string        `json:"icon"`      // lucide icon name hint
-	Color       string        `json:"color"`     // hex
+	Icon        string        `json:"icon"`     // lucide icon name hint
+	Color       string        `json:"color"`    // hex
 	Agents      []AgentConfig `json:"agents"`
 	Tags        []string      `json:"tags"`
 	Builtin     bool          `json:"builtin"`

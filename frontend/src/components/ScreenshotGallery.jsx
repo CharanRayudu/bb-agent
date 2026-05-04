@@ -104,14 +104,14 @@ function ScreenshotGallery({ flowId }) {
                         value={captureUrl}
                         onChange={(e) => setCaptureUrl(e.target.value)}
                         required
-                        className="flex-1 min-w-0 bg-white/8 border border-white/15 rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-muted/50 focus:outline-none focus:border-accent-cyan/50 font-mono"
+                        className="flex-1 min-w-0 bg-white/[0.08] border border-white/[0.15] rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted/50 focus:outline-none focus:border-accent-cyan/50 font-mono"
                     />
                     <input
                         type="text"
                         placeholder="Title (optional)"
                         value={captureTitle}
                         onChange={(e) => setCaptureTitle(e.target.value)}
-                        className="sm:w-48 bg-white/8 border border-white/15 rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-muted/50 focus:outline-none focus:border-accent-cyan/50"
+                        className="sm:w-48 bg-white/[0.08] border border-white/[0.15] rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted/50 focus:outline-none focus:border-accent-cyan/50"
                     />
                     <button
                         type="submit"
@@ -142,7 +142,7 @@ function ScreenshotGallery({ flowId }) {
                     {error}
                 </div>
             ) : screenshots.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-40 text-text-muted gap-3 rounded-xl border border-white/8 bg-white/3">
+                <div className="flex flex-col items-center justify-center h-40 text-text-muted gap-3 rounded-xl border border-white/[0.08] bg-white/[0.03]">
                     <Image className="w-8 h-8 opacity-40" />
                     <span className="text-sm">No screenshots captured yet</span>
                 </div>
@@ -153,7 +153,7 @@ function ScreenshotGallery({ flowId }) {
                             key={shot.id}
                             type="button"
                             onClick={() => openModal(shot)}
-                            className="group text-left rounded-xl border border-white/10 bg-white/5 p-3 hover:border-accent-cyan/40 hover:bg-white/8 transition-all"
+                            className="group text-left rounded-xl border border-white/10 bg-white/5 p-3 hover:border-accent-cyan/40 hover:bg-white/[0.08] transition-all"
                         >
                             <div className="flex items-start justify-between gap-2 mb-2">
                                 <span className="text-xs font-semibold text-text-primary line-clamp-2 leading-snug">
@@ -178,7 +178,7 @@ function ScreenshotGallery({ flowId }) {
                     }}
                 >
                     <div
-                        className="relative max-w-5xl w-full max-h-[90vh] overflow-auto rounded-2xl border border-white/15 bg-[#0b1121] shadow-[0_20px_80px_rgba(0,0,0,0.9)]"
+                        className="relative max-w-5xl w-full max-h-[90vh] overflow-auto rounded-2xl border border-white/[0.15] bg-[#0b1121] shadow-[0_20px_80px_rgba(0,0,0,0.9)]"
                         onClick={(e) => e.stopPropagation()}
                     >
                         {/* Modal header */}

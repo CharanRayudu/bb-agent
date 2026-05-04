@@ -232,7 +232,7 @@ export default function VulnIntel() {
                 <div>
                     <div className="flex items-center gap-3 mb-2">
                         <div className="w-9 h-9 rounded-xl bg-red-500/15 border border-red-500/20 flex items-center justify-center">
-                            <ShieldOff className="w-4.5 h-4.5 text-red-400" />
+                            <ShieldOff className="w-[18px] h-[18px] text-red-400" />
                         </div>
                         <h1 className="text-[22px] font-semibold" style={{ background: 'linear-gradient(135deg, #ff6b6b, #ff4444)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
                             Vulnerability Intelligence

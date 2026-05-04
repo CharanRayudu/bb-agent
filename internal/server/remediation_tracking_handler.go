@@ -9,10 +9,10 @@ import (
 )
 
 func (s *Server) registerRemediationTrackingRoutes() {
-	s.mux.HandleFunc("/api/remediation/items", s.handleRemediationItems)
-	s.mux.HandleFunc("/api/remediation/items/", s.handleRemediationItem)
+	s.mux.HandleFunc("/api/remediation/items", s.authGateMethods(RoleOperator, s.handleRemediationItems, http.MethodPost))
+	s.mux.HandleFunc("/api/remediation/items/", s.authGateMethods(RoleOperator, s.handleRemediationItem, http.MethodPost, http.MethodDelete))
 	s.mux.HandleFunc("/api/remediation/metrics", s.handleRemediationMetrics)
-	s.mux.HandleFunc("/api/remediation/promote", s.handlePromoteFindings)
+	s.mux.HandleFunc("/api/remediation/promote", s.authGate(RoleOperator, s.handlePromoteFindings))
 }
 
 // handleRemediationItems — GET list, POST create from finding
@@ -242,8 +242,8 @@ func (s *Server) handlePromoteFindings(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	var req struct {
-		FindingIDs []string `json:"finding_ids"`
-		AutoPromote bool   `json:"auto_promote"` // promote all critical+high
+		FindingIDs  []string `json:"finding_ids"`
+		AutoPromote bool     `json:"auto_promote"` // promote all critical+high
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)

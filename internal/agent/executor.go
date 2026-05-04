@@ -17,16 +17,16 @@ import (
 
 // ExecutionResult captures the outcome of a single executor run.
 type ExecutionResult struct {
-	Success      bool             `json:"success"`
-	Findings     []*Finding       `json:"findings,omitempty"`
-	ToolsUsed    []string         `json:"tools_used"`
-	StepCount    int              `json:"step_count"`
-	TokensUsed   int              `json:"tokens_used"`
-	Duration     time.Duration    `json:"duration"`
-	Error        string           `json:"error,omitempty"`
-	Confidence   float64          `json:"confidence"`
+	Success      bool                 `json:"success"`
+	Findings     []*Finding           `json:"findings,omitempty"`
+	ToolsUsed    []string             `json:"tools_used"`
+	StepCount    int                  `json:"step_count"`
+	TokensUsed   int                  `json:"tokens_used"`
+	Duration     time.Duration        `json:"duration"`
+	Error        string               `json:"error,omitempty"`
+	Confidence   float64              `json:"confidence"`
 	Messages     []models.ChatMessage `json:"messages,omitempty"`
-	FailureClass FailureLevel     `json:"failure_class,omitempty"`
+	FailureClass FailureLevel         `json:"failure_class,omitempty"`
 }
 
 // Executor handles tactical execution of individual sub-tasks.

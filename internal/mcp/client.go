@@ -32,12 +32,12 @@ type MCPTool struct {
 
 // MCPServer represents a configured MCP server endpoint.
 type MCPServer struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	URL     string `json:"url"`    // HTTP transport URL
-	Type    string `json:"type"`   // "http", "stdio", "sse"
-	Status  string `json:"status"` // "connected", "error", "disconnected"
-	Tools   []MCPTool `json:"tools,omitempty"`
+	ID     string    `json:"id"`
+	Name   string    `json:"name"`
+	URL    string    `json:"url"`    // HTTP transport URL
+	Type   string    `json:"type"`   // "http", "stdio", "sse"
+	Status string    `json:"status"` // "connected", "error", "disconnected"
+	Tools  []MCPTool `json:"tools,omitempty"`
 }
 
 // Client manages connections to MCP servers and provides tool discovery/execution.

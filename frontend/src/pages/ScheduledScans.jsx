@@ -462,7 +462,7 @@ export default function ScheduledScans() {
                 <div>
                     <div className="flex items-center gap-3 mb-2">
                         <div className="w-9 h-9 rounded-xl bg-accent-cyan/15 border border-accent-cyan/20 flex items-center justify-center">
-                            <Calendar className="w-4.5 h-4.5 text-accent-cyan" />
+                            <Calendar className="w-[18px] h-[18px] text-accent-cyan" />
                         </div>
                         <h1 className="text-[22px] font-semibold lg-gradient-text-cyan">Scheduled Scans</h1>
                     </div>

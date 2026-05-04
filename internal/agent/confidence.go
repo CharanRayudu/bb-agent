@@ -68,12 +68,12 @@ func NewConfidenceEngine(thresholds ConfidenceThresholds) *ConfidenceEngine {
 type ConfidenceAction string
 
 const (
-	ActionExploit  ConfidenceAction = "exploit"   // Confidence high: go for it
-	ActionTest     ConfidenceAction = "test"       // Moderate: hypothesis testing
-	ActionPivot    ConfidenceAction = "pivot"      // Low: try different approach
-	ActionSwarm    ConfidenceAction = "swarm"      // Low: deploy parallel agents
-	ActionStop     ConfidenceAction = "stop"       // Very high: confirmed, done
-	ActionAbandon  ConfidenceAction = "abandon"    // Very low: give up on this path
+	ActionExploit ConfidenceAction = "exploit" // Confidence high: go for it
+	ActionTest    ConfidenceAction = "test"    // Moderate: hypothesis testing
+	ActionPivot   ConfidenceAction = "pivot"   // Low: try different approach
+	ActionSwarm   ConfidenceAction = "swarm"   // Low: deploy parallel agents
+	ActionStop    ConfidenceAction = "stop"    // Very high: confirmed, done
+	ActionAbandon ConfidenceAction = "abandon" // Very low: give up on this path
 )
 
 // Decide returns the recommended action for the current confidence level.

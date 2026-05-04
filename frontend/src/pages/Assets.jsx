@@ -456,7 +456,7 @@ export default function Assets() {
                             initial={{ opacity: 0, scale: 0.95 }}
                             animate={{ opacity: 1, scale: 1 }}
                             transition={{ delay: 0.1, duration: 0.3 }}
-                            className="flex-shrink-0 relative overflow-hidden rounded-2xl border border-white/15 bg-white/[0.04] backdrop-blur-xl px-8 py-5 text-center shadow-[0_8px_32px_rgba(0,0,0,0.4)]"
+                            className="flex-shrink-0 relative overflow-hidden rounded-2xl border border-white/[0.15] bg-white/[0.04] backdrop-blur-xl px-8 py-5 text-center shadow-[0_8px_32px_rgba(0,0,0,0.4)]"
                         >
                             <div className="text-[10px] font-mono uppercase tracking-widest text-text-muted mb-2">Overall Security Score</div>
                             <div className="text-5xl font-bold font-mono" style={{ color: overallRisk.color, textShadow: `0 0 24px ${overallRisk.color}60` }}>

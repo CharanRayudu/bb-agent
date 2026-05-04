@@ -38,11 +38,11 @@ func TestDetectChains_SSRFToCloudCreds(t *testing.T) {
 	ce := NewChainExecutor()
 	findings := []*Finding{
 		{
-			Type:      "SSRF",
-			Severity:  "high",
+			Type:       "SSRF",
+			Severity:   "high",
 			Confidence: 0.9,
 			Evidence: map[string]interface{}{
-				"ssrf_type":        "cloud_metadata",
+				"ssrf_type":         "cloud_metadata",
 				"metadata_detected": true,
 			},
 		},
@@ -65,13 +65,13 @@ func TestDetectChains_LFIToRCE(t *testing.T) {
 	ce := NewChainExecutor()
 	findings := []*Finding{
 		{
-			Type:      "LFI",
-			Severity:  "high",
+			Type:       "LFI",
+			Severity:   "high",
 			Confidence: 0.9,
 			// evidenceContains checks for "log_poisoning" as a key in evidence map values
 			Evidence: map[string]interface{}{
-				"technique":     "log_poisoning",
-				"file":          "/var/log/apache2/access.log",
+				"technique": "log_poisoning",
+				"file":      "/var/log/apache2/access.log",
 			},
 		},
 	}

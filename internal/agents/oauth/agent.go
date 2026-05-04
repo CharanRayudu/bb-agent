@@ -6,11 +6,11 @@ package oauth
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
-	"crypto/tls"
 	"time"
 
 	"github.com/bb-agent/mirage/internal/agent/base"
@@ -170,9 +170,9 @@ func testOpenRedirect(ctx context.Context, client *http.Client, authorizeURL str
 					Severity:   "high",
 					Confidence: 0.85,
 					Evidence: map[string]interface{}{
-						"bypass_label":  bp.label,
-						"location":      loc,
-						"status_code":   resp.StatusCode,
+						"bypass_label": bp.label,
+						"location":     loc,
+						"status_code":  resp.StatusCode,
 					},
 					Method: "GET",
 				})

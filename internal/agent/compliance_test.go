@@ -9,10 +9,10 @@ func TestComplianceTags(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		vulnType      string
-		wantCWE       string // expected substring in CWE slice
-		wantOWASP     string // expected substring in OWASP slice (empty = skip)
+		name             string
+		vulnType         string
+		wantCWE          string // expected substring in CWE slice
+		wantOWASP        string // expected substring in OWASP slice (empty = skip)
 		wantNISTNonEmpty bool
 		wantPCINonempty  bool
 	}{
@@ -23,18 +23,18 @@ func TestComplianceTags(t *testing.T) {
 			wantOWASP: "A03",
 		},
 		{
-			name:    "SQLi CWE-89",
-			vulnType: "SQLi",
-			wantCWE:  "CWE-89",
+			name:      "SQLi CWE-89",
+			vulnType:  "SQLi",
+			wantCWE:   "CWE-89",
 			wantOWASP: "A03",
 		},
 		{
-			name:    "SSRF CWE-918",
+			name:     "SSRF CWE-918",
 			vulnType: "SSRF",
 			wantCWE:  "CWE-918",
 		},
 		{
-			name:    "LFI CWE non-empty",
+			name:     "LFI CWE non-empty",
 			vulnType: "LFI",
 			wantCWE:  "CWE-",
 		},

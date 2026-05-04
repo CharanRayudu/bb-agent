@@ -275,6 +275,10 @@ Open `http://localhost:3000` in your browser.
 | `NEO4J_PASSWORD` | `miragepass` | Neo4j password |
 | `TAVILY_API_KEY` | — | Tavily search enrichment (optional) |
 | `SHODAN_API_KEY` | — | Shodan integration (optional) |
+| `AUTH_REQUIRED` | `false` | Require Mirage JWTs for API and WebSocket requests |
+| `JWT_SECRET` | — | JWT signing secret used when auth is required |
+| `VITE_API_URL` | `localhost:8443` | Backend target used by the Vite dev proxy |
+| `VITE_WS_URL` | `ws://localhost:8443/ws` | WebSocket target used by the Vite dev proxy and frontend |
 
 ### Prompt Tuning (`prompts.yaml`)
 

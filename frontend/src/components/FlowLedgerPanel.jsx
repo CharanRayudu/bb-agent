@@ -63,7 +63,7 @@ export function FlowLedgerPanel({ ledger, formatTime }) {
 
             <div className="space-y-3">
                 {ledger.tasks.map((task) => (
-                    <div key={task.id} className="rounded-2xl border border-white/12 bg-white/5 p-4 shadow-[0_12px_40px_rgba(15,23,42,0.75)]">
+                    <div key={task.id} className="rounded-2xl border border-white/[0.12] bg-white/5 p-4 shadow-[0_12px_40px_rgba(15,23,42,0.75)]">
                         <div className="flex items-start justify-between gap-3">
                             <div>
                                 <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-text-muted">Objective</div>
@@ -158,7 +158,7 @@ export function FlowEvidencePanel({ evidence, formatTime }) {
             {evidence.map((item) => {
                 const proofKeys = Object.keys(item.proof || {}).filter((key) => key !== 'summary' && key !== 'payload')
                 return (
-                    <div key={item.id || item.fingerprint} className="rounded-2xl border border-white/12 bg-white/5 p-4 shadow-[0_12px_40px_rgba(15,23,42,0.75)]">
+                    <div key={item.id || item.fingerprint} className="rounded-2xl border border-white/[0.12] bg-white/5 p-4 shadow-[0_12px_40px_rgba(15,23,42,0.75)]">
                         <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
                                 <div className="flex flex-wrap items-center gap-2">

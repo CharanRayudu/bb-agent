@@ -10,11 +10,11 @@ import (
 type RemediationStatus string
 
 const (
-	StatusOpen        RemediationStatus = "open"
-	StatusInProgress  RemediationStatus = "in_progress"
-	StatusFixed       RemediationStatus = "fixed"
-	StatusWontFix     RemediationStatus = "wont_fix"
-	StatusReopened    RemediationStatus = "reopened"
+	StatusOpen       RemediationStatus = "open"
+	StatusInProgress RemediationStatus = "in_progress"
+	StatusFixed      RemediationStatus = "fixed"
+	StatusWontFix    RemediationStatus = "wont_fix"
+	StatusReopened   RemediationStatus = "reopened"
 )
 
 // RemediationRecord tracks the remediation lifecycle for a single finding.

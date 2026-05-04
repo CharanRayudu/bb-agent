@@ -55,13 +55,13 @@ function NewTask() {
             if (res.ok) {
                 const data = await res.json()
                 setModels(data || [])
-                const preferred = data.find((m) => m.id === 'gpt-5.4')
                 const current = data.find((m) => m.current)
+                const preferred = data.find((m) => m.id === 'gpt-5.4')
 
-                if (preferred) {
-                    setForm((prev) => ({ ...prev, model: preferred.id }))
-                } else if (current) {
+                if (current) {
                     setForm((prev) => ({ ...prev, model: current.id }))
+                } else if (preferred) {
+                    setForm((prev) => ({ ...prev, model: preferred.id }))
                 } else if (data.length > 0) {
                     setForm((prev) => ({ ...prev, model: data[0].id }))
                 }
@@ -163,7 +163,7 @@ function NewTask() {
             <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 -top-6 w-[34rem] h-[34rem] bg-[radial-gradient(circle,_rgba(0,212,255,0.28),transparent_65%)] blur-3xl opacity-80" />
 
             <div className="mb-10 text-center relative z-10">
-                <div className="inline-block px-8 py-5 rounded-3xl bg-white/6 backdrop-blur-2xl shadow-[0_18px_80px_rgba(15,23,42,0.9)]">
+                <div className="inline-block px-8 py-5 rounded-3xl bg-white/[0.06] backdrop-blur-2xl shadow-[0_18px_80px_rgba(15,23,42,0.9)]">
                     <h1 className="text-4xl md:text-5xl font-display font-black text-transparent bg-clip-text bg-gradient-to-r from-text-primary to-text-muted mb-3 tracking-tight">
                         Initiate New Attack
                     </h1>
@@ -174,7 +174,7 @@ function NewTask() {
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-8 relative z-10">
                 {/* Form Column */}
                 <div className="lg:col-span-3">
-                    <div className="relative overflow-hidden rounded-3xl border border-white/12 bg-white/6 backdrop-blur-2xl p-8 shadow-[0_18px_80px_rgba(15,23,42,0.95)]">
+                    <div className="relative overflow-hidden rounded-3xl border border-white/[0.12] bg-white/[0.06] backdrop-blur-2xl p-8 shadow-[0_18px_80px_rgba(15,23,42,0.95)]">
                         {/* Glow effect */}
                         <div className="absolute top-0 right-0 -mr-20 -mt-20 w-64 h-64 bg-accent-cyan/16 rounded-full blur-[80px] pointer-events-none" />
 
@@ -236,7 +236,7 @@ function NewTask() {
                                         name="name"
                                         value={form.name}
                                         onChange={handleChange}
-                                        className="w-full bg-[#0d1321] text-text-primary border border-border rounded-xl p-4 outline-none transition-all duration-300 focus:border-accent-cyan focus:ring-1 focus:ring-accent-cyan focus:shadow-[0_0_15px_rgba(0,212,255,0.15)] placeholder-text-muted/50"
+                                        className="w-full bg-[#0d1321] text-text-primary border border-border rounded-xl p-4 outline-none transition-all duration-300 focus:border-accent-cyan focus:ring-1 focus:ring-accent-cyan focus:shadow-[0_0_15px_rgba(0,212,255,0.15)] placeholder:text-text-muted/50"
                                         placeholder="e.g., Red Team Assessment"
                                     />
                                 </div>
@@ -247,7 +247,7 @@ function NewTask() {
                                         name="target"
                                         value={form.target}
                                         onChange={handleChange}
-                                        className="w-full bg-[#0d1321] text-text-primary border border-border rounded-xl p-4 outline-none transition-all duration-300 focus:border-accent-cyan focus:ring-1 focus:ring-accent-cyan focus:shadow-[0_0_15px_rgba(0,212,255,0.15)] placeholder-text-muted/50"
+                                        className="w-full bg-[#0d1321] text-text-primary border border-border rounded-xl p-4 outline-none transition-all duration-300 focus:border-accent-cyan focus:ring-1 focus:ring-accent-cyan focus:shadow-[0_0_15px_rgba(0,212,255,0.15)] placeholder:text-text-muted/50"
                                         placeholder="IP, Domain, or CIDR"
                                     />
                                 </div>
@@ -281,7 +281,7 @@ function NewTask() {
                                                     updated[idx] = e.target.value
                                                     setForm((prev) => ({ ...prev, additionalTargets: updated }))
                                                 }}
-                                                className="flex-1 bg-[#0d1321] text-text-primary border border-border rounded-xl p-3 outline-none transition-all duration-300 focus:border-accent-cyan focus:ring-1 focus:ring-accent-cyan focus:shadow-[0_0_15px_rgba(0,212,255,0.15)] placeholder-text-muted/50 text-sm"
+                                                className="flex-1 bg-[#0d1321] text-text-primary border border-border rounded-xl p-3 outline-none transition-all duration-300 focus:border-accent-cyan focus:ring-1 focus:ring-accent-cyan focus:shadow-[0_0_15px_rgba(0,212,255,0.15)] placeholder:text-text-muted/50 text-sm"
                                                 placeholder={`Additional target ${idx + 1} (IP, Domain, or CIDR)`}
                                             />
                                             <button
@@ -306,7 +306,7 @@ function NewTask() {
                                     name="description"
                                     value={form.description}
                                     onChange={handleChange}
-                                    className="w-full bg-[#0d1321] text-text-primary border border-border rounded-xl p-4 outline-none transition-all duration-300 focus:border-accent-cyan focus:ring-1 focus:ring-accent-cyan focus:shadow-[0_0_15px_rgba(0,212,255,0.15)] placeholder-text-muted/50 resize-none font-mono text-sm leading-relaxed"
+                                    className="w-full bg-[#0d1321] text-text-primary border border-border rounded-xl p-4 outline-none transition-all duration-300 focus:border-accent-cyan focus:ring-1 focus:ring-accent-cyan focus:shadow-[0_0_15px_rgba(0,212,255,0.15)] placeholder:text-text-muted/50 resize-none font-mono text-sm leading-relaxed"
                                     placeholder="Provide explicit instructions. e.g., 'Discover subdomains, then run dirb on all discovered HTTP servers. Avoid DoS tools.' If left blank, default Recon & Scan occurs."
                                     rows={5}
                                 />
@@ -396,10 +396,10 @@ function NewTask() {
                                     animate={{ opacity: 1, scale: 1 }}
                                     transition={{ delay: idx * 0.05 }}
                                     onClick={() => setForm({ ...form, name: preset.name, description: preset.description })}
-                                    className="group cursor-pointer relative overflow-hidden rounded-2xl border border-white/12 bg-white/5 backdrop-blur-xl p-4 hover:border-accent-cyan/50 hover:bg-white/10 transition-all duration-300 flex flex-col h-full shadow-[0_12px_40px_rgba(15,23,42,0.8)]"
+                                    className="group cursor-pointer relative overflow-hidden rounded-2xl border border-white/[0.12] bg-white/5 backdrop-blur-xl p-4 hover:border-accent-cyan/50 hover:bg-white/10 transition-all duration-300 flex flex-col h-full shadow-[0_12px_40px_rgba(15,23,42,0.8)]"
                                 >
                                     <div className="pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500">
-                                        <div className="absolute -inset-x-10 -top-10 h-20 bg-gradient-to-r from-white/35 via-transparent to-white/35 blur-2xl mix-blend-screen" />
+                                        <div className="absolute -inset-x-10 -top-10 h-20 bg-gradient-to-r from-white/[0.35] via-transparent to-white/[0.35] blur-2xl mix-blend-screen" />
                                     </div>
                                     <div className="flex items-center gap-3 mb-3 shrink-0">
                                         <div className="p-2.5 rounded-lg bg-[#111827] border border-border group-hover:border-accent-cyan/50 group-hover:text-accent-cyan group-hover:shadow-[0_0_15px_rgba(0,212,255,0.2)] transition-all">
@@ -413,7 +413,7 @@ function NewTask() {
                         })}
                     </div>
 
-                    <div className="relative overflow-hidden rounded-2xl border border-white/12 bg-white/5 backdrop-blur-xl p-5 mt-8 shadow-[0_12px_40px_rgba(15,23,42,0.8)]">
+                    <div className="relative overflow-hidden rounded-2xl border border-white/[0.12] bg-white/5 backdrop-blur-xl p-5 mt-8 shadow-[0_12px_40px_rgba(15,23,42,0.8)]">
                         <div className="absolute top-0 right-0 w-32 h-32 bg-accent-purple/20 rounded-full blur-[40px] pointer-events-none" />
                         <div className="flex items-center gap-2 mb-2 relative z-10">
                             <Lightbulb className="w-4 h-4 text-accent-purple" />

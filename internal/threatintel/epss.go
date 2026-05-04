@@ -21,25 +21,25 @@ type EPSSScore struct {
 
 // KEVEntry is a CISA Known Exploited Vulnerability catalog entry.
 type KEVEntry struct {
-	CVEID                string `json:"cveID"`
-	VendorProject        string `json:"vendorProject"`
-	Product              string `json:"product"`
-	VulnerabilityName    string `json:"vulnerabilityName"`
-	DateAdded            string `json:"dateAdded"`
-	ShortDescription     string `json:"shortDescription"`
-	RequiredAction       string `json:"requiredAction"`
-	DueDate              string `json:"dueDate"`
-	Notes                string `json:"notes"`
+	CVEID             string `json:"cveID"`
+	VendorProject     string `json:"vendorProject"`
+	Product           string `json:"product"`
+	VulnerabilityName string `json:"vulnerabilityName"`
+	DateAdded         string `json:"dateAdded"`
+	ShortDescription  string `json:"shortDescription"`
+	RequiredAction    string `json:"requiredAction"`
+	DueDate           string `json:"dueDate"`
+	Notes             string `json:"notes"`
 }
 
 // EnrichedCVE combines CVSS, EPSS, and KEV data for a CVE.
 type EnrichedCVE struct {
-	CVE          string     `json:"cve"`
-	EPSS         *EPSSScore `json:"epss,omitempty"`
-	InKEV        bool       `json:"in_kev"`
-	KEVEntry     *KEVEntry  `json:"kev_entry,omitempty"`
-	RiskScore    float64    `json:"risk_score"` // 0–100
-	RiskLabel    string     `json:"risk_label"` // critical / high / medium / low
+	CVE       string     `json:"cve"`
+	EPSS      *EPSSScore `json:"epss,omitempty"`
+	InKEV     bool       `json:"in_kev"`
+	KEVEntry  *KEVEntry  `json:"kev_entry,omitempty"`
+	RiskScore float64    `json:"risk_score"` // 0–100
+	RiskLabel string     `json:"risk_label"` // critical / high / medium / low
 }
 
 // epssCache is an in-memory cache for EPSS scores to avoid repeated API calls.
@@ -53,7 +53,7 @@ var (
 )
 
 const (
-	epssAPIBase = "https://api.first.org/data/v1/epss"
+	epssAPIBase   = "https://api.first.org/data/v1/epss"
 	kevCatalogURL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
 )
 

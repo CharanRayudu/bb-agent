@@ -4,7 +4,7 @@ import "strings"
 
 // Technique represents a single MITRE ATT&CK technique or subtechnique.
 type Technique struct {
-	ID       string `json:"id"`        // T1190, T1059.004, …
+	ID       string `json:"id"` // T1190, T1059.004, …
 	Name     string `json:"name"`
 	Tactic   string `json:"tactic"`    // Initial Access, Execution, …
 	TacticID string `json:"tactic_id"` // TA0001, …
@@ -262,7 +262,7 @@ var findingTechniques = map[string][]Technique{
 	},
 
 	// ── DevSecOps ────────────────────────────────────────────────────────────
-	"Secret-AWSKey":            {{ID: "T1552.001", Name: "Credentials in Files", Tactic: "Credential Access", TacticID: "TA0006", URL: "https://attack.mitre.org/techniques/T1552/001/"}},
+	"Secret-AWSKey":             {{ID: "T1552.001", Name: "Credentials in Files", Tactic: "Credential Access", TacticID: "TA0006", URL: "https://attack.mitre.org/techniques/T1552/001/"}},
 	"Secret-AWSSecretAccessKey": {{ID: "T1552.001", Name: "Credentials in Files", Tactic: "Credential Access", TacticID: "TA0006", URL: "https://attack.mitre.org/techniques/T1552/001/"}},
 	"Secret-GitHubPersonalAccessToken": {
 		t("T1552.001", "Credentials in Files", "Credential Access", "TA0006"),

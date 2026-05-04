@@ -1,30 +1,24 @@
 package copilot
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/bb-agent/mirage/internal/llm"
+	"github.com/bb-agent/mirage/internal/models"
 	"github.com/google/uuid"
 )
 
-const (
-	claudeAPI   = "https://api.anthropic.com/v1/messages"
-	claudeModel = "claude-sonnet-4-6"
-	maxHistory  = 40 // messages kept per session
-)
+const maxHistory = 40 // messages kept per session
 
 // Message is a single conversation turn.
 type Message struct {
-	Role    string `json:"role"`    // user|assistant
+	Role    string `json:"role"` // user|assistant
 	Content string `json:"content"`
 }
 
@@ -104,108 +98,53 @@ func (st *Store) History(id string) []Message {
 	return out
 }
 
-// ── Streaming inference ───────────────────────────────────────────────────────
-
 // StreamEvent is the SSE payload forwarded to the browser.
 type StreamEvent struct {
-	Type  string `json:"type"`            // start|delta|done|error
+	Type  string `json:"type"` // start|delta|done|error
 	Text  string `json:"text,omitempty"`
 	Error string `json:"error,omitempty"`
 }
 
-// Chat sends the conversation to Claude and streams the response as SSE.
-// platformContext is included as a non-cached system block.
-func Chat(ctx context.Context, history []Message, platformContext string, w io.Writer, flush func()) (string, error) {
-	apiKey := os.Getenv("ANTHROPIC_API_KEY")
-	if apiKey == "" {
-		writeSSE(w, StreamEvent{Type: "error", Error: "ANTHROPIC_API_KEY not configured"}, flush)
-		return "", fmt.Errorf("ANTHROPIC_API_KEY not set")
+// Chat sends the conversation to the configured Mirage LLM provider and streams the response as SSE.
+func Chat(ctx context.Context, provider llm.Provider, model string, temperature float64, history []Message, platformContext string, w io.Writer, flush func()) (string, error) {
+	if provider == nil {
+		writeSSE(w, StreamEvent{Type: "error", Error: "Codex/OpenAI LLM authentication is not configured"}, flush)
+		return "", fmt.Errorf("llm provider not configured")
 	}
 
-	systemBlocks := []map[string]interface{}{
-		{
-			"type": "text",
-			"text": staticSystemPrompt(),
-			"cache_control": map[string]string{"type": "ephemeral"},
-		},
-	}
+	systemPrompt := staticSystemPrompt()
 	if platformContext != "" {
-		systemBlocks = append(systemBlocks, map[string]interface{}{
-			"type": "text",
-			"text": platformContext,
-		})
+		systemPrompt += "\n\n" + platformContext
 	}
 
-	msgs := make([]map[string]interface{}, len(history))
-	for i, m := range history {
-		msgs[i] = map[string]interface{}{"role": m.Role, "content": m.Content}
-	}
-
-	payload := map[string]interface{}{
-		"model":      claudeModel,
-		"max_tokens": 2048,
-		"stream":     true,
-		"system":     systemBlocks,
-		"messages":   msgs,
-	}
-
-	body, _ := json.Marshal(payload)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, claudeAPI, bytes.NewReader(body))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("x-api-key", apiKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
-	req.Header.Set("anthropic-beta", "prompt-caching-2024-07-31")
-	req.Header.Set("content-type", "application/json")
-
-	client := &http.Client{Timeout: 120 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		writeSSE(w, StreamEvent{Type: "error", Error: err.Error()}, flush)
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
-		msg := fmt.Sprintf("Claude API HTTP %d: %s", resp.StatusCode, string(b))
-		writeSSE(w, StreamEvent{Type: "error", Error: msg}, flush)
-		return "", fmt.Errorf("%s", msg)
+	messages := make([]models.ChatMessage, 0, len(history)+1)
+	messages = append(messages, models.ChatMessage{Role: "system", Content: systemPrompt})
+	for _, m := range history {
+		role := m.Role
+		if role != "assistant" && role != "user" {
+			role = "user"
+		}
+		messages = append(messages, models.ChatMessage{Role: role, Content: m.Content})
 	}
 
 	writeSSE(w, StreamEvent{Type: "start"}, flush)
 
-	var assembled strings.Builder //nolint
-	scanner := bufio.NewScanner(resp.Body)
-	scanner.Buffer(make([]byte, 64*1024), 64*1024)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if len(line) < 6 || line[:6] != "data: " {
-			continue
-		}
-		raw := line[6:]
-		if raw == "[DONE]" {
-			break
-		}
-		var ev struct {
-			Type  string `json:"type"`
-			Delta struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-			} `json:"delta"`
-		}
-		if json.Unmarshal([]byte(raw), &ev) != nil {
-			continue
-		}
-		if ev.Type == "content_block_delta" && ev.Delta.Type == "text_delta" && ev.Delta.Text != "" {
-			assembled.WriteString(ev.Delta.Text)
-			writeSSE(w, StreamEvent{Type: "delta", Text: ev.Delta.Text}, flush)
-		}
+	resp, err := provider.Complete(ctx, llm.CompletionRequest{
+		Messages:    messages,
+		Model:       model,
+		Temperature: temperature,
+	})
+	if err != nil {
+		writeSSE(w, StreamEvent{Type: "error", Error: err.Error()}, flush)
+		return "", err
 	}
 
+	reply := strings.TrimSpace(resp.Content)
+	if reply != "" {
+		writeSSE(w, StreamEvent{Type: "delta", Text: reply}, flush)
+	}
 	writeSSE(w, StreamEvent{Type: "done"}, flush)
-	return assembled.String(), nil
+	return reply, nil
 }
 
 func writeSSE(w io.Writer, ev StreamEvent, flush func()) {
@@ -229,7 +168,7 @@ Capabilities:
 - Suggest follow-up tests for any given vulnerability type
 
 Response style:
-- Be direct and precise — security professionals value density over padding
+- Be direct and precise; security professionals value density over padding
 - Use Markdown for code, lists, and structured output
 - Cite OWASP, CVE IDs, CWE numbers, and ATT&CK technique IDs where relevant
 - When asked about specific findings, reference the data provided in context

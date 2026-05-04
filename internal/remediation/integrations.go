@@ -129,8 +129,8 @@ func CreateGitHubIssue(ctx context.Context, cfg GitHubConfig, it *Item) (*GitHub
 
 	labels := []string{"security", it.Severity}
 	body := map[string]interface{}{
-		"title": fmt.Sprintf("[Security/%s] %s", strings.ToUpper(it.Severity), it.Title),
-		"body":  buildGitHubBody(it),
+		"title":  fmt.Sprintf("[Security/%s] %s", strings.ToUpper(it.Severity), it.Title),
+		"body":   buildGitHubBody(it),
 		"labels": labels,
 	}
 

@@ -280,6 +280,56 @@ func (s *Server) authGate(minRole Role, h http.HandlerFunc) http.HandlerFunc {
 	return chained.ServeHTTP
 }
 
+// authGateMethods applies a role gate only to selected HTTP methods. It is
+// useful for collection handlers that expose read and write operations through
+// the same route.
+func (s *Server) authGateMethods(minRole Role, h http.HandlerFunc, methods ...string) http.HandlerFunc {
+	if s == nil || s.cfg == nil || !s.cfg.AuthRequired {
+		return h
+	}
+	protected := make(map[string]struct{}, len(methods))
+	for _, method := range methods {
+		protected[method] = struct{}{}
+	}
+	gated := s.authGate(minRole, h)
+	return func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := protected[r.Method]; ok {
+			gated(w, r)
+			return
+		}
+		h(w, r)
+	}
+}
+
+// apiAuthMiddleware makes AUTH_REQUIRED apply to the whole API surface, not
+// only to the handful of routes that need elevated roles. Public bootstrap
+// endpoints remain available so operators can log in and health checks can run.
+func (s *Server) apiAuthMiddleware(next http.Handler) http.Handler {
+	if s == nil || s.cfg == nil || !s.cfg.AuthRequired {
+		return next
+	}
+	authCfg := DefaultAuthConfig(s.cfg.JWTSecret)
+	authCfg.Required = true
+	authed := JWTAuthMiddleware(authCfg, next)
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions || !strings.HasPrefix(r.URL.Path, "/api/") || isPublicAPIPath(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		authed.ServeHTTP(w, r)
+	})
+}
+
+func isPublicAPIPath(path string) bool {
+	switch path {
+	case "/api/health", "/api/auth/login", "/api/auth/oidc/begin", "/api/auth/oidc/callback":
+		return true
+	default:
+		return false
+	}
+}
+
 // HashPassword returns a bcrypt hash suitable for storing in users.password_hash.
 func HashPassword(password string) (string, error) {
 	h, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)

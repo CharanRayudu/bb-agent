@@ -269,11 +269,11 @@ func scanSecretsInContent(sourceURL, filePath, content string) []*base.Finding {
 				Agent:      "devsecops",
 				Timestamp:  time.Now(),
 				Evidence: map[string]interface{}{
-					"file":        filePath,
-					"line":        lineNum + 1,
-					"pattern":     pat.name,
-					"match":       redactSecret(match),
-					"raw_line":    redactSecretLine(line),
+					"file":     filePath,
+					"line":     lineNum + 1,
+					"pattern":  pat.name,
+					"match":    redactSecret(match),
+					"raw_line": redactSecretLine(line),
 				},
 				Payload: redactSecret(match),
 			})

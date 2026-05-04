@@ -132,11 +132,11 @@ func (a *Agent) ProcessItem(ctx context.Context, item *queue.Item) ([]*base.Find
 				}
 				if diff > 50 {
 					findings = append(findings, &base.Finding{
-						Type:      "SQLi",
-						URL:       targetURL,
-						Parameter: paramName,
-						Payload:   truePayload,
-						Severity:  mapPriorityToSeverity(priority),
+						Type:       "SQLi",
+						URL:        targetURL,
+						Parameter:  paramName,
+						Payload:    truePayload,
+						Severity:   mapPriorityToSeverity(priority),
 						Confidence: 0.65,
 						Evidence: map[string]interface{}{
 							"sqli_type":   string(technique),

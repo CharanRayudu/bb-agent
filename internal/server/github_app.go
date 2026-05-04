@@ -15,8 +15,8 @@ import (
 // registerGitHubAppRoutes registers GitHub App webhook endpoints and DevSecOps scan API.
 func (s *Server) registerGitHubAppRoutes() {
 	s.mux.HandleFunc("/api/webhooks/github", s.handleGitHubWebhook)
-	s.mux.HandleFunc("/api/webhooks/github/config", s.handleGitHubAppConfig)
-	s.mux.HandleFunc("/api/devsecops/scan", s.handleDevSecOpsScan)
+	s.mux.HandleFunc("/api/webhooks/github/config", s.authGate(RoleAdmin, s.handleGitHubAppConfig))
+	s.mux.HandleFunc("/api/devsecops/scan", s.authGate(RoleOperator, s.handleDevSecOpsScan))
 }
 
 // githubPREvent is the relevant subset of GitHub's pull_request webhook payload.
@@ -175,11 +175,11 @@ func (s *Server) handleGitHubAppConfig(w http.ResponseWriter, r *http.Request) {
 		secret := stringFromConfig(cfg, "github_app_webhook_secret")
 
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"configured":    appID != "" && secret != "",
-			"app_id":        appID,
-			"has_secret":    secret != "",
-			"webhook_path":  "/api/webhooks/github",
-			"events":        []string{"pull_request"},
+			"configured":   appID != "" && secret != "",
+			"app_id":       appID,
+			"has_secret":   secret != "",
+			"webhook_path": "/api/webhooks/github",
+			"events":       []string{"pull_request"},
 			"permissions": map[string]string{
 				"contents":      "read",
 				"pull_requests": "write",

@@ -201,7 +201,7 @@ func inferGCSBucketNames(host string) []string {
 	root := parts[0]
 
 	candidates := []string{
-		host,     // exact domain match (common GCS pattern)
+		host, // exact domain match (common GCS pattern)
 		base,
 		root,
 		root + "-assets",

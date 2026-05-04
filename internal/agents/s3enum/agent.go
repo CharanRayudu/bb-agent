@@ -48,10 +48,10 @@ var bucketSuffixes = []string{
 
 // commonExposures are well-known sensitive paths to check on the target itself.
 var commonExposures = []struct {
-	path      string
-	marker    string // substring that confirms exposure
-	vulnType  string
-	severity  string
+	path       string
+	marker     string // substring that confirms exposure
+	vulnType   string
+	severity   string
 	confidence float64
 }{
 	{"/.git/HEAD", "ref: refs/heads/", "Git Repository Exposure", "high", 0.7},

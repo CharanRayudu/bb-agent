@@ -34,9 +34,9 @@ func CreateGitHubIssue(ctx context.Context, cfg GitHubConfig, f *Finding) Ticket
 
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/issues", cfg.Owner, cfg.Repo)
 	respBody, status, err := doRequest(ctx, newHTTPClient(), "POST", url, body, map[string]string{
-		"Authorization": "Bearer " + cfg.Token,
-		"Content-Type":  "application/json",
-		"Accept":        "application/vnd.github+json",
+		"Authorization":        "Bearer " + cfg.Token,
+		"Content-Type":         "application/json",
+		"Accept":               "application/vnd.github+json",
 		"X-GitHub-Api-Version": "2022-11-28",
 	})
 	if err != nil {

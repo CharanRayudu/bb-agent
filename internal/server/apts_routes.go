@@ -184,10 +184,10 @@ func (s *Server) handleAPTSCoverage(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"coverage":        coverage,
-		"total_classes":   len(coverage),
-		"all_tested":      true,
-		"methodology":     "OWASP WSTG + PTES + APTS RP-003",
+		"coverage":      coverage,
+		"total_classes": len(coverage),
+		"all_tested":    true,
+		"methodology":   "OWASP WSTG + PTES + APTS RP-003",
 		"false_positive_disclosure": map[string]string{
 			"methodology": "Hallucination Bin gate-based quarantine; findings require concrete proof (request/response pair, OOB callback, browser validation, or timing differential) before promotion",
 			"fp_control":  "Guilty-until-proven-innocent model — all findings start in HallucinationBin",
@@ -258,9 +258,9 @@ func (s *Server) handleAPTSStatus(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"standard":       "OWASP APTS",
-		"target_tier":    "Tier 1 (72 requirements)",
-		"active_scans":   activeCount,
+		"standard":     "OWASP APTS",
+		"target_tier":  "Tier 1 (72 requirements)",
+		"active_scans": activeCount,
 		"domains": map[string]interface{}{
 			"SE_scope_enforcement": map[string]interface{}{
 				"status": "implemented",
@@ -295,10 +295,10 @@ func (s *Server) handleAPTSStatus(w http.ResponseWriter, r *http.Request) {
 				"notes":  "RP-003 confidence scoring (0-100), Confirmed/Unconfirmed tags, coverage disclosure",
 			},
 		},
-		"hallucination_bin":  "Active — guilty-until-proven-innocent evidence gate",
-		"known_defence_log":  "Active — WAF/rate-limit paths recorded and avoided",
-		"coverage_endpoint":  "/api/apts/coverage",
+		"hallucination_bin":   "Active — guilty-until-proven-innocent evidence gate",
+		"known_defence_log":   "Active — WAF/rate-limit paths recorded and avoided",
+		"coverage_endpoint":   "/api/apts/coverage",
 		"provenance_endpoint": "/api/apts/provenance",
-		"kill_switch":        "/api/apts/emergency-stop (POST, requires Operator role)",
+		"kill_switch":         "/api/apts/emergency-stop (POST, requires Operator role)",
 	})
 }

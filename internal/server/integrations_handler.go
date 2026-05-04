@@ -14,8 +14,8 @@ import (
 // registerIntegrationRoutes adds enterprise integration API endpoints.
 func (s *Server) registerIntegrationRoutes() {
 	// Ticketing integrations
-	s.mux.HandleFunc("/api/integrations/ticket", s.handleCreateTicket)
-	s.mux.HandleFunc("/api/integrations/ticket/test", s.handleTestTicketIntegration)
+	s.mux.HandleFunc("/api/integrations/ticket", s.authGate(RoleOperator, s.handleCreateTicket))
+	s.mux.HandleFunc("/api/integrations/ticket/test", s.authGate(RoleOperator, s.handleTestTicketIntegration))
 
 	// Compliance posture
 	s.mux.HandleFunc("/api/compliance/posture", s.handleCompliancePosture)
@@ -35,8 +35,8 @@ func (s *Server) handleCreateTicket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Provider string             `json:"provider"` // "jira" | "github" | "linear"
-		Finding  ticketing.Finding  `json:"finding"`
+		Provider string            `json:"provider"` // "jira" | "github" | "linear"
+		Finding  ticketing.Finding `json:"finding"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -93,8 +93,8 @@ func (s *Server) handleCreateTicket(w http.ResponseWriter, r *http.Request) {
 	if result.Error != nil {
 		w.WriteHeader(http.StatusBadGateway)
 		json.NewEncoder(w).Encode(map[string]string{
-			"status":  "error",
-			"error":   result.Error.Error(),
+			"status": "error",
+			"error":  result.Error.Error(),
 		})
 		return
 	}

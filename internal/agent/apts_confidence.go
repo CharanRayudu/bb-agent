@@ -9,13 +9,13 @@ import (
 // APTSConfidenceScore represents an APTS RP-003 compliant confidence score
 // with component breakdown for transparency.
 type APTSConfidenceScore struct {
-	Total                  int     `json:"total"`                   // 0-100 composite
-	EvidenceQuality        float64 `json:"evidence_quality"`        // 30% weight
+	Total                   int     `json:"total"`                    // 0-100 composite
+	EvidenceQuality         float64 `json:"evidence_quality"`         // 30% weight
 	IndependentConfirmation float64 `json:"independent_confirmation"` // 25% weight
-	EnvironmentalFactors   float64 `json:"environmental_factors"`   // 20% weight
-	HistoricalAccuracy     float64 `json:"historical_accuracy"`     // 15% weight
-	Recency                float64 `json:"recency"`                 // 10% weight
-	ConfirmationStatus     string  `json:"confirmation_status"`     // "Confirmed" | "Unconfirmed"
+	EnvironmentalFactors    float64 `json:"environmental_factors"`    // 20% weight
+	HistoricalAccuracy      float64 `json:"historical_accuracy"`      // 15% weight
+	Recency                 float64 `json:"recency"`                  // 10% weight
+	ConfirmationStatus      string  `json:"confirmation_status"`      // "Confirmed" | "Unconfirmed"
 }
 
 // CalculateAPTSConfidence computes the OWASP APTS RP-003 composite confidence
@@ -42,13 +42,13 @@ func CalculateAPTSConfidence(f *Finding, platformTP map[string]float64) APTSConf
 	}
 
 	return APTSConfidenceScore{
-		Total:                  int(total),
-		EvidenceQuality:        math.Round(eq*100) / 100,
+		Total:                   int(total),
+		EvidenceQuality:         math.Round(eq*100) / 100,
 		IndependentConfirmation: math.Round(ic*100) / 100,
-		EnvironmentalFactors:   math.Round(ef*100) / 100,
-		HistoricalAccuracy:     math.Round(ha*100) / 100,
-		Recency:                math.Round(rec*100) / 100,
-		ConfirmationStatus:     status,
+		EnvironmentalFactors:    math.Round(ef*100) / 100,
+		HistoricalAccuracy:      math.Round(ha*100) / 100,
+		Recency:                 math.Round(rec*100) / 100,
+		ConfirmationStatus:      status,
 	}
 }
 
@@ -210,14 +210,14 @@ func normalizeVulnClass(t string) string {
 // DefaultPlatformTPRates returns baseline true-positive rates per vulnerability class.
 // These should be updated from real scan history over time.
 var DefaultPlatformTPRates = map[string]float64{
-	"xss":          0.82,
-	"sqli":         0.78,
-	"ssrf":         0.71,
-	"idor":         0.68,
-	"rce":          0.85,
-	"lfi":          0.74,
-	"auth_bypass":  0.79,
-	"ssti":         0.76,
-	"xxe":          0.70,
-	"misconfigs":   0.65,
+	"xss":         0.82,
+	"sqli":        0.78,
+	"ssrf":        0.71,
+	"idor":        0.68,
+	"rce":         0.85,
+	"lfi":         0.74,
+	"auth_bypass": 0.79,
+	"ssti":        0.76,
+	"xxe":         0.70,
+	"misconfigs":  0.65,
 }

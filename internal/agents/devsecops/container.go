@@ -87,10 +87,10 @@ func analyzeDockerfile(url, filePath, content string) []*base.Finding {
 					Agent:      "devsecops",
 					Timestamp:  time.Now(),
 					Evidence: map[string]interface{}{
-						"file":     filePath,
-						"line":     lineNum + 1,
-						"code":     line,
-						"finding":  "Container explicitly runs as root user",
+						"file":    filePath,
+						"line":    lineNum + 1,
+						"code":    line,
+						"finding": "Container explicitly runs as root user",
 					},
 					Payload: fmt.Sprintf("USER root at line %d", lineNum+1),
 				})
@@ -160,11 +160,11 @@ func analyzeDockerfile(url, filePath, content string) []*base.Finding {
 					Agent:      "devsecops",
 					Timestamp:  time.Now(),
 					Evidence: map[string]interface{}{
-						"file":     filePath,
-						"line":     lineNum + 1,
-						"code":     line,
-						"source":   parts[1],
-						"finding":  "ADD with remote URL is not verified — prefer COPY + curl with checksum verification",
+						"file":    filePath,
+						"line":    lineNum + 1,
+						"code":    line,
+						"source":  parts[1],
+						"finding": "ADD with remote URL is not verified — prefer COPY + curl with checksum verification",
 					},
 					Payload: fmt.Sprintf("Remote ADD from %s", parts[1]),
 				})
@@ -184,11 +184,11 @@ func analyzeDockerfile(url, filePath, content string) []*base.Finding {
 					Agent:      "devsecops",
 					Timestamp:  time.Now(),
 					Evidence: map[string]interface{}{
-						"file":    filePath,
-						"line":    lineNum + 1,
-						"code":    line,
-						"port":    port,
-						"reason":  reason,
+						"file":   filePath,
+						"line":   lineNum + 1,
+						"code":   line,
+						"port":   port,
+						"reason": reason,
 					},
 					Payload: fmt.Sprintf("Exposed port %s: %s", port, reason),
 				})
@@ -360,13 +360,13 @@ type trivyOutput struct {
 	Results []struct {
 		Target          string `json:"Target"`
 		Vulnerabilities []struct {
-			VulnerabilityID  string   `json:"VulnerabilityID"`
-			PkgName          string   `json:"PkgName"`
-			InstalledVersion string   `json:"InstalledVersion"`
-			FixedVersion     string   `json:"FixedVersion"`
-			Severity         string   `json:"Severity"`
-			Title            string   `json:"Title"`
-			Description      string   `json:"Description"`
+			VulnerabilityID  string                               `json:"VulnerabilityID"`
+			PkgName          string                               `json:"PkgName"`
+			InstalledVersion string                               `json:"InstalledVersion"`
+			FixedVersion     string                               `json:"FixedVersion"`
+			Severity         string                               `json:"Severity"`
+			Title            string                               `json:"Title"`
+			Description      string                               `json:"Description"`
 			CVSS             map[string]struct{ V3Score float64 } `json:"CVSS"`
 		} `json:"Vulnerabilities"`
 	} `json:"Results"`

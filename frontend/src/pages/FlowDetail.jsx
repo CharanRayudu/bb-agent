@@ -44,7 +44,7 @@ function FindingList({ findings, formatTime }) {
                         onClick={() => setExpandedIndex(isExpanded ? null : idx)}
                         className={`w-full text-left rounded-xl border px-3 py-2 text-xs text-text-primary flex flex-col transition-all ${isExpanded
                             ? 'bg-white/10 border-white/20 shadow-[0_12px_40px_rgba(15,23,42,0.9)] scale-[1.01]'
-                            : 'bg-white/4 hover:bg-white/8 border-white/10'
+                            : 'bg-white/[0.04] hover:bg-white/[0.08] border-white/10'
                             }`}
                     >
                         <div className="flex items-center justify-between gap-3">
@@ -152,7 +152,7 @@ function PipelineTracker({ currentPhase }) {
                 {/* Phase Steps */}
                 <div className="relative flex items-center justify-between">
                     {/* Background connector line */}
-                    <div className="absolute top-4 left-4 right-4 h-[2px] bg-white/8 rounded-full" />
+                    <div className="absolute top-4 left-4 right-4 h-[2px] bg-white/[0.08] rounded-full" />
 
                     {/* Animated progress line */}
                     <motion.div
@@ -181,7 +181,7 @@ function PipelineTracker({ currentPhase }) {
                                         ? 'bg-accent-green/20 border-accent-green/60'
                                         : isCurrent
                                             ? 'bg-accent-cyan/20 border-accent-cyan/60'
-                                            : 'bg-white/5 border-white/15'
+                                            : 'bg-white/5 border-white/[0.15]'
                                         }`}
                                     animate={isCurrent ? {
                                         boxShadow: [
@@ -540,7 +540,7 @@ function AIRedTeamPanel({ findings }) {
                 <div className="w-14 h-14 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center mb-4 text-2xl">🤖</div>
                 <p className="text-sm font-medium text-text-primary">No AI Red Team findings yet</p>
                 <p className="text-xs text-text-muted mt-1">Run a scan with the LLM Red Team agent to test AI-powered endpoints for prompt injection, jailbreaks, and policy bypass.</p>
-                <div className="mt-5 rounded-xl bg-white/4 border border-white/10 p-4 text-left max-w-sm">
+                <div className="mt-5 rounded-xl bg-white/[0.04] border border-white/10 p-4 text-left max-w-sm">
                     <p className="text-[10px] font-mono text-text-muted uppercase tracking-widest mb-2">To trigger AI red teaming:</p>
                     <p className="text-xs text-text-muted">Set the target to an AI-powered endpoint (e.g. <code className="bg-white/10 px-1 rounded">/api/chat</code>) or include <code className="bg-white/10 px-1 rounded">ai-redteam</code> in the scan profile.</p>
                 </div>
@@ -558,7 +558,7 @@ function AIRedTeamPanel({ findings }) {
                     { label: 'High', value: highCount, color: '#ff7f50' },
                     { label: 'Bypass Rate', value: jailbreakRate + '%', color: '#ffa502' },
                 ].map(stat => (
-                    <div key={stat.label} className="rounded-xl bg-white/4 border border-white/10 p-3 text-center">
+                    <div key={stat.label} className="rounded-xl bg-white/[0.04] border border-white/10 p-3 text-center">
                         <div className="text-xl font-bold font-mono" style={{ color: stat.color }}>{stat.value}</div>
                         <div className="text-[10px] text-text-muted mt-0.5">{stat.label}</div>
                     </div>
@@ -566,11 +566,11 @@ function AIRedTeamPanel({ findings }) {
             </div>
 
             {/* OWASP LLM Top 10 coverage */}
-            <div className="rounded-xl bg-white/4 border border-white/10 p-4">
+            <div className="rounded-xl bg-white/[0.04] border border-white/10 p-4">
                 <h3 className="text-[10px] font-mono uppercase tracking-widest text-text-muted mb-3">OWASP LLM Top 10 — Detected Vulnerabilities</h3>
                 <div className="grid grid-cols-2 gap-2">
                     {owaspClasses.map(cls => (
-                        <div key={cls.id} className={`flex items-center gap-2 rounded-lg px-3 py-2 border ${cls.detected ? 'bg-accent-red/10 border-accent-red/30' : 'bg-white/[0.02] border-white/8'}`}>
+                        <div key={cls.id} className={`flex items-center gap-2 rounded-lg px-3 py-2 border ${cls.detected ? 'bg-accent-red/10 border-accent-red/30' : 'bg-white/[0.02] border-white/[0.08]'}`}>
                             <span className={`w-2 h-2 rounded-full flex-shrink-0 ${cls.detected ? 'bg-accent-red' : 'bg-white/20'}`} />
                             <span className="text-[10px] font-mono text-text-muted">{cls.id}</span>
                             <span className="text-[10px] text-text-primary truncate">{cls.label}</span>
@@ -590,7 +590,7 @@ function AIRedTeamPanel({ findings }) {
                     const sev = f.metadata?.severity || 'info'
                     const sevColors = { critical: '#ff4757', high: '#ff7f50', medium: '#ffa502', low: '#2ed573', info: '#888' }
                     return (
-                        <div key={idx} className="rounded-xl bg-white/4 border border-white/10 p-3 space-y-1.5">
+                        <div key={idx} className="rounded-xl bg-white/[0.04] border border-white/10 p-3 space-y-1.5">
                             <div className="flex items-center gap-2">
                                 <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: color }} />
                                 <span className="text-xs font-medium text-text-primary">{label}</span>
@@ -763,6 +763,12 @@ function FlowDetail() {
             wsUrl = `${protocol}//${window.location.host}/ws`
         }
 
+        const token = window.localStorage?.getItem('mirage_token')
+        if (token) {
+            const separator = wsUrl.includes('?') ? '&' : '?'
+            wsUrl = `${wsUrl}${separator}token=${encodeURIComponent(token)}`
+        }
+
         const ws = new WebSocket(wsUrl)
         wsRef.current = ws
 
@@ -877,23 +883,23 @@ function FlowDetail() {
             <div className="relative pb-12 max-w-[1600px] mx-auto">
                 <div className="pointer-events-none absolute inset-x-0 -top-28 h-60 bg-[radial-gradient(circle_at_top,_rgba(0,212,255,0.18),transparent_60%)] opacity-80" />
                 <div className="mt-10 grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8 px-4 sm:px-6 lg:px-8">
-                    <div className="lg:col-span-2 h-[600px] relative overflow-hidden rounded-3xl border border-white/12 bg-white/6 backdrop-blur-2xl shadow-[0_20px_80px_rgba(15,23,42,0.95)]">
+                    <div className="lg:col-span-2 h-[600px] relative overflow-hidden rounded-3xl border border-white/[0.12] bg-white/[0.06] backdrop-blur-2xl shadow-[0_20px_80px_rgba(15,23,42,0.95)]">
                         <div className="absolute inset-0 bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.25),transparent)] bg-[length:220%_100%] animate-[shimmer_2.5s_linear_infinite] opacity-40" />
                         <div className="relative p-6 space-y-4">
-                            <div className="h-4 w-1/3 bg-white/12 rounded-full" />
+                            <div className="h-4 w-1/3 bg-white/[0.12] rounded-full" />
                             <div className="space-y-2">
                                 {Array.from({ length: 6 }).map((_, idx) => (
-                                    <div key={idx} className="h-3 w-full bg-white/6 rounded-full" />
+                                    <div key={idx} className="h-3 w-full bg-white/[0.06] rounded-full" />
                                 ))}
                             </div>
                         </div>
                     </div>
-                    <div className="h-[600px] relative overflow-hidden rounded-3xl border border-white/12 bg-white/6 backdrop-blur-2xl shadow-[0_20px_80px_rgba(15,23,42,0.95)]">
+                    <div className="h-[600px] relative overflow-hidden rounded-3xl border border-white/[0.12] bg-white/[0.06] backdrop-blur-2xl shadow-[0_20px_80px_rgba(15,23,42,0.95)]">
                         <div className="absolute inset-0 bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.25),transparent)] bg-[length:220%_100%] animate-[shimmer_2.5s_linear_infinite] opacity-40" />
                         <div className="relative p-6 space-y-4">
-                            <div className="h-4 w-1/2 bg-white/12 rounded-full" />
+                            <div className="h-4 w-1/2 bg-white/[0.12] rounded-full" />
                             {Array.from({ length: 5 }).map((_, idx) => (
-                                <div key={idx} className="h-3 w-full bg-white/6 rounded-full" />
+                                <div key={idx} className="h-3 w-full bg-white/[0.06] rounded-full" />
                             ))}
                         </div>
                     </div>
@@ -1025,7 +1031,7 @@ function FlowDetail() {
                             <button
                                 type="button"
                                 onClick={() => setShowDeleteConfirm(false)}
-                                className="px-4 py-2 rounded-lg text-sm font-medium text-text-primary bg-white/10 border border-white/20 hover:bg-white/15"
+                                className="px-4 py-2 rounded-lg text-sm font-medium text-text-primary bg-white/10 border border-white/20 hover:bg-white/[0.15]"
                             >
                                 Cancel
                             </button>
@@ -1178,19 +1184,19 @@ function FlowDetail() {
 
             {/* Info Metrics Grid */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8 relative z-10">
-                <div className="relative overflow-hidden rounded-2xl border border-white/14 bg-white/5 backdrop-blur-xl p-5 hover:border-accent-cyan/50 transition-colors group shadow-[0_14px_50px_rgba(15,23,42,0.9)]">
+                <div className="relative overflow-hidden rounded-2xl border border-white/[0.14] bg-white/5 backdrop-blur-xl p-5 hover:border-accent-cyan/50 transition-colors group shadow-[0_14px_50px_rgba(15,23,42,0.9)]">
                     <div className="flex items-center gap-2 text-text-muted mb-2"><Target className="w-4 h-4 text-accent-cyan group-hover:scale-110 transition-transform" /> <span className="text-xs font-bold uppercase tracking-wider">Target Node</span></div>
                     <div className="font-mono text-accent-cyan text-sm sm:text-base font-medium truncate" title={flow.target}>{flow.target}</div>
                 </div>
-                <div className="relative overflow-hidden rounded-2xl border border-white/14 bg-white/5 backdrop-blur-xl p-5 hover:border-accent-cyan/50 transition-colors group shadow-[0_14px_50px_rgba(15,23,42,0.9)]">
+                <div className="relative overflow-hidden rounded-2xl border border-white/[0.14] bg-white/5 backdrop-blur-xl p-5 hover:border-accent-cyan/50 transition-colors group shadow-[0_14px_50px_rgba(15,23,42,0.9)]">
                     <div className="flex items-center gap-2 text-text-muted mb-2"><Activity className="w-4 h-4 text-accent-purple group-hover:scale-110 transition-transform" /> <span className="text-xs font-bold uppercase tracking-wider">Current State</span></div>
                     <div className="text-text-primary text-sm sm:text-base font-medium capitalize">{flow.status}</div>
                 </div>
-                <div className="relative overflow-hidden rounded-2xl border border-white/14 bg-white/5 backdrop-blur-xl p-5 hover:border-accent-cyan/50 transition-colors group shadow-[0_14px_50px_rgba(15,23,42,0.9)]">
+                <div className="relative overflow-hidden rounded-2xl border border-white/[0.14] bg-white/5 backdrop-blur-xl p-5 hover:border-accent-cyan/50 transition-colors group shadow-[0_14px_50px_rgba(15,23,42,0.9)]">
                     <div className="flex items-center gap-2 text-text-muted mb-2"><Clock className="w-4 h-4 text-accent-yellow group-hover:scale-110 transition-transform" /> <span className="text-xs font-bold uppercase tracking-wider">Time Initiated</span></div>
                     <div className="text-text-primary text-sm font-medium">{new Date(flow.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
                 </div>
-                <div className="relative overflow-hidden rounded-2xl border border-white/14 bg-white/5 backdrop-blur-xl p-5 hover:border-accent-cyan/50 transition-colors group shadow-[0_14px_50px_rgba(15,23,42,0.9)]">
+                <div className="relative overflow-hidden rounded-2xl border border-white/[0.14] bg-white/5 backdrop-blur-xl p-5 hover:border-accent-cyan/50 transition-colors group shadow-[0_14px_50px_rgba(15,23,42,0.9)]">
                     <div className="absolute top-0 right-0 w-16 h-16 bg-accent-green/10 rounded-full blur-[20px]"></div>
                     <div className="flex items-center gap-2 text-text-muted mb-2 relative z-10"><Terminal className="w-4 h-4 text-accent-green group-hover:scale-110 transition-transform" /> <span className="text-xs font-bold uppercase tracking-wider">Telemetry Events</span></div>
                     <div className="text-text-primary text-2xl font-black relative z-10">{events.length}</div>
@@ -1383,7 +1389,7 @@ function FlowDetail() {
                             ))}
                         </div>
                     </div>
-                    <div className="flex-1 min-h-0 relative overflow-hidden rounded-2xl border border-white/14 bg-white/5 backdrop-blur-xl p-5 overflow-y-auto timeline-scrollbar shadow-[0_14px_50px_rgba(15,23,42,0.9)]">
+                    <div className="flex-1 min-h-0 relative overflow-hidden rounded-2xl border border-white/[0.14] bg-white/5 backdrop-blur-xl p-5 overflow-y-auto timeline-scrollbar shadow-[0_14px_50px_rgba(15,23,42,0.9)]">
                         {eventsError && (
                             <div className="mb-3 rounded-xl border border-accent-red/30 bg-accent-red/10 px-3 py-2 text-xs text-accent-red">
                                 {eventsError}

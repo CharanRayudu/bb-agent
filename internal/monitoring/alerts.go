@@ -124,13 +124,13 @@ func (d *Dispatcher) sendSlack(ctx context.Context, ch *AlertChannel, e AlertEve
 	payload := map[string]interface{}{
 		"attachments": []map[string]interface{}{
 			{
-				"color":      color,
-				"title":      "Mirage: Attack Surface Change Detected",
-				"text":       text,
-				"fields":     fields,
-				"footer":     "Mirage Autonomous Pentest",
+				"color":       color,
+				"title":       "Mirage: Attack Surface Change Detected",
+				"text":        text,
+				"fields":      fields,
+				"footer":      "Mirage Autonomous Pentest",
 				"footer_icon": "https://mirage.sec/icon.png",
-				"ts":         e.Timestamp.Unix(),
+				"ts":          e.Timestamp.Unix(),
 			},
 		},
 	}
@@ -185,11 +185,11 @@ func (d *Dispatcher) sendPagerDuty(ctx context.Context, ch *AlertChannel, e Aler
 			"severity":  pdSeverity,
 			"source":    e.Target,
 			"custom_details": map[string]interface{}{
-				"new_findings":      len(e.Delta.NewFindings),
-				"resolved":          len(e.Delta.ResolvedFindings),
-				"regressions":       len(e.Delta.Regressions),
-				"risk_delta":        e.Delta.RiskDelta,
-				"monitor_id":        e.MonitorID,
+				"new_findings": len(e.Delta.NewFindings),
+				"resolved":     len(e.Delta.ResolvedFindings),
+				"regressions":  len(e.Delta.Regressions),
+				"risk_delta":   e.Delta.RiskDelta,
+				"monitor_id":   e.MonitorID,
 			},
 		},
 		"links": []map[string]string{

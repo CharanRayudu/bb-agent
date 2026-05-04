@@ -214,13 +214,13 @@ func (a *Agent) runCredentialProbes(ctx context.Context, fc *http.Client, target
 				Agent:      a.ID(),
 				Timestamp:  time.Now(),
 				Evidence: map[string]interface{}{
-					"file_path":        path,
-					"credential_type":  m.Pattern,
-					"cloud_provider":   m.Provider,
-					"redacted_value":   m.Redacted,
-					"http_status":      resp.StatusCode,
-					"mitre_attack":     "T1552.001 — Credentials In Files",
-					"remediation":      "Remove credentials from source code/config files, use secrets managers (AWS Secrets Manager, Azure Key Vault, GCP Secret Manager), rotate exposed credentials immediately",
+					"file_path":       path,
+					"credential_type": m.Pattern,
+					"cloud_provider":  m.Provider,
+					"redacted_value":  m.Redacted,
+					"http_status":     resp.StatusCode,
+					"mitre_attack":    "T1552.001 — Credentials In Files",
+					"remediation":     "Remove credentials from source code/config files, use secrets managers (AWS Secrets Manager, Azure Key Vault, GCP Secret Manager), rotate exposed credentials immediately",
 				},
 			})
 		}
@@ -328,10 +328,10 @@ func newHTTPClient() *http.Client {
 	return &http.Client{
 		Timeout: 10 * time.Second,
 		Transport: &http.Transport{
-			TLSClientConfig:     &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
-			DisableKeepAlives:   true,
-			MaxIdleConns:        10,
-			IdleConnTimeout:     15 * time.Second,
+			TLSClientConfig:   &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+			DisableKeepAlives: true,
+			MaxIdleConns:      10,
+			IdleConnTimeout:   15 * time.Second,
 		},
 		CheckRedirect: func(_ *http.Request, via []*http.Request) error {
 			if len(via) >= 3 {

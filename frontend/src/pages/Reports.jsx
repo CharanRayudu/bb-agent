@@ -213,6 +213,7 @@ function GenerateTab({ flows }) {
             readerRef.current = reader
             const decoder = new TextDecoder()
             let buf = ''
+            let terminalEventSeen = false
 
             while (true) {
                 const { done, value } = await reader.read()
@@ -230,8 +231,10 @@ function GenerateTab({ flows }) {
                             setContent(prev => prev + ev.text)
                             setCharCount(prev => prev + ev.text.length)
                         } else if (ev.type === 'done') {
+                            terminalEventSeen = true
                             setGenerating(false)
                         } else if (ev.type === 'error') {
+                            terminalEventSeen = true
                             setError(ev.error)
                             setGenerating(false)
                         }
@@ -239,6 +242,10 @@ function GenerateTab({ flows }) {
                         // malformed SSE line
                     }
                 }
+            }
+            if (!terminalEventSeen) {
+                setError('Report stream ended before the backend sent a completion event.')
+                setGenerating(false)
             }
         } catch (err) {
             if (err.name !== 'AbortError') {
@@ -275,7 +282,7 @@ function GenerateTab({ flows }) {
                 {/* AI availability banner */}
                 {aiAvailable === false && (
                     <div className="rounded-xl border border-[#fbbf24]/30 bg-[#fbbf24]/10 px-4 py-3 text-xs text-[#fbbf24]">
-                        <strong>ANTHROPIC_API_KEY not configured.</strong> Set the environment variable to enable AI report generation.
+                        <strong>Codex/OpenAI provider not configured.</strong> Run <code>codex login</code> or configure the shared OpenAI provider to enable AI report generation.
                     </div>
                 )}
 
@@ -709,7 +716,7 @@ export default function Reports() {
                             </h1>
                             <p className="text-sm md:text-base text-text-secondary flex items-center gap-2">
                                 <Sparkles className="w-4 h-4 text-accent-cyan" />
-                                Claude-powered report generation · {findings.length} findings · {critical} critical
+                                Codex-powered report generation · {findings.length} findings · {critical} critical
                             </p>
                         </motion.div>
 

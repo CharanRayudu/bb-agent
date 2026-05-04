@@ -23,9 +23,9 @@ type TechStackAnalysis struct {
 
 // headerRule maps a header name + value substring to a TechComponent.
 type headerRule struct {
-	header     string
-	valueSub   string // case-insensitive substring match on the value; empty = presence only
-	component  TechComponent
+	header    string
+	valueSub  string // case-insensitive substring match on the value; empty = presence only
+	component TechComponent
 }
 
 // cookieRule maps a cookie name substring to a TechComponent.
@@ -36,8 +36,8 @@ type cookieRule struct {
 
 // bodyRule matches a regex pattern in the response body.
 type bodyRule struct {
-	pattern    *regexp.Regexp
-	component  TechComponent
+	pattern   *regexp.Regexp
+	component TechComponent
 }
 
 var headerRules = []headerRule{

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Shield, LayoutDashboard, Plus, Network, Settings, Wifi, WifiOff, Activity, Globe, FileText, Code2, Target, CheckSquare, TrendingUp, Tag, Calendar, Bell, ShieldOff, ClipboardList, Menu, X } from 'lucide-react'
+import { LayoutDashboard, Plus, Network, Settings, Wifi, WifiOff, Activity, Globe, FileText, Code2, Target, CheckSquare, TrendingUp, Tag, Calendar, Bell, ShieldOff, ClipboardList, Menu, X } from 'lucide-react'
+import logoMark from '../assets/logo-mark.svg'
 
 const NAV_ITEMS = [
     { label: 'Dashboard',         icon: LayoutDashboard, to: '/',              hint: 'Overview' },
@@ -94,7 +95,7 @@ function SidebarContent({ onNavigate }) {
             <div className="relative z-10 flex items-center gap-3 px-4 pt-5 pb-4 border-b border-white/[0.08]">
                 <div className="relative">
                     <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent-cyan/30 via-accent-purple/20 to-accent-green/20 border border-white/20 flex items-center justify-center flex-shrink-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.2),0_4px_16px_rgba(34,211,238,0.25)]">
-                        <Shield className="w-5 h-5 text-white drop-shadow-[0_0_6px_rgba(34,211,238,0.5)]" />
+                        <img src={logoMark} alt="" className="w-6 h-6 drop-shadow-[0_0_6px_rgba(34,211,238,0.5)]" />
                     </div>
                     <span className="absolute -inset-1 rounded-xl bg-accent-cyan/20 blur-md -z-10 animate-pulse-slow" />
                 </div>
@@ -186,10 +187,10 @@ export default function Sidebar() {
             <button
                 type="button"
                 onClick={() => setMobileOpen(true)}
-                className="md:hidden fixed top-4 left-4 z-40 w-10 h-10 flex items-center justify-center rounded-xl bg-surface-2/80 backdrop-blur-xl border border-white/[0.10] text-text-secondary hover:text-text-primary shadow-lg transition-colors"
+                className="md:hidden fixed top-4 left-4 z-40 w-10 h-10 flex items-center justify-center rounded-xl bg-surface/80 backdrop-blur-xl border border-white/[0.10] text-text-secondary hover:text-text-primary shadow-lg transition-colors"
                 aria-label="Open navigation"
             >
-                <Menu className="w-4.5 h-4.5" style={{ width: 18, height: 18 }} />
+                <Menu className="w-[18px] h-[18px]" style={{ width: 18, height: 18 }} />
             </button>
 
             {/* Mobile drawer */}

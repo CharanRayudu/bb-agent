@@ -30,8 +30,8 @@ type ModuleConfig struct {
 	Version     string   `yaml:"version"`
 	Author      string   `yaml:"author"`
 	Tags        []string `yaml:"tags"`
-	Targets     []string `yaml:"targets"` // tech stack patterns this module is suited for
-	Timeout     int      `yaml:"timeout"` // max execution time in seconds
+	Targets     []string `yaml:"targets"`  // tech stack patterns this module is suited for
+	Timeout     int      `yaml:"timeout"`  // max execution time in seconds
 	Priority    int      `yaml:"priority"` // higher = preferred
 	Enabled     bool     `yaml:"enabled"`
 }

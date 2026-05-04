@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/bb-agent/mirage/internal/copilot"
@@ -12,18 +11,18 @@ import (
 )
 
 func (s *Server) registerCopilotRoutes() {
-	s.mux.HandleFunc("/api/copilot/sessions", s.handleCopilotSessions)
-	s.mux.HandleFunc("/api/copilot/sessions/", s.handleCopilotSession)
-	s.mux.HandleFunc("/api/copilot/chat", s.handleCopilotChat)
+	s.mux.HandleFunc("/api/copilot/sessions", s.authGate(RoleOperator, s.handleCopilotSessions))
+	s.mux.HandleFunc("/api/copilot/sessions/", s.authGateMethods(RoleOperator, s.handleCopilotSession, http.MethodDelete))
+	s.mux.HandleFunc("/api/copilot/chat", s.authGate(RoleOperator, s.handleCopilotChat))
 	s.mux.HandleFunc("/api/copilot/suggestions", s.handleCopilotSuggestions)
 	s.mux.HandleFunc("/api/copilot/available", s.handleCopilotAvailable)
 }
 
-// handleCopilotAvailable reports whether the Claude API key is present.
+// handleCopilotAvailable reports whether the shared Codex/OpenAI provider is configured.
 func (s *Server) handleCopilotAvailable(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{
-		"available": os.Getenv("ANTHROPIC_API_KEY") != "",
+		"available": s.currentLLMProvider("") != nil,
 	})
 }
 
@@ -111,8 +110,8 @@ func (s *Server) handleCopilotChat(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "data: %s\n\n", mustJSON(map[string]string{"type": "session", "session_id": sess.ID}))
 	flusher.Flush()
 
-	// Stream from Claude
-	reply, err := copilot.Chat(r.Context(), history, ctx, w, flusher.Flush)
+	// Stream from the shared Codex/OpenAI provider.
+	reply, err := copilot.Chat(r.Context(), s.currentLLMProvider(""), s.cfg.OpenAIModel, s.cfg.OpenAITemperature, history, ctx, w, flusher.Flush)
 	if err == nil && reply != "" {
 		s.copilotStore.Append(sess.ID, copilot.Message{Role: "assistant", Content: reply})
 	}
@@ -168,7 +167,7 @@ func (s *Server) handleCopilotSuggestions(w http.ResponseWriter, r *http.Request
 	json.NewEncoder(w).Encode(map[string]interface{}{"suggestions": suggestions})
 }
 
-// buildPlatformContext assembles a concise platform state summary for Claude.
+// buildPlatformContext assembles a concise platform state summary for the copilot.
 func buildPlatformContext(s *Server) string {
 	var sb strings.Builder
 	sb.WriteString("## Current Platform State\n\n")

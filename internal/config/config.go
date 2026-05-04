@@ -27,7 +27,7 @@ type Config struct {
 
 	// Auth
 	JWTSecret     string
-	AuthRequired  bool // if true, endpoints without a valid token are rejected (401). Default false.
+	AuthRequired  bool   // if true, endpoints without a valid token are rejected (401). Default false.
 	WebhookSecret string // HMAC-SHA256 secret for /api/cicd/trigger. Empty disables verification.
 
 	// CORS

@@ -61,7 +61,7 @@ func TestCompute_CriticalFindings_LowersScore(t *testing.T) {
 
 func TestCompute_GradeMapping(t *testing.T) {
 	cases := []struct {
-		input posture.Input
+		input   posture.Input
 		inRange func(g string) bool
 	}{
 		{
@@ -85,7 +85,7 @@ func TestCompute_GradeMapping(t *testing.T) {
 
 func TestCompute_OWASPCoverage(t *testing.T) {
 	snap := posture.Compute(posture.Input{
-		FindingTypes: []string{"SQL Injection", "XSS", "SSRF"},
+		FindingTypes:  []string{"SQL Injection", "XSS", "SSRF"},
 		FindingCounts: map[string]int{"high": 3},
 	})
 

@@ -317,8 +317,8 @@ func (g *InMemoryGraph) Close() error {
 func RecordFinding(g Graph, hostID, flowID string, vulnType, url, payload, techStack string, confidence float64) error {
 	vulnID := uuid.New().String()
 	if err := g.AddNode(&KGNode{
-		ID:   vulnID,
-		Type: NodeVulnerability,
+		ID:    vulnID,
+		Type:  NodeVulnerability,
 		Label: fmt.Sprintf("%s on %s", vulnType, url),
 		Properties: map[string]interface{}{
 			"vuln_type":  vulnType,
@@ -342,8 +342,8 @@ func RecordFinding(g Graph, hostID, flowID string, vulnType, url, payload, techS
 	if payload != "" {
 		payloadID := uuid.New().String()
 		if err := g.AddNode(&KGNode{
-			ID:   payloadID,
-			Type: NodePayload,
+			ID:    payloadID,
+			Type:  NodePayload,
 			Label: truncateLabel(payload, 100),
 			Properties: map[string]interface{}{
 				"payload":    payload,
@@ -376,14 +376,14 @@ func RecordHost(g Graph, target, techStack, flowID string) (string, error) {
 	existing, err := g.GetNode(hostID)
 	if err == nil && existing != nil {
 		return hostID, g.UpdateNode(hostID, map[string]interface{}{
-			"tech_stack":  techStack,
+			"tech_stack":   techStack,
 			"last_scanned": time.Now().Format(time.RFC3339),
 		})
 	}
 
 	return hostID, g.AddNode(&KGNode{
-		ID:   hostID,
-		Type: NodeHost,
+		ID:    hostID,
+		Type:  NodeHost,
 		Label: target,
 		Properties: map[string]interface{}{
 			"target":     target,

@@ -15,16 +15,16 @@ import (
 
 // Finding is the minimal finding shape needed to create a ticket.
 type Finding struct {
-	ID           string
-	Type         string
-	URL          string
-	Severity     string
-	Confidence   float64
-	Title        string
-	Description  string
-	Remediation  string
-	FlowID       string
-	Evidence     map[string]interface{}
+	ID          string
+	Type        string
+	URL         string
+	Severity    string
+	Confidence  float64
+	Title       string
+	Description string
+	Remediation string
+	FlowID      string
+	Evidence    map[string]interface{}
 }
 
 // TicketResult holds the result of creating a ticket.
@@ -46,9 +46,9 @@ type JiraConfig struct {
 
 // GitHubConfig holds credentials for GitHub Issues API.
 type GitHubConfig struct {
-	Token  string // Personal access token or GitHub App token
-	Owner  string // Repo owner e.g. "myorg"
-	Repo   string // Repo name e.g. "security-findings"
+	Token string // Personal access token or GitHub App token
+	Owner string // Repo owner e.g. "myorg"
+	Repo  string // Repo name e.g. "security-findings"
 }
 
 // LinearConfig holds credentials for Linear GraphQL API.

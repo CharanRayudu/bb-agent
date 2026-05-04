@@ -20,17 +20,17 @@ import (
 	"github.com/bb-agent/mirage/internal/agent"
 	"github.com/bb-agent/mirage/internal/agent/base"
 	"github.com/bb-agent/mirage/internal/config"
+	"github.com/bb-agent/mirage/internal/copilot"
 	"github.com/bb-agent/mirage/internal/database"
 	"github.com/bb-agent/mirage/internal/docker"
 	"github.com/bb-agent/mirage/internal/knowledge"
 	"github.com/bb-agent/mirage/internal/llm"
 	"github.com/bb-agent/mirage/internal/models"
-	"github.com/bb-agent/mirage/internal/copilot"
 	"github.com/bb-agent/mirage/internal/monitoring"
+	"github.com/bb-agent/mirage/internal/notify"
 	"github.com/bb-agent/mirage/internal/posture"
 	"github.com/bb-agent/mirage/internal/profiles"
 	"github.com/bb-agent/mirage/internal/remediation"
-	"github.com/bb-agent/mirage/internal/notify"
 	"github.com/bb-agent/mirage/internal/schedplan"
 	"github.com/bb-agent/mirage/internal/tools"
 	"github.com/google/uuid"
@@ -142,18 +142,7 @@ func New(cfg *config.Config, db *sql.DB) *Server {
 		}
 	})
 
-	// Build a shared LLM provider for stateless requests (e.g. /api/mutate).
-	// Mirrors the logic in runAgent: prefer Codex OAuth, fall back to API key.
-	var sharedProvider llm.Provider
-	codexAuth := llm.NewCodexTokenProvider(cfg.CodexHome)
-	if codexAuth.IsAvailable() {
-		sharedProvider = llm.NewOpenAIProviderWithCodex(codexAuth, cfg.OpenAIModel, cfg.OpenAITemperature)
-	} else if cfg.OpenAIAPIKey != "" {
-		sharedProvider = llm.NewOpenAIProvider(cfg.OpenAIAPIKey, cfg.OpenAIModel, cfg.OpenAITemperature)
-	}
-	if sharedProvider != nil {
-		sharedProvider = llm.NewResilientProvider(sharedProvider)
-	}
+	sharedProvider := buildLLMProvider(cfg, "")
 
 	sharedKG := knowledge.NewInMemoryGraph()
 	initialConfig := map[string]interface{}{
@@ -200,12 +189,12 @@ func New(cfg *config.Config, db *sql.DB) *Server {
 		activeOrchestrators: make(map[uuid.UUID]*agent.Orchestrator),
 		operatorAnnotations: make(map[string][]OperatorAnnotation),
 		authSessions:        make(map[string]*base.AuthSession),
-		rbac:               rbac,
-		auditLog:           auditLog,
-		scheduler:          scheduler,
-		remediationTracker: remediationTracker,
-		surfaceStore:       surfaceStore,
-		llmProvider:        sharedProvider,
+		rbac:                rbac,
+		auditLog:            auditLog,
+		scheduler:           scheduler,
+		remediationTracker:  remediationTracker,
+		surfaceStore:        surfaceStore,
+		llmProvider:         sharedProvider,
 	}
 
 	// Continuous monitoring subsystem
@@ -223,6 +212,35 @@ func New(cfg *config.Config, db *sql.DB) *Server {
 
 	s.setupRoutes()
 	return s
+}
+
+func buildLLMProvider(cfg *config.Config, selectedModel string) llm.Provider {
+	if cfg == nil {
+		return nil
+	}
+	model := strings.TrimSpace(selectedModel)
+	if model == "" {
+		model = cfg.OpenAIModel
+	}
+
+	var provider llm.Provider
+	codexAuth := llm.NewCodexTokenProvider(cfg.CodexHome)
+	if codexAuth.IsAvailable() {
+		provider = llm.NewOpenAIProviderWithCodex(codexAuth, model, cfg.OpenAITemperature)
+	} else if cfg.OpenAIAPIKey != "" {
+		provider = llm.NewOpenAIProvider(cfg.OpenAIAPIKey, model, cfg.OpenAITemperature)
+	}
+	if provider != nil {
+		provider = llm.NewResilientProvider(provider)
+	}
+	return provider
+}
+
+func (s *Server) currentLLMProvider(model string) llm.Provider {
+	if s == nil {
+		return nil
+	}
+	return buildLLMProvider(s.cfg, model)
 }
 
 // firePlan is the FireFunc called by the schedplan Runner when a schedule fires.
@@ -277,7 +295,7 @@ func (s *Server) setupRoutes() {
 	s.mux.HandleFunc("/api/findings/", s.handleFindingSubroute)
 	// Mutation endpoints require at least Operator when AUTH_REQUIRED=true.
 	s.mux.HandleFunc("/api/flows/create", s.authGate(RoleOperator, s.handleCreateFlow))
-	s.mux.HandleFunc("/api/flows/", s.handleFlow)
+	s.mux.HandleFunc("/api/flows/", s.authGateMethods(RoleOperator, s.handleFlow, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete))
 	s.mux.HandleFunc("/api/flows", s.handleFlows)
 
 	// Operational routes
@@ -309,13 +327,13 @@ func (s *Server) setupRoutes() {
 // Start runs the HTTP server
 // Handler returns the server's HTTP handler (useful for testing).
 func (s *Server) Handler() http.Handler {
-	return s.corsMiddleware(s.mux)
+	return s.corsMiddleware(s.apiAuthMiddleware(s.mux))
 }
 
 func (s *Server) Start(ctx context.Context, addr string) error {
 	srv := &http.Server{
 		Addr:    addr,
-		Handler: s.corsMiddleware(s.mux),
+		Handler: s.Handler(),
 	}
 
 	go func() {
@@ -348,6 +366,25 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	models := llm.GetAvailableModels(s.cfg.CodexHome)
+	configuredModel := strings.TrimSpace(s.cfg.OpenAIModel)
+	if configuredModel != "" {
+		found := false
+		for i := range models {
+			models[i].Current = models[i].ID == configuredModel
+			if models[i].ID == configuredModel {
+				found = true
+			}
+		}
+		if !found {
+			models = append([]llm.CodexModel{{
+				ID:          configuredModel,
+				Name:        configuredModel,
+				Description: "Configured by OPENAI_MODEL.",
+				Category:    "Configured",
+				Current:     true,
+			}}, models...)
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(models)
 }
@@ -888,17 +925,9 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 	}
 	log.Printf("[BRAIN] Using model: %s", model)
 
-	// Create LLM provider -- prefer Codex OAuth, fall back to API key
-	var provider llm.Provider
-
-	codexAuth := llm.NewCodexTokenProvider(s.cfg.CodexHome)
-	if codexAuth.IsAvailable() {
-		log.Println("[AUTH] Using Codex CLI OAuth for LLM authentication")
-		provider = llm.NewOpenAIProviderWithCodex(codexAuth, model, s.cfg.OpenAITemperature)
-	} else if s.cfg.OpenAIAPIKey != "" {
-		log.Println("[KEY] Using OpenAI API key for LLM authentication")
-		provider = llm.NewOpenAIProvider(s.cfg.OpenAIAPIKey, model, s.cfg.OpenAITemperature)
-	} else {
+	// Create LLM provider -- prefer Codex OAuth, fall back to API key.
+	provider := s.currentLLMProvider(model)
+	if provider == nil {
 		errMsg := "No LLM authentication available. Run 'codex login' or set OPENAI_API_KEY"
 		log.Printf("[ERROR] %s", errMsg)
 		s.queries.UpdateFlowStatus(flowID, models.FlowStatusFailed)
@@ -910,6 +939,7 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 		})
 		return
 	}
+	log.Printf("[AUTH] Using LLM provider: %s", provider.Name())
 
 	// Wrap with ResilientProvider to handle transient connection errors (Brain-Hardening)
 	provider = llm.NewResilientProvider(provider)
@@ -1401,8 +1431,8 @@ func (s *Server) handleMutate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var variants []string
-	if s.llmProvider != nil {
-		mutator := agent.NewLLMMutator(s.llmProvider, s.cfg.OpenAIModel)
+	if provider := s.currentLLMProvider(""); provider != nil {
+		mutator := agent.NewLLMMutator(provider, s.cfg.OpenAIModel)
 		variants = mutator.Mutate(r.Context(), req.Payload, req.VulnType, strings.TrimSpace(req.TechStack+" "+req.WAF))
 	}
 	// Fallback: if LLM is unavailable or returned nothing, use rule-based mutation
@@ -1481,6 +1511,27 @@ func verifyHMACSHA256(secret, body []byte, sigHeader string) bool {
 // ============ WebSocket ============
 
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	if s != nil && s.cfg != nil && s.cfg.AuthRequired {
+		token := strings.TrimSpace(r.URL.Query().Get("token"))
+		if token == "" {
+			authHeader := r.Header.Get("Authorization")
+			parts := strings.SplitN(authHeader, " ", 2)
+			if len(parts) == 2 && strings.EqualFold(parts[0], "bearer") {
+				token = strings.TrimSpace(parts[1])
+			}
+		}
+		if token == "" {
+			http.Error(w, "authorization token required", http.StatusUnauthorized)
+			return
+		}
+		authCfg := DefaultAuthConfig(s.cfg.JWTSecret)
+		authCfg.Required = true
+		if _, err := ValidateToken(authCfg, token); err != nil {
+			http.Error(w, "invalid or expired token", http.StatusUnauthorized)
+			return
+		}
+	}
+
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("WebSocket upgrade failed: %v", err)

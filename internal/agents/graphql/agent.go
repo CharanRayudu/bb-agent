@@ -258,10 +258,10 @@ func testIntrospection(ctx context.Context, client *gqlClient, endpoint string) 
 			Severity:   base.SeverityMedium,
 			Confidence: 0.92,
 			Evidence: map[string]interface{}{
-				"test":        "introspection",
-				"status_code": r.statusCode,
+				"test":         "introspection",
+				"status_code":  r.statusCode,
 				"body_snippet": truncate(r.body, 500),
-				"description": "Full schema introspection is enabled, leaking all types, fields, and mutations",
+				"description":  "Full schema introspection is enabled, leaking all types, fields, and mutations",
 			},
 			Method: "POST",
 		}
@@ -289,10 +289,10 @@ func testFieldSuggestion(ctx context.Context, client *gqlClient, endpoint string
 			Severity:   base.SeverityLow,
 			Confidence: 0.88,
 			Evidence: map[string]interface{}{
-				"test":        "field_suggestion",
-				"status_code": r.statusCode,
+				"test":         "field_suggestion",
+				"status_code":  r.statusCode,
 				"body_snippet": truncate(r.body, 500),
-				"description": "GraphQL engine reveals valid field names via 'Did you mean?' suggestions",
+				"description":  "GraphQL engine reveals valid field names via 'Did you mean?' suggestions",
 			},
 			Method: "POST",
 		}
@@ -324,10 +324,10 @@ func testBatching(ctx context.Context, client *gqlClient, endpoint string) *base
 			Severity:   base.SeverityMedium,
 			Confidence: 0.85,
 			Evidence: map[string]interface{}{
-				"test":        "batching",
-				"status_code": r.statusCode,
+				"test":         "batching",
+				"status_code":  r.statusCode,
 				"body_snippet": truncate(r.body, 300),
-				"description": "GraphQL supports query batching; can be abused for DoS or rate-limit bypass",
+				"description":  "GraphQL supports query batching; can be abused for DoS or rate-limit bypass",
 			},
 			Method: "POST",
 		}
@@ -358,10 +358,10 @@ func testDepthAttack(ctx context.Context, client *gqlClient, endpoint string) *b
 				Severity:   base.SeverityMedium,
 				Confidence: 0.70,
 				Evidence: map[string]interface{}{
-					"test":        "depth_attack",
-					"status_code": r.statusCode,
+					"test":         "depth_attack",
+					"status_code":  r.statusCode,
 					"body_snippet": truncate(r.body, 300),
-					"description": "No query depth limit detected; deeply nested queries may cause DoS",
+					"description":  "No query depth limit detected; deeply nested queries may cause DoS",
 				},
 				Method: "POST",
 			}
@@ -397,10 +397,10 @@ func testIDOR(ctx context.Context, client *gqlClient, endpoint string) *base.Fin
 					Severity:   base.SeverityHigh,
 					Confidence: 0.75,
 					Evidence: map[string]interface{}{
-						"test":        "idor",
-						"status_code": r.statusCode,
+						"test":         "idor",
+						"status_code":  r.statusCode,
 						"body_snippet": truncate(r.body, 400),
-						"description": "GraphQL query returned sensitive data for hardcoded ID without authentication check",
+						"description":  "GraphQL query returned sensitive data for hardcoded ID without authentication check",
 					},
 					Method: "POST",
 				}
@@ -471,10 +471,10 @@ func testAliasRateLimit(ctx context.Context, client *gqlClient, endpoint string)
 			Severity:   base.SeverityMedium,
 			Confidence: 0.80,
 			Evidence: map[string]interface{}{
-				"test":        "alias_rate_limit",
-				"status_code": r.statusCode,
+				"test":         "alias_rate_limit",
+				"status_code":  r.statusCode,
 				"body_snippet": truncate(r.body, 300),
-				"description": "Multiple aliases in a single query bypass per-request rate limiting",
+				"description":  "Multiple aliases in a single query bypass per-request rate limiting",
 			},
 			Method: "POST",
 		}
@@ -508,10 +508,10 @@ func testVerboseErrors(ctx context.Context, client *gqlClient, endpoint string) 
 			Severity:   base.SeverityLow,
 			Confidence: 0.82,
 			Evidence: map[string]interface{}{
-				"test":        "verbose_errors",
-				"status_code": r.statusCode,
+				"test":         "verbose_errors",
+				"status_code":  r.statusCode,
 				"body_snippet": truncate(r.body, 500),
-				"description": "GraphQL errors expose internal structure, file paths, or stack traces",
+				"description":  "GraphQL errors expose internal structure, file paths, or stack traces",
 			},
 			Method: "POST",
 		}

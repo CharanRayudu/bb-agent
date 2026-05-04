@@ -9,8 +9,8 @@ import (
 )
 
 func (s *Server) registerNotifyRoutes() {
-	s.mux.HandleFunc("/api/notify/channels", s.handleNotifyChannels)
-	s.mux.HandleFunc("/api/notify/channels/", s.handleNotifyChannel)
+	s.mux.HandleFunc("/api/notify/channels", s.authGateMethods(RoleOperator, s.handleNotifyChannels, http.MethodPost))
+	s.mux.HandleFunc("/api/notify/channels/", s.authGateMethods(RoleOperator, s.handleNotifyChannel, http.MethodPost, http.MethodPut, http.MethodDelete))
 	s.mux.HandleFunc("/api/notify/events", s.handleNotifyEvents)
 }
 

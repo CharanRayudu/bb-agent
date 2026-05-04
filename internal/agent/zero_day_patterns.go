@@ -21,10 +21,10 @@ type ZeroDayPattern struct {
 
 // ZeroDayVector is a single test vector for a zero-day pattern
 type ZeroDayVector struct {
-	Description string
-	Method      string
-	Headers     map[string]string
-	PayloadFunc func(baseURL string) string
+	Description      string
+	Method           string
+	Headers          map[string]string
+	PayloadFunc      func(baseURL string) string
 	SuccessIndicator string // substring in response body/header indicating success
 }
 
@@ -76,8 +76,8 @@ var AllZeroDayPatterns = []ZeroDayPattern{
 				SuccessIndicator: "admin",
 			},
 		},
-		Impact:    "Authorization bypass, privilege escalation, admin access",
-		CWE:       "CWE-235",
+		Impact: "Authorization bypass, privilege escalation, admin access",
+		CWE:    "CWE-235",
 	},
 	{
 		ID:       "unicode-normalization-bypass",
@@ -100,8 +100,8 @@ var AllZeroDayPatterns = []ZeroDayPattern{
 				SuccessIndicator: "admin",
 			},
 		},
-		Impact:    "Path traversal, authentication bypass, WAF evasion",
-		CWE:       "CWE-176",
+		Impact: "Path traversal, authentication bypass, WAF evasion",
+		CWE:    "CWE-176",
 	},
 	{
 		ID:       "jwt-algorithm-confusion",
@@ -119,8 +119,8 @@ var AllZeroDayPatterns = []ZeroDayPattern{
 				SuccessIndicator: "admin",
 			},
 		},
-		Impact:    "Complete authentication bypass, admin privilege escalation",
-		CWE:       "CWE-347",
+		Impact: "Complete authentication bypass, admin privilege escalation",
+		CWE:    "CWE-347",
 	},
 	{
 		ID:       "graphql-batching-bruteforce",
@@ -131,9 +131,9 @@ var AllZeroDayPatterns = []ZeroDayPattern{
 		Indicators: []string{"graphql", "/graphql", "/api/graphql", "application/graphql"},
 		TestVectors: []ZeroDayVector{
 			{
-				Description:      "Batch OTP bruteforce test",
-				Method:           "POST",
-				Headers:          map[string]string{"Content-Type": "application/json"},
+				Description: "Batch OTP bruteforce test",
+				Method:      "POST",
+				Headers:     map[string]string{"Content-Type": "application/json"},
 				PayloadFunc: func(base string) string {
 					queries := make([]string, 10)
 					for i := 0; i < 10; i++ {
@@ -144,8 +144,8 @@ var AllZeroDayPatterns = []ZeroDayPattern{
 				SuccessIndicator: "token",
 			},
 		},
-		Impact:    "OTP bypass, password bruteforce, token enumeration",
-		CWE:       "CWE-307",
+		Impact: "OTP bypass, password bruteforce, token enumeration",
+		CWE:    "CWE-307",
 	},
 	{
 		ID:       "race-condition-limit-bypass",
@@ -163,8 +163,8 @@ var AllZeroDayPatterns = []ZeroDayPattern{
 				SuccessIndicator: "success",
 			},
 		},
-		Impact:    "Financial fraud, unlimited coupon usage, balance inflation",
-		CWE:       "CWE-362",
+		Impact: "Financial fraud, unlimited coupon usage, balance inflation",
+		CWE:    "CWE-362",
 	},
 	{
 		ID:       "mass-assignment-nested",
@@ -175,10 +175,12 @@ var AllZeroDayPatterns = []ZeroDayPattern{
 		Indicators: []string{"user update", "profile", "account", "patch", "put endpoint", "json body"},
 		TestVectors: []ZeroDayVector{
 			{
-				Description:      "Admin flag injection",
-				Method:           "PUT",
-				Headers:          map[string]string{"Content-Type": "application/json"},
-				PayloadFunc:      func(base string) string { return `{"name":"test","role":"admin","is_admin":true,"permissions":["admin"]}` },
+				Description: "Admin flag injection",
+				Method:      "PUT",
+				Headers:     map[string]string{"Content-Type": "application/json"},
+				PayloadFunc: func(base string) string {
+					return `{"name":"test","role":"admin","is_admin":true,"permissions":["admin"]}`
+				},
 				SuccessIndicator: "admin",
 			},
 			{
@@ -189,8 +191,8 @@ var AllZeroDayPatterns = []ZeroDayPattern{
 				SuccessIndicator: "admin",
 			},
 		},
-		Impact:    "Privilege escalation, account takeover, admin access",
-		CWE:       "CWE-915",
+		Impact: "Privilege escalation, account takeover, admin access",
+		CWE:    "CWE-915",
 	},
 	{
 		ID:       "ssrf-dns-rebinding",
@@ -207,8 +209,8 @@ var AllZeroDayPatterns = []ZeroDayPattern{
 				SuccessIndicator: "internal",
 			},
 		},
-		Impact:    "Internal service SSRF, cloud metadata access, RCE via internal APIs",
-		CWE:       "CWE-918",
+		Impact: "Internal service SSRF, cloud metadata access, RCE via internal APIs",
+		CWE:    "CWE-918",
 	},
 	{
 		ID:       "web-cache-deception",
@@ -231,8 +233,8 @@ var AllZeroDayPatterns = []ZeroDayPattern{
 				SuccessIndicator: "X-Cache: HIT",
 			},
 		},
-		Impact:    "Session token theft, PII exfiltration from other users' authenticated responses",
-		CWE:       "CWE-525",
+		Impact: "Session token theft, PII exfiltration from other users' authenticated responses",
+		CWE:    "CWE-525",
 	},
 	{
 		ID:       "iframe-sandbox-escape",
@@ -249,8 +251,8 @@ var AllZeroDayPatterns = []ZeroDayPattern{
 				SuccessIndicator: "document.cookie",
 			},
 		},
-		Impact:    "XSS, session theft, cross-origin data exfiltration",
-		CWE:       "CWE-1021",
+		Impact: "XSS, session theft, cross-origin data exfiltration",
+		CWE:    "CWE-1021",
 	},
 }
 

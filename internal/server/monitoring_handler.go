@@ -13,11 +13,11 @@ import (
 
 // registerMonitoringRoutes adds continuous monitoring endpoints.
 func (s *Server) registerMonitoringRoutes() {
-	s.mux.HandleFunc("/api/monitors", s.handleMonitors)
-	s.mux.HandleFunc("/api/monitors/", s.handleMonitor)
-	s.mux.HandleFunc("/api/alerting/channels", s.handleAlertChannels)
-	s.mux.HandleFunc("/api/alerting/channels/", s.handleAlertChannel)
-	s.mux.HandleFunc("/api/alerting/test", s.handleAlertTest)
+	s.mux.HandleFunc("/api/monitors", s.authGateMethods(RoleOperator, s.handleMonitors, http.MethodPost))
+	s.mux.HandleFunc("/api/monitors/", s.authGateMethods(RoleOperator, s.handleMonitor, http.MethodPost, http.MethodPut, http.MethodDelete))
+	s.mux.HandleFunc("/api/alerting/channels", s.authGateMethods(RoleOperator, s.handleAlertChannels, http.MethodPost))
+	s.mux.HandleFunc("/api/alerting/channels/", s.authGateMethods(RoleOperator, s.handleAlertChannel, http.MethodDelete))
+	s.mux.HandleFunc("/api/alerting/test", s.authGate(RoleOperator, s.handleAlertTest))
 }
 
 // ── Monitor list / create ─────────────────────────────────────────────────────
@@ -169,9 +169,9 @@ func (s *Server) handleSetBaseline(w http.ResponseWriter, r *http.Request, id st
 	s.monitorStore.SetBaseline(id, bl)
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":          "ok",
-		"baseline_at":     bl.SnapshotAt.UTC().Format(time.RFC3339),
-		"finding_count":   len(summaries),
+		"status":        "ok",
+		"baseline_at":   bl.SnapshotAt.UTC().Format(time.RFC3339),
+		"finding_count": len(summaries),
 	})
 }
 

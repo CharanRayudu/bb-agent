@@ -21,11 +21,11 @@ func (s *Server) registerVulnIntelRoutes() {
 // ── /api/findings/stats ────────────────────────────────────────────────────────
 
 type findingStats struct {
-	Total      int              `json:"total"`
-	BySeverity map[string]int   `json:"by_severity"`
-	TopTypes   []nameCount      `json:"top_types"`
-	TopTargets []nameCount      `json:"top_targets"`
-	Trend      []dayCount       `json:"trend"` // last 30 days
+	Total      int            `json:"total"`
+	BySeverity map[string]int `json:"by_severity"`
+	TopTypes   []nameCount    `json:"top_types"`
+	TopTargets []nameCount    `json:"top_targets"`
+	Trend      []dayCount     `json:"trend"` // last 30 days
 }
 
 type nameCount struct {

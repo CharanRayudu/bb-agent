@@ -219,13 +219,13 @@ func findingTypeToKey(findingType string) string {
 	// Try common aliases
 	aliases := map[string]string{
 		"SQL_INJECTION": "SQLi", "SQLI": "SQLi",
-		"CROSS_SITE_SCRIPTING": "XSS",
-		"SERVER_SIDE_REQUEST_FORGERY": "SSRF",
-		"REMOTE_CODE_EXECUTION": "RCE",
-		"LOCAL_FILE_INCLUSION": "LFI",
+		"CROSS_SITE_SCRIPTING":             "XSS",
+		"SERVER_SIDE_REQUEST_FORGERY":      "SSRF",
+		"REMOTE_CODE_EXECUTION":            "RCE",
+		"LOCAL_FILE_INCLUSION":             "LFI",
 		"INSECURE_DIRECT_OBJECT_REFERENCE": "IDOR",
-		"SERVER_SIDE_TEMPLATE_INJECTION": "SSTI",
-		"XML_EXTERNAL_ENTITY": "XXE",
+		"SERVER_SIDE_TEMPLATE_INJECTION":   "SSTI",
+		"XML_EXTERNAL_ENTITY":              "XXE",
 	}
 	if key, ok := aliases[upper]; ok {
 		return key
@@ -257,11 +257,11 @@ func SupportedFrameworks() []string {
 
 // PostureReport computes a compliance posture for a list of finding types.
 type PostureReport struct {
-	Framework       string           `json:"framework"`
-	TotalControls   int              `json:"total_controls"`
-	TriggeredCount  int              `json:"triggered_count"`
-	PassRate        float64          `json:"pass_rate"` // 0–1
-	TriggeredControls []ControlHit   `json:"triggered_controls"`
+	Framework         string       `json:"framework"`
+	TotalControls     int          `json:"total_controls"`
+	TriggeredCount    int          `json:"triggered_count"`
+	PassRate          float64      `json:"pass_rate"` // 0–1
+	TriggeredControls []ControlHit `json:"triggered_controls"`
 }
 
 // ControlHit is a control that was triggered by at least one finding.

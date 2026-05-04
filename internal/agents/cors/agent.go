@@ -5,12 +5,12 @@ package cors
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
-	"crypto/tls"
 
 	"github.com/bb-agent/mirage/internal/agent/base"
 	"github.com/bb-agent/mirage/internal/queue"

@@ -168,7 +168,7 @@ function GitHubAppPanel({ onConfigSaved }) {
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl p-5 space-y-4">
             <div className="flex items-center gap-3">
                 <span className="w-9 h-9 rounded-xl bg-accent-cyan/10 border border-accent-cyan/20 flex items-center justify-center">
-                    <Github className="w-4.5 h-4.5 text-accent-cyan" />
+                    <Github className="w-[18px] h-[18px] text-accent-cyan" />
                 </span>
                 <div>
                     <h3 className="text-sm font-bold text-text-primary">GitHub App Integration</h3>

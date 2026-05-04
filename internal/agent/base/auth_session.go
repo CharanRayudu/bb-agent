@@ -12,7 +12,7 @@ import (
 
 // AuthSession holds credentials and session state for authenticated scanning.
 type AuthSession struct {
-	Type        string            // "cookie", "bearer", "basic", "api_key", "form_login"
+	Type        string // "cookie", "bearer", "basic", "api_key", "form_login"
 	Cookies     []*http.Cookie
 	Headers     map[string]string // Authorization, X-API-Key, etc.
 	Username    string

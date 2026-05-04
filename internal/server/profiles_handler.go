@@ -9,8 +9,8 @@ import (
 )
 
 func (s *Server) registerProfilesRoutes() {
-	s.mux.HandleFunc("/api/profiles", s.handleProfiles)
-	s.mux.HandleFunc("/api/profiles/", s.handleProfile)
+	s.mux.HandleFunc("/api/profiles", s.authGateMethods(RoleOperator, s.handleProfiles, http.MethodPost))
+	s.mux.HandleFunc("/api/profiles/", s.authGateMethods(RoleOperator, s.handleProfile, http.MethodPost, http.MethodPut, http.MethodDelete))
 }
 
 // handleProfiles — GET list, POST create
@@ -28,12 +28,12 @@ func (s *Server) handleProfiles(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodPost:
 		var req struct {
-			Name        string                  `json:"name"`
-			Description string                  `json:"description"`
-			Category    string                  `json:"category"`
-			Color       string                  `json:"color"`
-			Agents      []profiles.AgentConfig  `json:"agents"`
-			Tags        []string                `json:"tags"`
+			Name        string                 `json:"name"`
+			Description string                 `json:"description"`
+			Category    string                 `json:"category"`
+			Color       string                 `json:"color"`
+			Agents      []profiles.AgentConfig `json:"agents"`
+			Tags        []string               `json:"tags"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid request body", http.StatusBadRequest)

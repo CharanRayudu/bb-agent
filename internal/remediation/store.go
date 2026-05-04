@@ -12,13 +12,13 @@ import (
 type Status string
 
 const (
-	StatusOpen        Status = "open"
-	StatusTriaged     Status = "triaged"
-	StatusInProgress  Status = "in_progress"
-	StatusFixed       Status = "fixed"
-	StatusVerified    Status = "verified"
-	StatusAccepted    Status = "accepted"    // risk accepted / won't fix
-	StatusFalsePos    Status = "false_positive"
+	StatusOpen       Status = "open"
+	StatusTriaged    Status = "triaged"
+	StatusInProgress Status = "in_progress"
+	StatusFixed      Status = "fixed"
+	StatusVerified   Status = "verified"
+	StatusAccepted   Status = "accepted" // risk accepted / won't fix
+	StatusFalsePos   Status = "false_positive"
 )
 
 // SLA deadlines in hours per severity.
@@ -40,15 +40,15 @@ type Note struct {
 
 // Item is a rich, trackable remediation record for a finding.
 type Item struct {
-	ID          string    `json:"id"`
-	FindingID   string    `json:"finding_id"`
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
-	Severity    string    `json:"severity"`
-	Target      string    `json:"target"`
-	FindingType string    `json:"finding_type"`
-	FlowID      string    `json:"flow_id"`
-	RiskScore   float64   `json:"risk_score"`
+	ID          string  `json:"id"`
+	FindingID   string  `json:"finding_id"`
+	Title       string  `json:"title"`
+	Description string  `json:"description"`
+	Severity    string  `json:"severity"`
+	Target      string  `json:"target"`
+	FindingType string  `json:"finding_type"`
+	FlowID      string  `json:"flow_id"`
+	RiskScore   float64 `json:"risk_score"`
 
 	Status   Status `json:"status"`
 	Assignee string `json:"assignee,omitempty"`

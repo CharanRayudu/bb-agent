@@ -150,7 +150,7 @@ function Settings() {
                             className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium transition-colors whitespace-nowrap ${
                                 activeTab === tab.id
                                     ? 'bg-white/10 border border-white/20 text-text-primary'
-                                    : 'bg-white/4 border border-white/10 text-text-muted hover:text-text-primary'
+                                    : 'bg-white/[0.04] border border-white/10 text-text-muted hover:text-text-primary'
                             }`}
                         >
                             <Icon className="w-3 h-3" />
@@ -161,12 +161,12 @@ function Settings() {
             </div>
 
             {/* Tab Content */}
-            <div className="rounded-xl bg-white/4 border border-white/10 p-6">
+            <div className="rounded-xl bg-white/[0.04] border border-white/10 p-6">
                 {activeTab === 'providers' && (
                     <div className="space-y-4">
                         <h3 className="text-sm font-bold text-text-primary">LLM Provider Configuration</h3>
                         <p className="text-xs text-text-muted">Configure the OpenAI model and API key (or use Codex CLI OAuth).</p>
-                        <div className="rounded-lg bg-white/4 border border-white/10 p-4 space-y-3">
+                        <div className="rounded-lg bg-white/[0.04] border border-white/10 p-4 space-y-3">
                             <div className="flex items-center justify-between">
                                 <span className="text-xs font-bold text-text-primary uppercase">OpenAI</span>
                                 <span className="text-[10px] text-accent-green px-2 py-0.5 rounded bg-accent-green/10 border border-accent-green/20">Active</span>
@@ -281,7 +281,7 @@ function Settings() {
                             <button
                                 onClick={testWebhook}
                                 disabled={!config.webhook_url || testingWebhook}
-                                className="flex items-center gap-2 px-4 py-2 rounded-xl border border-white/15 bg-white/5 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-white/10 transition-colors disabled:opacity-50"
+                                className="flex items-center gap-2 px-4 py-2 rounded-xl border border-white/[0.15] bg-white/5 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-white/10 transition-colors disabled:opacity-50"
                             >
                                 {testingWebhook ? <div className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" /> : <Bell className="w-3 h-3" />}
                                 Send Test Ping
@@ -382,7 +382,7 @@ function Settings() {
 
                         <div className="flex items-center gap-3">
                             <button onClick={testTicketIntegration} disabled={ticketTesting}
-                                className="flex items-center gap-2 px-4 py-2 rounded-xl border border-white/15 bg-white/5 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-white/10 transition-colors disabled:opacity-50">
+                                className="flex items-center gap-2 px-4 py-2 rounded-xl border border-white/[0.15] bg-white/5 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-white/10 transition-colors disabled:opacity-50">
                                 {ticketTesting ? <div className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" /> : <Link2 className="w-3 h-3" />}
                                 Test Connection
                             </button>
@@ -405,7 +405,7 @@ function Settings() {
 
                         <div className="space-y-4">
                             {/* Google */}
-                            <div className="rounded-lg bg-white/4 border border-white/10 p-4 space-y-3">
+                            <div className="rounded-lg bg-white/[0.04] border border-white/10 p-4 space-y-3">
                                 <div className="flex items-center justify-between">
                                     <span className="text-xs font-bold text-text-primary">Google Workspace</span>
                                     <a href="/api/auth/oidc/begin?provider=google" className="text-[10px] text-accent-cyan hover:underline">Test Login →</a>
@@ -424,7 +424,7 @@ function Settings() {
                             </div>
 
                             {/* GitHub */}
-                            <div className="rounded-lg bg-white/4 border border-white/10 p-4 space-y-3">
+                            <div className="rounded-lg bg-white/[0.04] border border-white/10 p-4 space-y-3">
                                 <div className="flex items-center justify-between">
                                     <span className="text-xs font-bold text-text-primary">GitHub OAuth</span>
                                     <a href="/api/auth/oidc/begin?provider=github" className="text-[10px] text-accent-cyan hover:underline">Test Login →</a>
@@ -443,7 +443,7 @@ function Settings() {
                             </div>
 
                             {/* Okta */}
-                            <div className="rounded-lg bg-white/4 border border-white/10 p-4 space-y-3">
+                            <div className="rounded-lg bg-white/[0.04] border border-white/10 p-4 space-y-3">
                                 <div className="flex items-center justify-between">
                                     <span className="text-xs font-bold text-text-primary">Okta</span>
                                     <a href="/api/auth/oidc/begin?provider=okta" className="text-[10px] text-accent-cyan hover:underline">Test Login →</a>

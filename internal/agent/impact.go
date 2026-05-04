@@ -8,8 +8,8 @@ import (
 
 // BusinessImpact describes the business-level impact of a vulnerability finding.
 type BusinessImpact struct {
-	Score          float64  // 0-10
-	Category       string   // "Data Breach", "Service Disruption", "Privilege Escalation", "Reputational"
+	Score          float64 // 0-10
+	Category       string  // "Data Breach", "Service Disruption", "Privilege Escalation", "Reputational"
 	Explanation    string
 	AffectedAssets []string
 }

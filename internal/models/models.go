@@ -59,15 +59,15 @@ const (
 
 // Flow represents a top-level penetration testing engagement
 type Flow struct {
-	ID          uuid.UUID  `json:"id" db:"id"`
-	Name        string     `json:"name" db:"name"`
-	Description string     `json:"description" db:"description"`
-	Target      string     `json:"target" db:"target"`
+	ID            uuid.UUID  `json:"id" db:"id"`
+	Name          string     `json:"name" db:"name"`
+	Description   string     `json:"description" db:"description"`
+	Target        string     `json:"target" db:"target"`
 	Status        FlowStatus `json:"status" db:"status"`
 	AutonomyLevel string     `json:"autonomy_level" db:"autonomy_level"` // APTS AL: "L1"|"L2"|"L3"|"L4"
 	CreatedAt     time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at" db:"updated_at"`
-	Tasks       []Task     `json:"tasks,omitempty"`
+	Tasks         []Task     `json:"tasks,omitempty"`
 }
 
 // Task represents a major step in the pentest flow

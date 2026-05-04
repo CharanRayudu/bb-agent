@@ -148,8 +148,8 @@ func sendRawProbe(ctx context.Context, host, port, payload, probeType string) (f
 
 	response := string(buf[:n])
 	evidence := map[string]interface{}{
-		"probe_type":  probeType,
-		"elapsed_ms":  elapsed.Milliseconds(),
+		"probe_type":   probeType,
+		"elapsed_ms":   elapsed.Milliseconds(),
 		"response_len": n,
 	}
 

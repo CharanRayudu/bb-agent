@@ -358,11 +358,11 @@ func parseVersion(v string) []int {
 type grypeOutput struct {
 	Matches []struct {
 		Vulnerability struct {
-			ID          string   `json:"id"`
-			Severity    string   `json:"severity"`
+			ID          string                                          `json:"id"`
+			Severity    string                                          `json:"severity"`
 			CVSS        []struct{ Metrics struct{ BaseScore float64 } } `json:"cvss"`
-			Description string   `json:"description"`
-			Fix         struct{ Versions []string } `json:"fix"`
+			Description string                                          `json:"description"`
+			Fix         struct{ Versions []string }                     `json:"fix"`
 		} `json:"vulnerability"`
 		Artifact struct {
 			Name    string `json:"name"`

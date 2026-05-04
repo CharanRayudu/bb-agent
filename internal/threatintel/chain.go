@@ -13,10 +13,10 @@ type ChainEdge struct {
 
 // AttackChain is a resolved kill path through the vulnerability graph.
 type AttackChain struct {
-	Steps      []ChainStep `json:"steps"`
-	Impact     string      `json:"impact"`
-	Score      float64     `json:"score"`  // 0–100
-	Length     int         `json:"length"`
+	Steps  []ChainStep `json:"steps"`
+	Impact string      `json:"impact"`
+	Score  float64     `json:"score"` // 0–100
+	Length int         `json:"length"`
 }
 
 // ChainStep is one node in a resolved attack chain.
@@ -223,12 +223,12 @@ func buildChain(start string, steps []ChainStep) AttackChain {
 }
 
 var highValueTargets = map[string]bool{
-	"RCE":             true,
+	"RCE":                  true,
 	"Container-Privileged": true,
-	"IMDS-Credentials": true,
-	"S3-PublicRead":   true,
-	"K8s-APIServer":   true,
-	"Auth Bypass":     true,
+	"IMDS-Credentials":     true,
+	"S3-PublicRead":        true,
+	"K8s-APIServer":        true,
+	"Auth Bypass":          true,
 }
 
 func isHighValueTarget(t string) bool {

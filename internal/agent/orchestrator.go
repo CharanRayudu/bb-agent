@@ -25,34 +25,38 @@ import (
 	"github.com/bb-agent/mirage/internal/agents/cachepoisoning"
 	"github.com/bb-agent/mirage/internal/agents/chaindiscovery"
 	"github.com/bb-agent/mirage/internal/agents/cloudhunter"
+	"github.com/bb-agent/mirage/internal/agents/cloudsecurity"
 	"github.com/bb-agent/mirage/internal/agents/consolidation"
 	"github.com/bb-agent/mirage/internal/agents/cors"
 	"github.com/bb-agent/mirage/internal/agents/csti"
 	"github.com/bb-agent/mirage/internal/agents/dastysast"
 	"github.com/bb-agent/mirage/internal/agents/deserialization"
+	"github.com/bb-agent/mirage/internal/agents/devsecops"
 	"github.com/bb-agent/mirage/internal/agents/fileupload"
 	"github.com/bb-agent/mirage/internal/agents/gospider"
+	graphqlagent "github.com/bb-agent/mirage/internal/agents/graphql"
 	"github.com/bb-agent/mirage/internal/agents/headerinjection"
+	"github.com/bb-agent/mirage/internal/agents/hostheader"
 	"github.com/bb-agent/mirage/internal/agents/idor"
 	"github.com/bb-agent/mirage/internal/agents/jwt"
 	k8sagent "github.com/bb-agent/mirage/internal/agents/k8s"
 	"github.com/bb-agent/mirage/internal/agents/lfi"
+	"github.com/bb-agent/mirage/internal/agents/llmpentest"
 	"github.com/bb-agent/mirage/internal/agents/log4shell"
 	"github.com/bb-agent/mirage/internal/agents/massassignment"
-	graphqlagent "github.com/bb-agent/mirage/internal/agents/graphql"
-	"github.com/bb-agent/mirage/internal/agents/hostheader"
+	"github.com/bb-agent/mirage/internal/agents/netpentest"
 	"github.com/bb-agent/mirage/internal/agents/nuclei"
 	"github.com/bb-agent/mirage/internal/agents/oauth"
 	"github.com/bb-agent/mirage/internal/agents/openredirect"
 	"github.com/bb-agent/mirage/internal/agents/postexploit"
 	"github.com/bb-agent/mirage/internal/agents/protopollution"
+	"github.com/bb-agent/mirage/internal/agents/racecondition"
 	"github.com/bb-agent/mirage/internal/agents/rce"
 	reportingagent "github.com/bb-agent/mirage/internal/agents/reporting"
 	"github.com/bb-agent/mirage/internal/agents/resourcehunter"
 	"github.com/bb-agent/mirage/internal/agents/s3enum"
 	"github.com/bb-agent/mirage/internal/agents/saml"
 	"github.com/bb-agent/mirage/internal/agents/secondorder"
-	"github.com/bb-agent/mirage/internal/agents/racecondition"
 	"github.com/bb-agent/mirage/internal/agents/smuggling"
 	"github.com/bb-agent/mirage/internal/agents/sqli"
 	"github.com/bb-agent/mirage/internal/agents/sqlmap"
@@ -65,10 +69,6 @@ import (
 	"github.com/bb-agent/mirage/internal/agents/websocket"
 	"github.com/bb-agent/mirage/internal/agents/xss"
 	"github.com/bb-agent/mirage/internal/agents/xxe"
-	"github.com/bb-agent/mirage/internal/agents/llmpentest"
-	"github.com/bb-agent/mirage/internal/agents/cloudsecurity"
-	"github.com/bb-agent/mirage/internal/agents/netpentest"
-	"github.com/bb-agent/mirage/internal/agents/devsecops"
 	"github.com/bb-agent/mirage/internal/config"
 	"github.com/bb-agent/mirage/internal/database"
 	"github.com/bb-agent/mirage/internal/llm"
@@ -122,15 +122,15 @@ type AuthState struct {
 
 // Structured Brain for Mirage 2.0
 type Brain struct {
-	Leads          []string            `json:"leads"`              // Unconfirmed interests
-	Findings       []*Finding          `json:"findings"`           // Confirmed bugs (promoted through all gates)
+	Leads            []string              `json:"leads"`                       // Unconfirmed interests
+	Findings         []*Finding            `json:"findings"`                    // Confirmed bugs (promoted through all gates)
 	HallucinationBin []*HallucinationEntry `json:"hallucination_bin,omitempty"` // Rejected findings with gate failure reason
-	KnownDefences  []string            `json:"known_defences,omitempty"`    // Hardened paths/mechanisms (WAF, auth walls, rate limits)
-	Exclusions     []string            `json:"exclusions"`         // Dead ends
-	PivotContext   string              `json:"pivotContext"`       // Discovered context that unlocks new attack surface
-	Tech           *TechStack          `json:"tech"`               // Inferred technology stack
-	Auth           *AuthState          `json:"auth,omitempty"`     // Authentication context for auth-aware scanning
-	CausalGraph    *models.CausalGraph `json:"causalGraph,omitempty"` // DAG for non-monotonic evidence reasoning
+	KnownDefences    []string              `json:"known_defences,omitempty"`    // Hardened paths/mechanisms (WAF, auth walls, rate limits)
+	Exclusions       []string              `json:"exclusions"`                  // Dead ends
+	PivotContext     string                `json:"pivotContext"`                // Discovered context that unlocks new attack surface
+	Tech             *TechStack            `json:"tech"`                        // Inferred technology stack
+	Auth             *AuthState            `json:"auth,omitempty"`              // Authentication context for auth-aware scanning
+	CausalGraph      *models.CausalGraph   `json:"causalGraph,omitempty"`       // DAG for non-monotonic evidence reasoning
 	// Mythos: refined attack hypotheses — included in next planner iteration for adaptive prioritization
 	Hypotheses []AttackHypothesis `json:"hypotheses,omitempty"`
 }
@@ -138,8 +138,8 @@ type Brain struct {
 // HallucinationEntry is a finding that failed one or more promotion gates.
 // Tracked so the planner can dispatch targeted agents to acquire the missing proof.
 type HallucinationEntry struct {
-	Finding   *Finding `json:"finding"`
-	FailedGate string  `json:"failed_gate"` // e.g. "Gate1: missing request/response proof"
+	Finding    *Finding `json:"finding"`
+	FailedGate string   `json:"failed_gate"` // e.g. "Gate1: missing request/response proof"
 }
 
 // SwarmAgentSpec is a richer agent dispatch format from the Planner
@@ -223,61 +223,61 @@ func buildSpecialists(provider llm.Provider) map[string]Specialist {
 	}
 
 	return map[string]Specialist{
-		"apisecurity":       apisecurity.New(),
-		"assetdiscovery":    assetdiscovery.New(),
-		"authdiscovery":     authdiscovery.New(),
-		"blindoracle":       blindoracle.New(),
-		"businesslogic":     businesslogic.New(),
-		"cachepoisoning":    cachepoisoning.New(),
-		"chaindiscovery":    chaindiscovery.New(),
-		"cloudhunter":       cloudhunter.New(),
-		"consolidation":     consolidation.New(),
-		"cors":              cors.New(),
-		"csti":              csti.New(),
-		"dastysast":         dastysast.New(),
-		"deserialization":   deserialization.New(),
-		"fileupload":        fileupload.New(),
-		"gospider":          gospider.New(),
-		"graphql":           graphqlagent.New(),
-		"header_injection":  headerinjection.New(),
-		"hostheader":        hostheader.New(),
-		"idor":              idor.New(),
-		"jwt":               jwt.New(),
-		"k8s":               k8sagent.New(),
-		"lfi":               lfi.New(),
-		"log4shell":         log4shell.New(),
-		"massassignment":    massassignment.New(),
-		"nuclei":            nuclei.New(),
-		"oauth":             oauth.New(),
-		"openredirect":      openredirect.New(),
+		"apisecurity":      apisecurity.New(),
+		"assetdiscovery":   assetdiscovery.New(),
+		"authdiscovery":    authdiscovery.New(),
+		"blindoracle":      blindoracle.New(),
+		"businesslogic":    businesslogic.New(),
+		"cachepoisoning":   cachepoisoning.New(),
+		"chaindiscovery":   chaindiscovery.New(),
+		"cloudhunter":      cloudhunter.New(),
+		"consolidation":    consolidation.New(),
+		"cors":             cors.New(),
+		"csti":             csti.New(),
+		"dastysast":        dastysast.New(),
+		"deserialization":  deserialization.New(),
+		"fileupload":       fileupload.New(),
+		"gospider":         gospider.New(),
+		"graphql":          graphqlagent.New(),
+		"header_injection": headerinjection.New(),
+		"hostheader":       hostheader.New(),
+		"idor":             idor.New(),
+		"jwt":              jwt.New(),
+		"k8s":              k8sagent.New(),
+		"lfi":              lfi.New(),
+		"log4shell":        log4shell.New(),
+		"massassignment":   massassignment.New(),
+		"nuclei":           nuclei.New(),
+		"oauth":            oauth.New(),
+		"openredirect":     openredirect.New(),
 		// Note: postexploit is dispatched directly by the orchestrator
 		// (see the peAgent usage in handleConfirmedFinding) and does
 		// not implement the queue-driven Specialist interface, so it is
 		// intentionally NOT registered here.
-		"protopollution":    protopollution.New(),
-		"rce":               rce.New(),
-		"reporting":         reportingagent.New(),
-		"resourcehunter":    resourcehunter.New(),
-		"s3enum":            s3enum.New(),
-		"racecondition":     racecondition.New(),
-		"saml":              saml.New(),
-		"secondorder":       secondorder.New(),
-		"smuggling":         smuggling.New(),
-		"sqli":              sqli.New(),
-		"sqlmap":            sqlmap.New(),
-		"ssrf":              ssrf.New(),
-		"ssti":              ssti.New(),
-		"urlmaster":         urlmaster.New(),
-		"validation":        validation.New(),
-		"visualcrawler":     visualcrawler.New(),
-		"wafevasion":        wafAgent,
-		"websocket":         websocket.New(),
-		"xss":               xss.New(),
-		"xxe":               xxe.New(),
-		"llmpentest":        llmpentest.New(),
-		"cloudsecurity":     cloudsecurity.New(),
-		"netpentest":        netpentest.New(),
-		"devsecops":         devsecops.New(),
+		"protopollution": protopollution.New(),
+		"rce":            rce.New(),
+		"reporting":      reportingagent.New(),
+		"resourcehunter": resourcehunter.New(),
+		"s3enum":         s3enum.New(),
+		"racecondition":  racecondition.New(),
+		"saml":           saml.New(),
+		"secondorder":    secondorder.New(),
+		"smuggling":      smuggling.New(),
+		"sqli":           sqli.New(),
+		"sqlmap":         sqlmap.New(),
+		"ssrf":           ssrf.New(),
+		"ssti":           ssti.New(),
+		"urlmaster":      urlmaster.New(),
+		"validation":     validation.New(),
+		"visualcrawler":  visualcrawler.New(),
+		"wafevasion":     wafAgent,
+		"websocket":      websocket.New(),
+		"xss":            xss.New(),
+		"xxe":            xxe.New(),
+		"llmpentest":     llmpentest.New(),
+		"cloudsecurity":  cloudsecurity.New(),
+		"netpentest":     netpentest.New(),
+		"devsecops":      devsecops.New(),
 	}
 }
 
@@ -2673,49 +2673,49 @@ func normalizeSpecialistName(name string) string {
 		"Visual Crawler":      "visualcrawler",
 		"visualcrawler":       "visualcrawler",
 		// Previously missing entries
-		"blindoracle":         "blindoracle",
-		"Blind Oracle":        "blindoracle",
-		"cachepoisoning":      "cachepoisoning",
-		"Cache Poisoning":     "cachepoisoning",
-		"cors":                "cors",
-		"CORS":                "cors",
-		"deserialization":     "deserialization",
-		"Deserialization":     "deserialization",
-		"graphql":             "graphql",
-		"GraphQL":             "graphql",
-		"hostheader":          "hostheader",
-		"Host Header":         "hostheader",
-		"Host Header Injection": "hostheader",
-		"k8s":                 "k8s",
-		"K8s":                 "k8s",
-		"Kubernetes":          "k8s",
-		"log4shell":           "log4shell",
-		"Log4Shell":           "log4shell",
-		"Log4j":               "log4shell",
-		"oauth":               "oauth",
-		"OAuth":               "oauth",
-		"postexploit":         "postexploit",
-		"Post Exploit":        "postexploit",
-		"Post-Exploitation":   "postexploit",
-		"racecondition":       "racecondition",
-		"Race Condition":      "racecondition",
-		"s3enum":              "s3enum",
-		"S3 Enum":             "s3enum",
-		"Bucket Enum":         "s3enum",
-		"saml":                "saml",
-		"SAML":                "saml",
-		"secondorder":         "secondorder",
-		"Second Order":        "secondorder",
-		"Second-Order":        "secondorder",
-		"smuggling":           "smuggling",
-		"Smuggling":           "smuggling",
-		"HTTP Smuggling":      "smuggling",
-		"Request Smuggling":   "smuggling",
-		"ssti":                "ssti",
-		"SSTI":                "ssti",
+		"blindoracle":                    "blindoracle",
+		"Blind Oracle":                   "blindoracle",
+		"cachepoisoning":                 "cachepoisoning",
+		"Cache Poisoning":                "cachepoisoning",
+		"cors":                           "cors",
+		"CORS":                           "cors",
+		"deserialization":                "deserialization",
+		"Deserialization":                "deserialization",
+		"graphql":                        "graphql",
+		"GraphQL":                        "graphql",
+		"hostheader":                     "hostheader",
+		"Host Header":                    "hostheader",
+		"Host Header Injection":          "hostheader",
+		"k8s":                            "k8s",
+		"K8s":                            "k8s",
+		"Kubernetes":                     "k8s",
+		"log4shell":                      "log4shell",
+		"Log4Shell":                      "log4shell",
+		"Log4j":                          "log4shell",
+		"oauth":                          "oauth",
+		"OAuth":                          "oauth",
+		"postexploit":                    "postexploit",
+		"Post Exploit":                   "postexploit",
+		"Post-Exploitation":              "postexploit",
+		"racecondition":                  "racecondition",
+		"Race Condition":                 "racecondition",
+		"s3enum":                         "s3enum",
+		"S3 Enum":                        "s3enum",
+		"Bucket Enum":                    "s3enum",
+		"saml":                           "saml",
+		"SAML":                           "saml",
+		"secondorder":                    "secondorder",
+		"Second Order":                   "secondorder",
+		"Second-Order":                   "secondorder",
+		"smuggling":                      "smuggling",
+		"Smuggling":                      "smuggling",
+		"HTTP Smuggling":                 "smuggling",
+		"Request Smuggling":              "smuggling",
+		"ssti":                           "ssti",
+		"SSTI":                           "ssti",
 		"Server-Side Template Injection": "ssti",
-		"websocket":           "websocket",
-		"WebSocket":           "websocket",
+		"websocket":                      "websocket",
+		"WebSocket":                      "websocket",
 		// Network Pentest
 		"netpentest":          "netpentest",
 		"Network Pentest":     "netpentest",
@@ -2728,40 +2728,40 @@ func normalizeSpecialistName(name string) string {
 		"Default Credentials": "netpentest",
 		"CT Log":              "netpentest",
 		// Cloud Security
-		"cloudsecurity":       "cloudsecurity",
-		"Cloud Security":      "cloudsecurity",
-		"AWS Security":        "cloudsecurity",
-		"Azure Security":      "cloudsecurity",
-		"GCP Security":        "cloudsecurity",
-		"IMDS":                "cloudsecurity",
-		"Cloud Misconfig":     "cloudsecurity",
-		"S3 Misconfig":        "cloudsecurity",
-		"Cloud Credentials":   "cloudsecurity",
+		"cloudsecurity":     "cloudsecurity",
+		"Cloud Security":    "cloudsecurity",
+		"AWS Security":      "cloudsecurity",
+		"Azure Security":    "cloudsecurity",
+		"GCP Security":      "cloudsecurity",
+		"IMDS":              "cloudsecurity",
+		"Cloud Misconfig":   "cloudsecurity",
+		"S3 Misconfig":      "cloudsecurity",
+		"Cloud Credentials": "cloudsecurity",
 		// LLM/AI Red Team
-		"llmpentest":          "llmpentest",
-		"LLM Pentest":         "llmpentest",
-		"LLM Red Team":        "llmpentest",
-		"AI Red Team":         "llmpentest",
-		"Prompt Injection":    "llmpentest",
-		"Jailbreak":           "llmpentest",
-		"LLM Security":        "llmpentest",
-		"AI Security":         "llmpentest",
+		"llmpentest":       "llmpentest",
+		"LLM Pentest":      "llmpentest",
+		"LLM Red Team":     "llmpentest",
+		"AI Red Team":      "llmpentest",
+		"Prompt Injection": "llmpentest",
+		"Jailbreak":        "llmpentest",
+		"LLM Security":     "llmpentest",
+		"AI Security":      "llmpentest",
 		// DevSecOps pipeline
-		"devsecops":           "devsecops",
-		"DevSecOps":           "devsecops",
-		"SAST":                "devsecops",
-		"SCA":                 "devsecops",
-		"Secret Scan":         "devsecops",
-		"Secret Detection":    "devsecops",
-		"Container Scan":      "devsecops",
-		"Container Security":  "devsecops",
-		"Dependency Scan":     "devsecops",
-		"Supply Chain":        "devsecops",
-		"Pipeline Security":   "devsecops",
-		"CI Security":         "devsecops",
-		"Semgrep":             "devsecops",
-		"Grype":               "devsecops",
-		"Trivy":               "devsecops",
+		"devsecops":          "devsecops",
+		"DevSecOps":          "devsecops",
+		"SAST":               "devsecops",
+		"SCA":                "devsecops",
+		"Secret Scan":        "devsecops",
+		"Secret Detection":   "devsecops",
+		"Container Scan":     "devsecops",
+		"Container Security": "devsecops",
+		"Dependency Scan":    "devsecops",
+		"Supply Chain":       "devsecops",
+		"Pipeline Security":  "devsecops",
+		"CI Security":        "devsecops",
+		"Semgrep":            "devsecops",
+		"Grype":              "devsecops",
+		"Trivy":              "devsecops",
 	}
 	if q, ok := nameMap[name]; ok {
 		return q
@@ -2943,45 +2943,45 @@ func buildFallbackAgentSpecs(baseTarget string, brain *Brain) []SwarmAgentSpec {
 	// Always guarantee a minimum attack swarm even when leads are sparse.
 	// These cover the highest-impact vuln classes universally applicable to any web app.
 	addSpec(SwarmAgentSpec{
-		Type:     "Auth Bypass",
-		Target:   baseTarget,
-		Context:  "Test authentication mechanisms for logic flaws, trusted-header injection (X-Forwarded-For, X-Original-URL), and weak session management.",
-		Priority: "high",
+		Type:       "Auth Bypass",
+		Target:     baseTarget,
+		Context:    "Test authentication mechanisms for logic flaws, trusted-header injection (X-Forwarded-For, X-Original-URL), and weak session management.",
+		Priority:   "high",
 		Hypothesis: "Authentication boundary can be bypassed via trusted header injection or session fixation.",
 	})
 	addSpec(SwarmAgentSpec{
-		Type:     "Reflected XSS",
-		Target:   baseTarget,
-		Context:  "Fuzz all URL parameters and form fields for reflected XSS. Test Angular/React SPA routes for DOM-based injection.",
-		Priority: "high",
+		Type:       "Reflected XSS",
+		Target:     baseTarget,
+		Context:    "Fuzz all URL parameters and form fields for reflected XSS. Test Angular/React SPA routes for DOM-based injection.",
+		Priority:   "high",
 		Hypothesis: "User-controlled parameters are reflected in responses without adequate encoding.",
 	})
 	addSpec(SwarmAgentSpec{
-		Type:     "Time-based SQLi",
-		Target:   baseTarget,
-		Context:  "Test numeric/string parameters for time-based blind SQL injection using SLEEP() and WAITFOR. Prioritize login forms and search endpoints.",
-		Priority: "high",
+		Type:       "Time-based SQLi",
+		Target:     baseTarget,
+		Context:    "Test numeric/string parameters for time-based blind SQL injection using SLEEP() and WAITFOR. Prioritize login forms and search endpoints.",
+		Priority:   "high",
 		Hypothesis: "Database-backed query parameters are injectable via time-delay inference.",
 	})
 	addSpec(SwarmAgentSpec{
-		Type:     "IDOR",
-		Target:   baseTarget,
-		Context:  "Test object reference parameters (id=, userId=, orderId=) for horizontal privilege escalation. Swap IDs between two test sessions.",
-		Priority: "high",
+		Type:       "IDOR",
+		Target:     baseTarget,
+		Context:    "Test object reference parameters (id=, userId=, orderId=) for horizontal privilege escalation. Swap IDs between two test sessions.",
+		Priority:   "high",
 		Hypothesis: "Object references in API responses are guessable and lack server-side authorization checks.",
 	})
 	addSpec(SwarmAgentSpec{
-		Type:     "Misconfigs",
-		Target:   baseTarget,
-		Context:  "Check for CORS misconfigurations, exposed debug endpoints (/api-docs, /swagger, /.env), security headers, and directory listing.",
-		Priority: "medium",
+		Type:       "Misconfigs",
+		Target:     baseTarget,
+		Context:    "Check for CORS misconfigurations, exposed debug endpoints (/api-docs, /swagger, /.env), security headers, and directory listing.",
+		Priority:   "medium",
 		Hypothesis: "Application exposes sensitive configuration or lacks basic security headers.",
 	})
 	addSpec(SwarmAgentSpec{
-		Type:     "Business Logic",
-		Target:   baseTarget,
-		Context:  "Test for price/quantity manipulation (negative values), coupon reuse via race conditions, and workflow state tampering.",
-		Priority: "medium",
+		Type:       "Business Logic",
+		Target:     baseTarget,
+		Context:    "Test for price/quantity manipulation (negative values), coupon reuse via race conditions, and workflow state tampering.",
+		Priority:   "medium",
 		Hypothesis: "Business-layer validation can be bypassed by manipulating numeric parameters or repeating one-time operations.",
 	})
 

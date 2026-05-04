@@ -221,8 +221,8 @@ func newHTTPClient() *http.Client {
 
 // xxeErrorPatterns are strings that indicate XXE processing in the response.
 var xxeErrorPatterns = []string{
-	"root:x:",           // /etc/passwd content
-	"SYSTEM",            // echoed DOCTYPE
+	"root:x:", // /etc/passwd content
+	"SYSTEM",  // echoed DOCTYPE
 	"xml parsing error",
 	"xml.etree",
 	"SAXParseException",

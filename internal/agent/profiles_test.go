@@ -8,10 +8,10 @@ func TestGetProfile_KnownProfiles(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name            string
+		name               string
 		wantMinSpecialists int
-		wantMinTimeout  bool
-		wantAggressive  int
+		wantMinTimeout     bool
+		wantAggressive     int
 	}{
 		{"quick", 1, true, 0},
 		{"owasp", 3, true, 0},

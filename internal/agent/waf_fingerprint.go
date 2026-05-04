@@ -28,7 +28,7 @@ const (
 type WAFResult struct {
 	Vendor     WAFVendor
 	Confidence float64
-	BypassSets []string          // recommended bypass technique sets
+	BypassSets []string // recommended bypass technique sets
 	Evidence   map[string]string
 }
 

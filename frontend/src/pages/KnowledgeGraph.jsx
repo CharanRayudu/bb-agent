@@ -10,6 +10,7 @@ function KnowledgeGraph() {
     const [selectedNode, setSelectedNode] = useState(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState(null)
+    const [offline, setOffline] = useState(false)
     const [filter, setFilter] = useState({ type: 'all', search: '' })
 
     useEffect(() => {
@@ -19,6 +20,7 @@ function KnowledgeGraph() {
     async function fetchGraph() {
         setLoading(true)
         setError(null)
+        setOffline(false)
         try {
             const resp = await fetch(`${API_BASE}/knowledge/graph`)
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
@@ -26,8 +28,15 @@ function KnowledgeGraph() {
             setNodes(data.nodes || [])
             setEdges(data.edges || [])
         } catch (err) {
-            console.error('Failed to fetch knowledge graph:', err)
-            setError(err.message || 'Failed to load knowledge graph')
+            const message = err.message || 'Failed to load knowledge graph'
+            const backendOffline = message.includes('Failed to fetch') ||
+                message.includes('NetworkError') ||
+                message.includes('HTTP 500') ||
+                message.includes('HTTP 502')
+            setNodes([])
+            setEdges([])
+            setOffline(backendOffline)
+            setError(backendOffline ? null : message)
         }
         setLoading(false)
     }
@@ -60,7 +69,7 @@ function KnowledgeGraph() {
     return (
         <div className="space-y-6">
             {/* Header */}
-            <div className="flex items-center justify-between">
+            <div className="lg-surface relative z-10 p-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-4">
                     <Link to="/" className="p-2 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors">
                         <ArrowLeft className="w-4 h-4 text-text-muted" />
@@ -80,7 +89,7 @@ function KnowledgeGraph() {
             </div>
 
             {/* Filters */}
-            <div className="flex items-center gap-4">
+            <div className="relative z-10 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl px-3 py-1.5">
                     <Search className="w-3 h-3 text-text-muted" />
                     <input
@@ -88,10 +97,10 @@ function KnowledgeGraph() {
                         placeholder="Search nodes..."
                         value={filter.search}
                         onChange={e => setFilter(f => ({ ...f, search: e.target.value }))}
-                        className="bg-transparent text-xs text-text-primary placeholder:text-text-muted/50 outline-none w-48"
+                        className="bg-transparent text-xs text-text-primary placeholder:text-text-muted/50 outline-none w-full sm:w-56"
                     />
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 overflow-x-auto pb-1">
                     <Filter className="w-3 h-3 text-text-muted mr-1" />
                     {nodeTypes.map(t => (
                         <button
@@ -110,11 +119,11 @@ function KnowledgeGraph() {
             </div>
 
             {/* Stats */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="relative z-10 grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
                 {Object.entries(typeTextClass).map(([type, textCls]) => {
                     const count = nodes.filter(n => n.type === type).length
                     return (
-                        <div key={type} className="rounded-xl bg-white/4 border border-white/10 p-3">
+                        <div key={type} className="card-surface p-3">
                             <div className={`text-[10px] font-mono uppercase tracking-wider ${textCls}`}>{type}</div>
                             <div className="text-xl font-bold text-text-primary mt-1">{count}</div>
                         </div>
@@ -123,16 +132,24 @@ function KnowledgeGraph() {
             </div>
 
             {/* Node List */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="relative z-10 grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <div className="lg:col-span-2 space-y-2 max-h-[600px] overflow-y-auto pr-2">
                     {loading ? (
-                        <div className="text-center py-12 text-text-muted text-sm">Loading knowledge graph...</div>
+                        <div className="card-surface text-center py-12 text-text-muted text-sm">Loading knowledge graph...</div>
                     ) : error ? (
                         <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400 font-mono">
                             {error}
                         </div>
+                    ) : offline ? (
+                        <div className="card-surface text-center px-6 py-12">
+                            <Database className="mx-auto h-10 w-10 text-accent-purple/80" />
+                            <h2 className="mt-4 text-lg font-semibold text-text-primary">Knowledge backend offline</h2>
+                            <p className="mx-auto mt-2 max-w-md text-sm text-text-muted">
+                                Start the Mirage API server to load graph nodes and relationships. The graph view is ready and will populate as soon as `/api/knowledge/graph` responds.
+                            </p>
+                        </div>
                     ) : filteredNodes.length === 0 ? (
-                        <div className="text-center py-12 text-text-muted text-sm">
+                        <div className="card-surface text-center py-12 text-text-muted text-sm">
                             No nodes found. Run scans to build the knowledge graph.
                         </div>
                     ) : (
@@ -143,7 +160,7 @@ function KnowledgeGraph() {
                                 className={`w-full text-left rounded-xl border px-3 py-2 text-xs transition-all ${
                                     selectedNode?.id === node.id
                                         ? 'bg-white/10 border-white/25 shadow-lg'
-                                        : 'bg-white/4 border-white/10 hover:bg-white/8'
+                                        : 'bg-white/[0.04] border-white/10 hover:bg-white/[0.08]'
                                 }`}
                             >
                                 <div className="flex items-center gap-2">
@@ -157,7 +174,7 @@ function KnowledgeGraph() {
                 </div>
 
                 {/* Detail Panel */}
-                <div className="rounded-xl bg-white/4 border border-white/10 p-4">
+                <div className="card-surface p-4">
                     {selectedNode ? (
                         <div className="space-y-3">
                             <h3 className="text-sm font-bold text-text-primary">{selectedNode.label}</h3>

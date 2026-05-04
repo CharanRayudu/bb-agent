@@ -20,35 +20,35 @@ import (
 type MonitorStatus string
 
 const (
-	StatusActive  MonitorStatus = "active"
-	StatusPaused  MonitorStatus = "paused"
-	StatusError   MonitorStatus = "error"
+	StatusActive MonitorStatus = "active"
+	StatusPaused MonitorStatus = "paused"
+	StatusError  MonitorStatus = "error"
 )
 
 // Monitor watches a target and triggers rescans on a cron schedule.
 type Monitor struct {
-	ID            string        `json:"id"`
-	Name          string        `json:"name"`
-	Target        string        `json:"target"`
-	Profile       string        `json:"profile"`        // scan profile (full, quick, stealth)
-	CronExpr      string        `json:"cron_expr"`      // "30 6 * * *" = 06:30 daily
-	AlertChannels []string      `json:"alert_channels"` // IDs of alert channels to notify
-	Status        MonitorStatus `json:"status"`
-	CreatedAt     time.Time     `json:"created_at"`
-	LastScanAt    *time.Time    `json:"last_scan_at,omitempty"`
-	LastDeltaAt   *time.Time    `json:"last_delta_at,omitempty"`
-	BaselineAt    *time.Time    `json:"baseline_at,omitempty"`
-	FindingCount  int           `json:"finding_count"`  // current known count
-	NewSinceBaseline int        `json:"new_since_baseline"`
-	SchedulerID   string        `json:"scheduler_id,omitempty"` // ID in agent.Scheduler
+	ID               string        `json:"id"`
+	Name             string        `json:"name"`
+	Target           string        `json:"target"`
+	Profile          string        `json:"profile"`        // scan profile (full, quick, stealth)
+	CronExpr         string        `json:"cron_expr"`      // "30 6 * * *" = 06:30 daily
+	AlertChannels    []string      `json:"alert_channels"` // IDs of alert channels to notify
+	Status           MonitorStatus `json:"status"`
+	CreatedAt        time.Time     `json:"created_at"`
+	LastScanAt       *time.Time    `json:"last_scan_at,omitempty"`
+	LastDeltaAt      *time.Time    `json:"last_delta_at,omitempty"`
+	BaselineAt       *time.Time    `json:"baseline_at,omitempty"`
+	FindingCount     int           `json:"finding_count"` // current known count
+	NewSinceBaseline int           `json:"new_since_baseline"`
+	SchedulerID      string        `json:"scheduler_id,omitempty"` // ID in agent.Scheduler
 }
 
 // Store is the in-memory store for monitors, baselines, and deltas.
 type Store struct {
 	mu        sync.RWMutex
 	monitors  map[string]*Monitor
-	baselines map[string]Baseline  // monitorID → baseline
-	deltas    map[string][]Delta   // monitorID → []Delta (most recent first)
+	baselines map[string]Baseline // monitorID → baseline
+	deltas    map[string][]Delta  // monitorID → []Delta (most recent first)
 	channels  map[string]*AlertChannel
 }
 
@@ -229,10 +229,10 @@ func (st *Store) SetSchedulerID(monitorID, schedulerID string) {
 type ChannelType string
 
 const (
-	ChannelSlack      ChannelType = "slack"
-	ChannelPagerDuty  ChannelType = "pagerduty"
-	ChannelTeams      ChannelType = "teams"
-	ChannelWebhook    ChannelType = "webhook"
+	ChannelSlack     ChannelType = "slack"
+	ChannelPagerDuty ChannelType = "pagerduty"
+	ChannelTeams     ChannelType = "teams"
+	ChannelWebhook   ChannelType = "webhook"
 )
 
 // AlertChannel defines a notification destination.
@@ -240,8 +240,8 @@ type AlertChannel struct {
 	ID          string            `json:"id"`
 	Name        string            `json:"name"`
 	Type        ChannelType       `json:"type"`
-	URL         string            `json:"url"`          // webhook URL
-	Config      map[string]string `json:"config"`       // type-specific config
+	URL         string            `json:"url"`    // webhook URL
+	Config      map[string]string `json:"config"` // type-specific config
 	Enabled     bool              `json:"enabled"`
 	MinSeverity string            `json:"min_severity"` // only alert at this severity or above
 }

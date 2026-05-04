@@ -26,10 +26,10 @@ type Finding struct {
 	Timestamp  time.Time              `json:"timestamp"`
 
 	// OWASP APTS compliance fields
-	APTSScore          int    `json:"apts_score,omitempty"`           // RP-003: 0-100 composite confidence
-	ConfirmationStatus string `json:"confirmation_status,omitempty"`  // RP-001: "Confirmed" | "Unconfirmed"
-	EvidenceHash       string `json:"evidence_hash,omitempty"`        // AR: SHA-256 integrity binding
-	AutonomyLevel      string `json:"autonomy_level,omitempty"`       // AL: L1-L4 level at time of discovery
+	APTSScore          int    `json:"apts_score,omitempty"`          // RP-003: 0-100 composite confidence
+	ConfirmationStatus string `json:"confirmation_status,omitempty"` // RP-001: "Confirmed" | "Unconfirmed"
+	EvidenceHash       string `json:"evidence_hash,omitempty"`       // AR: SHA-256 integrity binding
+	AutonomyLevel      string `json:"autonomy_level,omitempty"`      // AL: L1-L4 level at time of discovery
 }
 
 // Specialist is the interface that all vulnerability-specific agents must implement.

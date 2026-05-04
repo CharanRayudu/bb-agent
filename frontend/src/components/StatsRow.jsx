@@ -11,7 +11,7 @@ function StatCard({ icon: Icon, label, value, color, subvalue, delay }) {
             className="flex items-center gap-3 px-4 py-3.5 rounded-xl border border-[#1e2535] bg-[#111318] hover:border-[#2d3a52] transition-colors"
         >
             <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${color.bg}`}>
-                <Icon className={`w-4.5 h-4.5 ${color.text}`} />
+                <Icon className={`w-[18px] h-[18px] ${color.text}`} />
             </div>
             <div className="min-w-0">
                 <div className={`text-xl font-bold font-mono leading-tight ${color.text}`}>{value}</div>

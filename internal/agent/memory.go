@@ -24,11 +24,11 @@ type Insight struct {
 // WorkingMemory holds per-flow session state (leads, findings, auth context).
 // This is the formalized version of the Brain struct.
 type WorkingMemory struct {
-	Leads        []string   `json:"leads"`
-	Findings     []*Finding `json:"findings"`
-	Exclusions   []string   `json:"exclusions"`
-	PivotContext string     `json:"pivot_context"`
-	Auth         *AuthState `json:"auth,omitempty"`
+	Leads        []string          `json:"leads"`
+	Findings     []*Finding        `json:"findings"`
+	Exclusions   []string          `json:"exclusions"`
+	PivotContext string            `json:"pivot_context"`
+	Auth         *AuthState        `json:"auth,omitempty"`
 	Preferences  map[string]string `json:"preferences,omitempty"`
 }
 
@@ -259,11 +259,11 @@ func (m *Memory) GetTopPayloads(tech, vuln string, limit int) []string {
 type LongTermInsight struct {
 	ID        uuid.UUID `json:"id"`
 	Target    string    `json:"target"`
-	Category  string    `json:"category"`   // "target_profile", "exploit_chain", "technique", "preference"
+	Category  string    `json:"category"` // "target_profile", "exploit_chain", "technique", "preference"
 	Content   string    `json:"content"`
 	TechStack string    `json:"tech_stack"`
 	FlowID    uuid.UUID `json:"flow_id"`
-	Score     float64   `json:"score"`      // relevance score for retrieval
+	Score     float64   `json:"score"` // relevance score for retrieval
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -353,7 +353,7 @@ func (m *Memory) FormatLongTermContext(target, techStack string) string {
 // CorrelatedTarget describes a related target found through cross-flow analysis.
 type CorrelatedTarget struct {
 	Target      string
-	Relation    string   // "subdomain", "shared_infra", "same_vuln_class"
+	Relation    string // "subdomain", "shared_infra", "same_vuln_class"
 	CommonVulns []string
 	Score       float64 // correlation strength 0-1
 }

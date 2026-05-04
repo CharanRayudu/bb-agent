@@ -76,16 +76,16 @@ func (s *Server) handlePosture(w http.ResponseWriter, r *http.Request) {
 	monitors := s.monitorStore.ListMonitors()
 
 	in := posture.Input{
-		FindingCounts:   counts,
-		FindingTypes:    findingTypes,
-		RemItems:        len(remItems),
-		RemFixed:        remMetrics.ByStatus["fixed"] + remMetrics.ByStatus["verified"],
-		SLABreached:     remMetrics.SLABreached,
-		SLACompliant:    remMetrics.SLACompliant,
-		MonitorCount:    len(monitors),
-		UniqueTargets:   len(targets),
-		OpenCritical:    openCritical,
-		OpenHigh:        openHigh,
+		FindingCounts: counts,
+		FindingTypes:  findingTypes,
+		RemItems:      len(remItems),
+		RemFixed:      remMetrics.ByStatus["fixed"] + remMetrics.ByStatus["verified"],
+		SLABreached:   remMetrics.SLABreached,
+		SLACompliant:  remMetrics.SLACompliant,
+		MonitorCount:  len(monitors),
+		UniqueTargets: len(targets),
+		OpenCritical:  openCritical,
+		OpenHigh:      openHigh,
 	}
 
 	snap := posture.Compute(in)

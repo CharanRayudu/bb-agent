@@ -11,14 +11,14 @@ import (
 )
 
 func (s *Server) registerReportGenerationRoutes() {
-	s.mux.HandleFunc("/api/reports/generate", s.handleGenerateReport)
+	s.mux.HandleFunc("/api/reports/generate", s.authGate(RoleOperator, s.handleGenerateReport))
 	s.mux.HandleFunc("/api/reports/available", s.handleReportAvailable)
 }
 
 // handleReportAvailable lets the frontend check whether AI generation is configured.
 func (s *Server) handleReportAvailable(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	gen := reporter.NewGenerator()
+	gen := reporter.NewGenerator(s.currentLLMProvider(""), s.cfg.OpenAIModel, s.cfg.OpenAITemperature)
 	json.NewEncoder(w).Encode(map[string]bool{"available": gen.Available()})
 }
 
@@ -130,6 +130,6 @@ func (s *Server) handleGenerateReport(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 
-	gen := reporter.NewGenerator()
+	gen := reporter.NewGenerator(s.currentLLMProvider(""), s.cfg.OpenAIModel, s.cfg.OpenAITemperature)
 	gen.Generate(r.Context(), req, data, w, flusher.Flush)
 }

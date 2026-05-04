@@ -220,7 +220,7 @@ function ChannelModal({ editing, allEvents, onClose, onSave }) {
                                         className="w-full flex items-center gap-4 p-4 rounded-xl border border-white/10 hover:border-white/20 bg-white/[0.02] hover:bg-white/[0.04] transition-all text-left group">
                                         <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 border border-white/10"
                                             style={{ backgroundColor: t.color }}>
-                                            <TIcon className="w-4.5 h-4.5" style={{ color: t.accent }} />
+                                            <TIcon className="w-[18px] h-[18px]" style={{ color: t.accent }} />
                                         </div>
                                         <div>
                                             <div className="text-[14px] font-semibold text-text-primary group-hover:text-white transition-colors">{t.label}</div>
@@ -474,7 +474,7 @@ export default function Notifications() {
                 <div>
                     <div className="flex items-center gap-3 mb-2">
                         <div className="w-9 h-9 rounded-xl bg-accent-purple/15 border border-accent-purple/20 flex items-center justify-center">
-                            <Bell className="w-4.5 h-4.5 text-accent-purple" />
+                            <Bell className="w-[18px] h-[18px] text-accent-purple" />
                         </div>
                         <h1 className="text-[22px] font-semibold" style={{ background: 'linear-gradient(135deg, #c4b5fd, #a78bfa)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
                             Notification Channels

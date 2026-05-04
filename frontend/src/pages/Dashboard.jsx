@@ -277,23 +277,23 @@ function Dashboard() {
                     <div className="mb-10 mt-6">
                         <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 backdrop-blur-2xl px-6 py-6 md:px-8 md:py-7 shadow-[0_18px_80px_rgba(15,23,42,0.95)]">
                             <div className="h-6 w-40 bg-gradient-to-r from-white/10 via-white/25 to-white/10 rounded-full animate-[shimmer_2.5s_linear_infinite] bg-[length:200%_100%]" />
-                            <div className="mt-3 h-4 w-64 bg-gradient-to-r from-white/5 via-white/15 to-white/5 rounded-full animate-[shimmer_2.5s_linear_infinite] bg-[length:200%_100%]" />
+                            <div className="mt-3 h-4 w-64 bg-gradient-to-r from-white/5 via-white/[0.15] to-white/5 rounded-full animate-[shimmer_2.5s_linear_infinite] bg-[length:200%_100%]" />
                         </div>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 auto-rows-[1fr]">
                         {Array.from({ length: 6 }).map((_, idx) => (
                             <div
                                 key={idx}
-                                className="h-full relative overflow-hidden rounded-3xl border border-white/12 bg-white/6 backdrop-blur-2xl p-6 shadow-[0_18px_70px_rgba(15,23,42,0.9)]"
+                                className="h-full relative overflow-hidden rounded-3xl border border-white/[0.12] bg-white/[0.06] backdrop-blur-2xl p-6 shadow-[0_18px_70px_rgba(15,23,42,0.9)]"
                             >
                                 <div className="absolute inset-0 bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.25),transparent)] bg-[length:200%_100%] animate-[shimmer_2.5s_linear_infinite] opacity-40" />
                                 <div className="relative space-y-4">
                                     <div className="h-4 w-1/2 bg-white/10 rounded-full" />
-                                    <div className="h-3 w-3/4 bg-white/8 rounded-full" />
-                                    <div className="h-3 w-2/3 bg-white/6 rounded-full" />
+                                    <div className="h-3 w-3/4 bg-white/[0.08] rounded-full" />
+                                    <div className="h-3 w-2/3 bg-white/[0.06] rounded-full" />
                                     <div className="mt-6 flex justify-between">
-                                        <div className="h-3 w-20 bg-white/6 rounded-full" />
-                                        <div className="h-3 w-10 bg-white/8 rounded-full" />
+                                        <div className="h-3 w-20 bg-white/[0.06] rounded-full" />
+                                        <div className="h-3 w-10 bg-white/[0.08] rounded-full" />
                                     </div>
                                 </div>
                             </div>
@@ -313,6 +313,23 @@ function Dashboard() {
         hidden: { opacity: 0, y: 20 },
         visible: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 300, damping: 24 } }
     }
+
+    const activeScanCount = flows.filter(f => f.status === 'running' || f.status === 'active').length
+    const completedScanCount = flows.filter(f => f.status === 'completed').length
+    const criticalCount = findings.filter(f => f.severity === 'critical').length
+    const highCount = findings.filter(f => f.severity === 'high').length
+    const targetCount = new Set(flows.map(f => {
+        try { return new URL(f.target || f.name || '').hostname } catch { return f.target || f.name }
+    }).filter(Boolean)).size
+    const riskPenalty = findings.reduce((sum, finding) => {
+        const weights = { critical: 40, high: 20, medium: 8, low: 2, info: 0 }
+        return sum + (weights[finding.severity] || 0)
+    }, 0)
+    const heroRiskScore = findings.length ? Math.max(0, 100 - Math.min(riskPenalty, 100)) : 100
+    const heroRiskLabel = heroRiskScore >= 80 ? 'Secure' : heroRiskScore >= 60 ? 'Low Risk' : heroRiskScore >= 40 ? 'Medium Risk' : heroRiskScore >= 20 ? 'High Risk' : 'Critical'
+    const heroRiskColor = heroRiskScore >= 80 ? '#2ed573' : heroRiskScore >= 60 ? '#eccc68' : heroRiskScore >= 40 ? '#ff7f50' : '#ff4757'
+    const heroCircumference = 2 * Math.PI * 86
+    const heroDash = (heroRiskScore / 100) * heroCircumference
 
     return (
         <div className="relative pb-12">
@@ -352,7 +369,7 @@ function Dashboard() {
                             <button
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); setDeleteConfirm(null); }}
-                                className="px-4 py-2 rounded-lg text-sm font-medium text-text-primary bg-white/10 border border-white/20 hover:bg-white/15"
+                                className="px-4 py-2 rounded-lg text-sm font-medium text-text-primary bg-white/10 border border-white/20 hover:bg-white/[0.15]"
                             >
                                 Cancel
                             </button>
@@ -379,31 +396,86 @@ function Dashboard() {
                 <div className="absolute top-24 -right-40 w-[36rem] h-[36rem] bg-accent-purple/18 rounded-full blur-3xl animate-float" />
             </div>
 
-            {/* Header Area */}
+            {/* Mirage design-system hero */}
             <div className="mb-10 relative z-10">
-                <div className="relative overflow-hidden rounded-3xl border border-white/12 bg-white/6 backdrop-blur-2xl shadow-[0_18px_80px_rgba(15,23,42,0.95)] px-6 py-6 md:px-8 md:py-7">
+                <div className="lg-surface-hero px-6 py-6 md:px-8 md:py-7">
                     <div className="absolute -right-24 -top-24 h-64 w-64 bg-accent-cyan/20 blur-3xl opacity-60" />
                     <div className="absolute -left-24 -bottom-24 h-64 w-64 bg-accent-purple/20 blur-3xl opacity-40" />
 
-                    <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                    <div className="relative z-10 grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px] gap-7 items-center">
                         <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}>
-                            <h1 className="text-4xl md:text-5xl font-display font-black text-transparent bg-clip-text bg-gradient-to-r from-text-primary to-text-muted mb-3 tracking-tight">
+                            <div className="inline-flex items-center gap-2 rounded-full border border-accent-cyan/30 bg-accent-cyan/10 px-2.5 py-1 text-[10px] font-mono font-semibold uppercase tracking-[0.18em] text-cyan-200">
+                                <span className="relative flex h-1.5 w-1.5">
+                                    <span className="absolute inline-flex h-full w-full rounded-full bg-cyan-300 opacity-70 animate-ping" />
+                                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-cyan-300" />
+                                </span>
+                                Live Operations
+                            </div>
+                            <h1 className="mt-4 text-4xl md:text-5xl font-display font-black lg-gradient-text-cyan tracking-tight leading-tight">
                                 {activeTab === 'scans' ? 'Active Scans' : 'Global Findings'}
                             </h1>
-                            <p className="text-sm md:text-base text-text-muted flex items-center gap-2">
+                            <p className="mt-3 max-w-2xl text-sm md:text-base text-text-muted flex items-center gap-2 leading-relaxed">
                                 <Activity className="w-4 h-4 text-accent-cyan" />
-                                {activeTab === 'scans' ? `Monitoring ${flows.length} autonomous penetration tests` : `Tracking ${findings.length} total discovered vulnerabilities`}
+                                {activeTab === 'scans'
+                                    ? `Monitoring ${flows.length} autonomous penetration tests across ${targetCount || 0} targets.`
+                                    : `Tracking ${findings.length} total discovered vulnerabilities with severity-first triage.`}
                             </p>
+                            <div className="mt-5 flex flex-wrap gap-3">
+                                <Link to="/new" className="lg-btn cta-breathe">
+                                    <Zap className="w-4 h-4 relative z-10" />
+                                    <span className="relative z-10">Initiate New Attack</span>
+                                </Link>
+                                <Link to="/assets" className="lg-btn-ghost">
+                                    <Target className="w-4 h-4" />
+                                    <span>Review Targets</span>
+                                </Link>
+                            </div>
+                            <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-5 border-t border-white/[0.08] pt-5">
+                                {[
+                                    ['Findings', findings.length, 'text-text-primary'],
+                                    ['Critical', criticalCount, 'text-[#ff4757]'],
+                                    ['High', highCount, 'text-[#ff7f50]'],
+                                    ['Completed', completedScanCount, 'text-accent-green'],
+                                ].map(([label, value, color]) => (
+                                    <div key={label}>
+                                        <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted">{label}</div>
+                                        <div className={`mt-1 font-mono text-xl font-bold ${color}`}>{value}</div>
+                                    </div>
+                                ))}
+                            </div>
                         </motion.div>
-                        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}>
-                            <Link
-                                to="/new"
-                                className="group relative inline-flex items-center justify-center gap-2 px-8 py-3.5 text-sm font-semibold text-primary-bg rounded-full overflow-hidden transition-all duration-300 hover:scale-105 bg-gradient-to-r from-accent-cyan via-accent-green to-accent-cyan cta-breathe"
-                            >
-                                <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-white/40 via-transparent to-white/40 opacity-0 group-hover:opacity-100 transition-opacity duration-700 bg-[length:220%_100%] animate-[shimmer_3s_linear_infinite]" />
-                                <Zap className="w-4 h-4 relative z-10" />
-                                <span className="relative z-10 font-bold tracking-wide">Initiate New Attack</span>
-                            </Link>
+
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.96 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            className="card-surface relative z-10 p-5 flex flex-col items-center"
+                        >
+                            <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-text-muted mb-3">Security Score</div>
+                            <div className="relative w-48 h-48">
+                                <svg className="w-full h-full -rotate-90" viewBox="0 0 200 200">
+                                    <circle cx="100" cy="100" r="86" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="10" />
+                                    <circle
+                                        cx="100"
+                                        cy="100"
+                                        r="86"
+                                        fill="none"
+                                        stroke={heroRiskColor}
+                                        strokeWidth="10"
+                                        strokeLinecap="round"
+                                        strokeDasharray={`${heroDash} ${heroCircumference}`}
+                                        style={{ filter: `drop-shadow(0 0 12px ${heroRiskColor}80)` }}
+                                    />
+                                </svg>
+                                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                                    <div className="font-mono text-5xl font-extrabold leading-none" style={{ color: heroRiskColor }}>{heroRiskScore}</div>
+                                    <div className="mt-2 font-mono text-[10px] font-semibold uppercase tracking-[0.18em]" style={{ color: heroRiskColor }}>{heroRiskLabel}</div>
+                                </div>
+                            </div>
+                            <div className="mt-4 grid grid-cols-3 gap-4 text-center text-[10px] font-mono uppercase tracking-[0.14em] text-text-muted">
+                                <div><span className="block text-base font-bold text-text-primary">{activeScanCount}</span>Active</div>
+                                <div><span className="block text-base font-bold text-[#ff4757]">{criticalCount}</span>Critical</div>
+                                <div><span className="block text-base font-bold text-accent-cyan">{targetCount}</span>Targets</div>
+                            </div>
                         </motion.div>
                     </div>
                 </div>
@@ -506,11 +578,11 @@ function Dashboard() {
                             {Array.from({ length: 9 }).map((_, idx) => (
                                 <div key={idx} className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-5 shadow-[0_14px_50px_rgba(15,23,42,0.9)]">
                                     <div className="absolute inset-0 bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.25),transparent)] bg-[length:200%_100%] animate-[shimmer_2.5s_linear_infinite] opacity-40" />
-                                    <div className="h-4 w-24 bg-white/12 rounded-full mb-4" />
+                                    <div className="h-4 w-24 bg-white/[0.12] rounded-full mb-4" />
                                     <div className="space-y-3">
-                                        <div className="h-4 w-3/4 bg-white/8 rounded-full" />
-                                        <div className="h-3 w-full bg-white/6 rounded-full" />
-                                        <div className="h-3 w-5/6 bg-white/6 rounded-full" />
+                                        <div className="h-4 w-3/4 bg-white/[0.08] rounded-full" />
+                                        <div className="h-3 w-full bg-white/[0.06] rounded-full" />
+                                        <div className="h-3 w-5/6 bg-white/[0.06] rounded-full" />
                                     </div>
                                 </div>
                             ))}
@@ -600,7 +672,7 @@ function Dashboard() {
                         >
                             {filteredFlows.map((flow) => (
                                 <motion.div key={flow.id} variants={itemVariants} className="h-full relative">
-                                    <div className="h-full relative overflow-hidden rounded-3xl border border-white/15 bg-white/8 backdrop-blur-2xl p-6 shadow-[0_18px_80px_rgba(15,23,42,0.95)] transition-all duration-500 group hover:-translate-y-1 hover:shadow-[0_0_45px_rgba(0,212,255,0.45)] hover:border-accent-cyan/60">
+                                    <div className="h-full relative overflow-hidden rounded-3xl border border-white/[0.15] bg-white/[0.08] backdrop-blur-2xl p-6 shadow-[0_18px_80px_rgba(15,23,42,0.95)] transition-all duration-500 group hover:-translate-y-1 hover:shadow-[0_0_45px_rgba(0,212,255,0.45)] hover:border-accent-cyan/60">
                                         {/* Delete button outside Link so click never triggers navigation */}
                                         <button
                                             type="button"
@@ -614,7 +686,7 @@ function Dashboard() {
                                                 e.stopPropagation()
                                                 openDeleteConfirm(flow)
                                             }}
-                                            className="absolute top-5 right-5 z-20 inline-flex items-center justify-center w-7 h-7 rounded-full border border-white/15 bg-white/5 text-text-muted hover:text-accent-red hover:border-accent-red/60 hover:bg-accent-red/10 transition-colors"
+                                            className="absolute top-5 right-5 z-20 inline-flex items-center justify-center w-7 h-7 rounded-full border border-white/[0.15] bg-white/5 text-text-muted hover:text-accent-red hover:border-accent-red/60 hover:bg-accent-red/10 transition-colors"
                                         >
                                             <Trash2 className="w-3.5 h-3.5" />
                                         </button>
@@ -685,7 +757,7 @@ function Dashboard() {
                             )}
                         </button>
                         {trendOpen && (
-                            <div className="px-5 pb-5 border-t border-white/8">
+                            <div className="px-5 pb-5 border-t border-white/[0.08]">
                                 <p className="text-[10px] font-mono text-text-muted/50 mt-3 mb-3 uppercase tracking-wider">
                                     Findings per scan · last {Math.min(flows.length, 10)} scans · colored by max severity
                                 </p>
@@ -704,7 +776,7 @@ function Dashboard() {
                         onClick={() => setSelectedFinding(null)}
                     />
                     <div
-                        className="relative w-full max-w-4xl max-h-[90vh] flex flex-col rounded-3xl border border-white/15 bg-[#0b1121] shadow-[0_20px_80px_rgba(0,0,0,0.8)] overflow-hidden"
+                        className="relative w-full max-w-4xl max-h-[90vh] flex flex-col rounded-3xl border border-white/[0.15] bg-[#0b1121] shadow-[0_20px_80px_rgba(0,0,0,0.8)] overflow-hidden"
                     >
                         {/* Header */}
                         <div className="flex-shrink-0 flex items-start justify-between p-6 border-b border-white/10 bg-white/5 relative">

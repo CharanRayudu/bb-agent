@@ -9,19 +9,19 @@ import (
 
 // FindingSummary is a lightweight representation of a finding for delta comparison.
 type FindingSummary struct {
-	Fingerprint string `json:"fingerprint"` // SHA-256 of type+target+parameter
-	Type        string `json:"type"`
-	Title       string `json:"title"`
-	Target      string `json:"target"`
-	Severity    string `json:"severity"`
+	Fingerprint string  `json:"fingerprint"` // SHA-256 of type+target+parameter
+	Type        string  `json:"type"`
+	Title       string  `json:"title"`
+	Target      string  `json:"target"`
+	Severity    string  `json:"severity"`
 	Confidence  float64 `json:"confidence"`
-	FlowID      string `json:"flow_id,omitempty"`
+	FlowID      string  `json:"flow_id,omitempty"`
 }
 
 // Baseline is a frozen set of finding fingerprints at a point in time.
 type Baseline struct {
-	MonitorID    string         `json:"monitor_id"`
-	SnapshotAt   time.Time      `json:"snapshot_at"`
+	MonitorID    string                    `json:"monitor_id"`
+	SnapshotAt   time.Time                 `json:"snapshot_at"`
 	Fingerprints map[string]FindingSummary `json:"fingerprints"` // fingerprint → summary
 }
 

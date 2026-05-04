@@ -239,7 +239,7 @@ function BenchmarkBar({ label, value, peer, color }) {
             <div className="relative h-2 rounded-full bg-white/[0.05]">
                 <motion.div initial={{ width: 0 }} animate={{ width: `${(peer / max) * 100}%` }}
                     transition={{ duration: 0.6 }}
-                    className="absolute h-full rounded-full bg-white/15" />
+                    className="absolute h-full rounded-full bg-white/[0.15]" />
                 <motion.div initial={{ width: 0 }} animate={{ width: `${(value / max) * 100}%` }}
                     transition={{ duration: 0.8, ease: 'easeOut' }}
                     className="absolute h-full rounded-full"

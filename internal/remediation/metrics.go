@@ -4,15 +4,15 @@ import "time"
 
 // Metrics aggregates remediation programme KPIs.
 type Metrics struct {
-	Total        int            `json:"total"`
-	ByStatus     map[string]int `json:"by_status"`
-	BySeverity   map[string]int `json:"by_severity"`
-	SLABreached  int            `json:"sla_breached"`
-	SLACompliant int            `json:"sla_compliant"`
-	FixedThisWeek int           `json:"fixed_this_week"`
-	MTTRDays     float64        `json:"mttr_days"` // mean time to remediate (fixed/verified items)
-	RiskReduced  float64        `json:"risk_reduced"` // sum of risk scores of fixed items
-	OpenRisk     float64        `json:"open_risk"`    // sum of risk scores of open items
+	Total         int            `json:"total"`
+	ByStatus      map[string]int `json:"by_status"`
+	BySeverity    map[string]int `json:"by_severity"`
+	SLABreached   int            `json:"sla_breached"`
+	SLACompliant  int            `json:"sla_compliant"`
+	FixedThisWeek int            `json:"fixed_this_week"`
+	MTTRDays      float64        `json:"mttr_days"`    // mean time to remediate (fixed/verified items)
+	RiskReduced   float64        `json:"risk_reduced"` // sum of risk scores of fixed items
+	OpenRisk      float64        `json:"open_risk"`    // sum of risk scores of open items
 }
 
 // ComputeMetrics calculates programme-level KPIs from a list of items.

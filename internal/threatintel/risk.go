@@ -26,46 +26,47 @@ var defaultWeights = RiskWeights{
 
 // RankedFinding is a finding annotated with its composite risk score.
 type RankedFinding struct {
-	FindingType   string   `json:"finding_type"`
-	Title         string   `json:"title"`
-	Severity      string   `json:"severity"`
-	Confidence    float64  `json:"confidence"`
-	RiskScore     float64  `json:"risk_score"`     // 0–100
-	RiskLabel     string   `json:"risk_label"`
-	CVSS          float64  `json:"cvss,omitempty"`
-	EPSSScore     float64  `json:"epss_score,omitempty"`
-	EPSSPct       float64  `json:"epss_percentile,omitempty"`
-	InKEV         bool     `json:"in_kev"`
-	CVEIDs        []string `json:"cve_ids,omitempty"`
-	ChainDepth    int      `json:"chain_depth"`
-	ChainImpact   string   `json:"chain_impact,omitempty"`
-	Remediation   string   `json:"remediation,omitempty"`
-	Target        string   `json:"target,omitempty"`
-	FlowID        string   `json:"flow_id,omitempty"`
+	FindingType string   `json:"finding_type"`
+	Title       string   `json:"title"`
+	Severity    string   `json:"severity"`
+	Confidence  float64  `json:"confidence"`
+	RiskScore   float64  `json:"risk_score"` // 0–100
+	RiskLabel   string   `json:"risk_label"`
+	CVSS        float64  `json:"cvss,omitempty"`
+	EPSSScore   float64  `json:"epss_score,omitempty"`
+	EPSSPct     float64  `json:"epss_percentile,omitempty"`
+	InKEV       bool     `json:"in_kev"`
+	CVEIDs      []string `json:"cve_ids,omitempty"`
+	ChainDepth  int      `json:"chain_depth"`
+	ChainImpact string   `json:"chain_impact,omitempty"`
+	Remediation string   `json:"remediation,omitempty"`
+	Target      string   `json:"target,omitempty"`
+	FlowID      string   `json:"flow_id,omitempty"`
 }
 
 // PrioritizationReport is the output of the risk scoring engine.
 type PrioritizationReport struct {
-	TotalFindings    int              `json:"total_findings"`
-	Critical         int              `json:"critical_count"`
-	High             int              `json:"high_count"`
-	Medium           int              `json:"medium_count"`
-	Low              int              `json:"low_count"`
-	KEVCount         int              `json:"kev_count"`
-	AvgRiskScore     float64          `json:"avg_risk_score"`
-	TopRiskScore     float64          `json:"top_risk_score"`
-	RankedFindings   []RankedFinding  `json:"ranked_findings"`
-	GeneratedAt      string           `json:"generated_at"`
+	TotalFindings  int             `json:"total_findings"`
+	Critical       int             `json:"critical_count"`
+	High           int             `json:"high_count"`
+	Medium         int             `json:"medium_count"`
+	Low            int             `json:"low_count"`
+	KEVCount       int             `json:"kev_count"`
+	AvgRiskScore   float64         `json:"avg_risk_score"`
+	TopRiskScore   float64         `json:"top_risk_score"`
+	RankedFindings []RankedFinding `json:"ranked_findings"`
+	GeneratedAt    string          `json:"generated_at"`
 }
 
 // CompositeRiskScore computes a 0–100 risk score.
 //
 // Parameters:
-//   cvss        — CVSS v3 base score (0–10); 0 if unknown
-//   epss        — pointer to EPSSScore; nil if unknown
-//   inKEV       — whether CVE is in CISA KEV catalog
-//   chainDepth  — attack chain depth this finding participates in (0 = isolated)
-//   severity    — Mirage severity string ("critical","high","medium","low","info")
+//
+//	cvss        — CVSS v3 base score (0–10); 0 if unknown
+//	epss        — pointer to EPSSScore; nil if unknown
+//	inKEV       — whether CVE is in CISA KEV catalog
+//	chainDepth  — attack chain depth this finding participates in (0 = isolated)
+//	severity    — Mirage severity string ("critical","high","medium","low","info")
 func CompositeRiskScore(cvss float64, epss *EPSSScore, inKEV bool, chainDepth int, severity string) float64 {
 	w := defaultWeights
 

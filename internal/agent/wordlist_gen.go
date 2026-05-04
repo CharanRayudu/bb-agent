@@ -151,14 +151,14 @@ func extractQueryParams(rawURL string) []string {
 
 // HTML attribute extractors.
 var (
-	idAttrRe       = regexp.MustCompile(`(?i)\bid\s*=\s*["']([^"']+)["']`)
-	nameAttrRe     = regexp.MustCompile(`(?i)\bname\s*=\s*["']([^"']+)["']`)
-	inputNameRe    = regexp.MustCompile(`(?i)<input[^>]+name\s*=\s*["']([^"']+)["']`)
-	pageTitleRe    = regexp.MustCompile(`(?i)<title[^>]*>([^<]+)</title>`)
-	htmlCommentRe  = regexp.MustCompile(`<!--(.*?)-->`)
-	jsVarRe        = regexp.MustCompile(`(?i)(?:var|let|const)\s+(\w+)\s*=`)
-	jsStringRe     = regexp.MustCompile(`["']([a-zA-Z][a-zA-Z0-9_\-]{2,31})["']`)
-	apiPathRe      = regexp.MustCompile(`(?i)/api/v?\d*/([a-zA-Z][a-zA-Z0-9_\-]*)`)
+	idAttrRe      = regexp.MustCompile(`(?i)\bid\s*=\s*["']([^"']+)["']`)
+	nameAttrRe    = regexp.MustCompile(`(?i)\bname\s*=\s*["']([^"']+)["']`)
+	inputNameRe   = regexp.MustCompile(`(?i)<input[^>]+name\s*=\s*["']([^"']+)["']`)
+	pageTitleRe   = regexp.MustCompile(`(?i)<title[^>]*>([^<]+)</title>`)
+	htmlCommentRe = regexp.MustCompile(`<!--(.*?)-->`)
+	jsVarRe       = regexp.MustCompile(`(?i)(?:var|let|const)\s+(\w+)\s*=`)
+	jsStringRe    = regexp.MustCompile(`["']([a-zA-Z][a-zA-Z0-9_\-]{2,31})["']`)
+	apiPathRe     = regexp.MustCompile(`(?i)/api/v?\d*/([a-zA-Z][a-zA-Z0-9_\-]*)`)
 )
 
 // extractFormFields returns id and name attribute values from HTML.

@@ -88,12 +88,12 @@ func ParseAutonomyLevel(s string) AutonomyLevel {
 
 // APTSAutonomyPolicy describes the operational constraints for a given autonomy level.
 type APTSAutonomyPolicy struct {
-	Level                  AutonomyLevel
-	RequiresHumanApproval  []string // Phase names that need human approval
-	MaxLoopIterations      int      // Maximum recon→exploit iterations
-	ExploitationAllowed    bool     // Whether exploitation phase runs automatically
-	AuditFrequency         string   // How often audit events are emitted
-	ContainmentVerification string  // "quarterly", "monthly", or "continuous"
+	Level                   AutonomyLevel
+	RequiresHumanApproval   []string // Phase names that need human approval
+	MaxLoopIterations       int      // Maximum recon→exploit iterations
+	ExploitationAllowed     bool     // Whether exploitation phase runs automatically
+	AuditFrequency          string   // How often audit events are emitted
+	ContainmentVerification string   // "quarterly", "monthly", or "continuous"
 }
 
 // GetAutonomyPolicy returns the operational policy for a given autonomy level.
@@ -101,38 +101,38 @@ func GetAutonomyPolicy(level AutonomyLevel) APTSAutonomyPolicy {
 	switch level {
 	case AutonomyL1:
 		return APTSAutonomyPolicy{
-			Level:                  AutonomyL1,
-			RequiresHumanApproval:  []string{"recon", "strategy", "exploitation", "validation"},
-			MaxLoopIterations:      1,
-			ExploitationAllowed:    false,
-			AuditFrequency:         "every_action",
+			Level:                   AutonomyL1,
+			RequiresHumanApproval:   []string{"recon", "strategy", "exploitation", "validation"},
+			MaxLoopIterations:       1,
+			ExploitationAllowed:     false,
+			AuditFrequency:          "every_action",
 			ContainmentVerification: "continuous",
 		}
 	case AutonomyL2:
 		return APTSAutonomyPolicy{
-			Level:                  AutonomyL2,
-			RequiresHumanApproval:  []string{"exploitation", "validation"},
-			MaxLoopIterations:      2,
-			ExploitationAllowed:    false, // Requires approval gate
-			AuditFrequency:         "every_phase",
+			Level:                   AutonomyL2,
+			RequiresHumanApproval:   []string{"exploitation", "validation"},
+			MaxLoopIterations:       2,
+			ExploitationAllowed:     false, // Requires approval gate
+			AuditFrequency:          "every_phase",
 			ContainmentVerification: "monthly",
 		}
 	case AutonomyL4:
 		return APTSAutonomyPolicy{
-			Level:                  AutonomyL4,
-			RequiresHumanApproval:  []string{},
-			MaxLoopIterations:      5,
-			ExploitationAllowed:    true,
-			AuditFrequency:         "every_action",
+			Level:                   AutonomyL4,
+			RequiresHumanApproval:   []string{},
+			MaxLoopIterations:       5,
+			ExploitationAllowed:     true,
+			AuditFrequency:          "every_action",
 			ContainmentVerification: "monthly",
 		}
 	default: // L3
 		return APTSAutonomyPolicy{
-			Level:                  AutonomyL3,
-			RequiresHumanApproval:  []string{},
-			MaxLoopIterations:      3,
-			ExploitationAllowed:    true,
-			AuditFrequency:         "every_phase",
+			Level:                   AutonomyL3,
+			RequiresHumanApproval:   []string{},
+			MaxLoopIterations:       3,
+			ExploitationAllowed:     true,
+			AuditFrequency:          "every_phase",
 			ContainmentVerification: "quarterly",
 		}
 	}

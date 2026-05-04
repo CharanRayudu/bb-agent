@@ -75,7 +75,7 @@ func CreateJiraTicket(ctx context.Context, cfg JiraConfig, f *Finding) TicketRes
 func buildADFContent(f *Finding) []interface{} {
 	heading := func(text string, level int) map[string]interface{} {
 		return map[string]interface{}{
-			"type": "heading",
+			"type":  "heading",
 			"attrs": map[string]int{"level": level},
 			"content": []map[string]interface{}{
 				{"type": "text", "text": text},
