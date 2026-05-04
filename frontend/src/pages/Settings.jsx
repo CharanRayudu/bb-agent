@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft, Settings as SettingsIcon, Save, Server, Puzzle, Bell, CheckCircle, AlertTriangle, Link2, Key } from 'lucide-react'
+import CopyButton from '../components/CopyButton'
 
 const API_BASE = '/api'
 
@@ -224,7 +225,10 @@ function Settings() {
 
                         <div className="space-y-3">
                             <div>
-                                <label className="text-[10px] text-text-muted block mb-1 uppercase tracking-widest">Webhook URL</label>
+                                <div className="flex items-center justify-between mb-1">
+                                    <label className="text-[10px] text-text-muted uppercase tracking-widest">Webhook URL</label>
+                                    {config.webhook_url && <CopyButton text={config.webhook_url} />}
+                                </div>
                                 <input
                                     type="url"
                                     value={config.webhook_url || ''}

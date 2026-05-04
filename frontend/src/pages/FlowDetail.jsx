@@ -6,6 +6,7 @@ import { FlowLedgerPanel, FlowEvidencePanel } from '../components/FlowLedgerPane
 import ScreenshotGallery from '../components/ScreenshotGallery'
 import HypothesisTracker from '../components/HypothesisTracker'
 import ErrorBoundary from '../components/ErrorBoundary'
+import CopyButton from '../components/CopyButton'
 
 const API_BASE = '/api'
 
@@ -1211,8 +1212,17 @@ function FlowDetail() {
                         <div className="text-xs font-mono tracking-widest text-text-muted flex items-center gap-2">
                             <Terminal className="w-3 h-3" /> mirage_agent@{flow.target}
                         </div>
-                        <div className="w-12 flex justify-end">
+                        <div className="flex items-center gap-2">
                             {isActive && <div className="w-4 h-4 border-2 border-accent-cyan/40 border-t-accent-cyan rounded-full animate-spin"></div>}
+                            <CopyButton
+                                text={events.map(e => {
+                                    const m = e.metadata || {}
+                                    if (m.output) return m.output
+                                    if (m.content) return m.content
+                                    return e.message || ''
+                                }).filter(Boolean).join('\n')}
+                                label="Copy log"
+                            />
                         </div>
                     </div>
 

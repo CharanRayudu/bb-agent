@@ -6,6 +6,7 @@ import ReactMarkdown from 'react-markdown'
 import TrendChart from '../components/TrendChart'
 import StatsRow from '../components/StatsRow'
 import RiskOverview from '../components/RiskOverview'
+import Pagination from '../components/Pagination'
 import remarkGfm from 'remark-gfm'
 
 const API_BASE = '/api'
@@ -140,6 +141,8 @@ function Dashboard() {
     const [deleteError, setDeleteError] = useState(null)
     const [selectedFinding, setSelectedFinding] = useState(null)
     const [trendOpen, setTrendOpen] = useState(true)
+    const [findingsPage, setFindingsPage] = useState(1)
+    const FINDINGS_PAGE_SIZE = 12
 
     useEffect(() => {
         fetchFlows()
@@ -258,6 +261,9 @@ function Dashboard() {
     const filteredFindings = findingsFilter === 'all'
         ? findings
         : findings.filter((f) => f.severity === findingsFilter)
+
+    const findingsTotalPages = Math.max(1, Math.ceil(filteredFindings.length / FINDINGS_PAGE_SIZE))
+    const pagedFindings = filteredFindings.slice((findingsPage - 1) * FINDINGS_PAGE_SIZE, findingsPage * FINDINGS_PAGE_SIZE)
 
     if (loading) {
         return (
@@ -501,7 +507,7 @@ function Dashboard() {
                                 <button
                                     key={key}
                                     type="button"
-                                    onClick={() => setFindingsFilter(key)}
+                                    onClick={() => { setFindingsFilter(key); setFindingsPage(1) }}
                                     className={`relative z-10 px-3 py-1.5 rounded-xl uppercase tracking-[0.1em] text-center transition-colors duration-200 ${findingsFilter === key ? 'bg-white/10 text-white' : 'text-text-muted hover:text-text-primary hover:bg-white/5'
                                         }`}
                                 >
@@ -539,8 +545,9 @@ function Dashboard() {
                             <p className="text-text-muted max-w-md mb-8">Try adjusting your filters or initiate a new scan to discover vulnerabilities.</p>
                         </motion.div>
                     ) : (
+                        <>
                         <motion.div variants={containerVariants} initial="hidden" animate="visible" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 auto-rows-[1fr]">
-                            {filteredFindings.map((finding) => {
+                            {pagedFindings.map((finding) => {
                                 const { severity } = finding
                                 const severityClasses =
                                     severity === 'critical' ? 'bg-[#ff4757]/15 text-[#ff4757] border-[#ff4757]/40 shadow-[0_0_15px_rgba(255,71,87,0.15)]'
@@ -583,6 +590,14 @@ function Dashboard() {
                                 )
                             })}
                         </motion.div>
+                        <Pagination
+                            page={findingsPage}
+                            totalPages={findingsTotalPages}
+                            onChange={p => { setFindingsPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
+                            pageSize={FINDINGS_PAGE_SIZE}
+                            totalItems={filteredFindings.length}
+                        />
+                        </>
                     )}
                 </div>
 

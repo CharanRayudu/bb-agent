@@ -4,6 +4,8 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { LayoutDashboard, Zap, Database, Settings, Search, Command, Globe, FileText } from 'lucide-react'
 import Sidebar from './components/Sidebar'
 import CopilotPanel from './components/CopilotPanel'
+import ErrorBoundary from './components/ErrorBoundary'
+import { ToastProvider } from './components/Toast'
 import Dashboard from './pages/Dashboard'
 import NewTask from './pages/NewTask'
 import FlowDetail from './pages/FlowDetail'
@@ -21,6 +23,7 @@ import ScheduledScans from './pages/ScheduledScans'
 import Notifications from './pages/Notifications'
 import VulnIntel from './pages/VulnIntel'
 import AuditLog from './pages/AuditLog'
+import NotFound from './pages/NotFound'
 
 // ============================================================
 // Command Palette
@@ -343,6 +346,12 @@ function AppShell() {
                                 <PageWrapper><SettingsPage /></PageWrapper>
                             }
                         />
+                        <Route
+                            path="*"
+                            element={
+                                <PageWrapper><NotFound /></PageWrapper>
+                            }
+                        />
                     </Routes>
                 </AnimatePresence>
             </main>
@@ -355,7 +364,11 @@ function AppShell() {
 function App() {
     return (
         <BrowserRouter>
-            <AppShell />
+            <ToastProvider>
+                <ErrorBoundary>
+                    <AppShell />
+                </ErrorBoundary>
+            </ToastProvider>
         </BrowserRouter>
     )
 }

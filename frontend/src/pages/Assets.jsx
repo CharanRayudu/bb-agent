@@ -1,11 +1,13 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
     Globe, Server, AlertTriangle, CheckCircle, Clock, ArrowRight,
     Shield, Target, ChevronDown, ChevronRight, Activity, Zap,
-    Lock, Layers
+    Lock, Layers, Search, X
 } from 'lucide-react'
+import EmptyState from '../components/EmptyState'
+import Pagination from '../components/Pagination'
 
 const API_BASE = '/api'
 
@@ -351,10 +353,14 @@ function CloudSecurityPanel({ findings }) {
     )
 }
 
+const PAGE_SIZE = 10
+
 export default function Assets() {
     const [flows, setFlows] = useState([])
     const [findings, setFindings] = useState([])
     const [loading, setLoading] = useState(true)
+    const [search, setSearch] = useState('')
+    const [page, setPage] = useState(1)
 
     useEffect(() => {
         Promise.all([
@@ -368,31 +374,50 @@ export default function Assets() {
     }, [])
 
     // Group findings by target host, cross-referenced with flows
-    const assetMap = {}
-    flows.forEach(flow => {
-        let host = flow.target
-        try { host = new URL(flow.target).hostname } catch {}
-        if (!assetMap[host]) {
-            assetMap[host] = { host, flowId: flow.id, lastScan: flow.created_at, findings: [] }
-        }
-        if (new Date(flow.created_at) > new Date(assetMap[host].lastScan)) {
-            assetMap[host].lastScan = flow.created_at
-            assetMap[host].flowId = flow.id
-        }
-    })
-    findings.forEach(f => {
-        let host = f.url || ''
-        try { host = new URL(f.url).hostname } catch {}
-        if (assetMap[host]) assetMap[host].findings.push(f)
-        else {
-            // orphaned finding — attach to closest target
-            const target = f.target || f.flowName || host
-            if (!assetMap[target]) assetMap[target] = { host: target, flowId: f.flowId, lastScan: f.timestamp, findings: [] }
-            assetMap[target].findings.push(f)
-        }
-    })
+    const assetMap = useMemo(() => {
+        const map = {}
+        flows.forEach(flow => {
+            let host = flow.target
+            try { host = new URL(flow.target).hostname } catch {}
+            if (!map[host]) {
+                map[host] = { host, flowId: flow.id, lastScan: flow.created_at, findings: [] }
+            }
+            if (new Date(flow.created_at) > new Date(map[host].lastScan)) {
+                map[host].lastScan = flow.created_at
+                map[host].flowId = flow.id
+            }
+        })
+        findings.forEach(f => {
+            let host = f.url || ''
+            try { host = new URL(f.url).hostname } catch {}
+            if (map[host]) map[host].findings.push(f)
+            else {
+                const target = f.target || f.flowName || host
+                if (!map[target]) map[target] = { host: target, flowId: f.flowId, lastScan: f.timestamp, findings: [] }
+                map[target].findings.push(f)
+            }
+        })
+        return map
+    }, [flows, findings])
 
-    const assets = Object.values(assetMap).sort((a, b) => riskScore(a.findings) - riskScore(b.findings))
+    const allAssets = useMemo(() =>
+        Object.values(assetMap).sort((a, b) => riskScore(a.findings) - riskScore(b.findings)),
+        [assetMap]
+    )
+
+    const filteredAssets = useMemo(() => {
+        if (!search.trim()) return allAssets
+        const q = search.toLowerCase()
+        return allAssets.filter(a => a.host.toLowerCase().includes(q))
+    }, [allAssets, search])
+
+    // Reset page when search changes
+    useEffect(() => { setPage(1) }, [search])
+
+    const totalPages = Math.max(1, Math.ceil(filteredAssets.length / PAGE_SIZE))
+    const pagedAssets = filteredAssets.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+
+    const assets = allAssets
     const allFindings = findings
     const overallScore = riskScore(allFindings)
     const overallRisk = riskLabel(overallScore)
@@ -453,21 +478,52 @@ export default function Assets() {
                 <div className="relative z-10 grid grid-cols-1 xl:grid-cols-3 gap-6">
                     {/* Asset list — 2/3 width */}
                     <div className="xl:col-span-2 space-y-4">
+                        {/* Search bar */}
+                        <div className="relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted pointer-events-none" />
+                            <input
+                                type="text"
+                                value={search}
+                                onChange={e => setSearch(e.target.value)}
+                                placeholder="Filter by hostname…"
+                                className="w-full pl-10 pr-9 py-2.5 bg-white/[0.04] border border-white/[0.09] rounded-xl text-[13px] text-text-primary placeholder:text-text-muted outline-none focus:border-accent-cyan/40 transition-colors font-mono"
+                            />
+                            {search && (
+                                <button type="button" onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary transition-colors">
+                                    <X className="w-3.5 h-3.5" />
+                                </button>
+                            )}
+                        </div>
+
                         {assets.length === 0 ? (
-                            <div className="flex flex-col items-center justify-center min-h-[30vh] p-12 text-center rounded-2xl border border-white/10 bg-white/[0.03]">
-                                <Globe className="w-12 h-12 text-text-muted mb-4" />
-                                <h2 className="text-xl font-bold text-text-primary mb-2">No assets discovered yet</h2>
-                                <p className="text-text-muted text-sm mb-6">Run a scan to start building your asset inventory.</p>
-                                <Link to="/new" className="lg-btn text-sm px-5 py-2.5">
-                                    <Zap className="w-4 h-4" /> Launch Scan
-                                </Link>
-                            </div>
+                            <EmptyState
+                                icon={Globe}
+                                title="No assets discovered yet"
+                                message="Run a scan to start building your asset inventory."
+                                action={{ label: 'Launch Scan', onClick: () => window.location.href = '/new' }}
+                            />
+                        ) : filteredAssets.length === 0 ? (
+                            <EmptyState
+                                icon={Search}
+                                title="No matching assets"
+                                message={`No assets match "${search}". Try a different hostname.`}
+                                action={{ label: 'Clear search', onClick: () => setSearch('') }}
+                            />
                         ) : (
-                            <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-4">
-                                {assets.map(asset => (
-                                    <AssetCard key={asset.host} asset={asset} findings={asset.findings} />
-                                ))}
-                            </motion.div>
+                            <>
+                                <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-4">
+                                    {pagedAssets.map(asset => (
+                                        <AssetCard key={asset.host} asset={asset} findings={asset.findings} />
+                                    ))}
+                                </motion.div>
+                                <Pagination
+                                    page={page}
+                                    totalPages={totalPages}
+                                    onChange={setPage}
+                                    pageSize={PAGE_SIZE}
+                                    totalItems={filteredAssets.length}
+                                />
+                            </>
                         )}
                     </div>
 

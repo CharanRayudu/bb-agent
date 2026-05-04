@@ -225,8 +225,7 @@ body::after {
 }
 
 @media (max-width: 768px) {
-  .sidebar { display: none; }
-  .main-area { margin-left: 0; padding: 16px 16px 48px; }
+  .main-area { margin-left: 0; padding: 60px 16px 48px; }
 }
 
 /* ============================================================

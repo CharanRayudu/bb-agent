@@ -1,32 +1,33 @@
 import React, { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { motion } from 'framer-motion'
-import { Shield, LayoutDashboard, Plus, Network, Settings, Wifi, WifiOff, Activity, Globe, FileText, Code2, Target, CheckSquare, TrendingUp, Tag, Calendar, Bell, ShieldOff, ClipboardList } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Shield, LayoutDashboard, Plus, Network, Settings, Wifi, WifiOff, Activity, Globe, FileText, Code2, Target, CheckSquare, TrendingUp, Tag, Calendar, Bell, ShieldOff, ClipboardList, Menu, X } from 'lucide-react'
 
 const NAV_ITEMS = [
-    { label: 'Dashboard',        icon: LayoutDashboard, to: '/',            hint: 'Overview' },
-    { label: 'Posture',          icon: TrendingUp,      to: '/posture',     hint: 'Score' },
-    { label: 'New Scan',         icon: Plus,            to: '/new',         hint: 'Launch' },
-    { label: 'Asset Inventory',  icon: Globe,           to: '/assets',      hint: 'Assets' },
-    { label: 'Reports',          icon: FileText,        to: '/reports',     hint: 'Exports' },
-    { label: 'DevSecOps',        icon: Code2,           to: '/devsecops',   hint: 'Pipeline' },
-    { label: 'Threat Intel',     icon: Target,          to: '/threatintel', hint: 'ATT&CK' },
-    { label: 'Monitoring',       icon: Activity,        to: '/monitoring',  hint: 'CASM' },
-    { label: 'Remediation',      icon: CheckSquare,     to: '/remediation', hint: 'Track' },
-    { label: 'Scan Profiles',    icon: Tag,             to: '/profiles',    hint: 'Templates' },
-    { label: 'Schedules',        icon: Calendar,        to: '/schedules',   hint: 'Automate' },
-    { label: 'Vuln Intelligence', icon: ShieldOff,       to: '/vulns',        hint: 'Analytics' },
-    { label: 'Notifications',    icon: Bell,            to: '/notifications', hint: 'Alerts' },
-    { label: 'Knowledge Graph',  icon: Network,         to: '/graph',       hint: 'Graph' },
-    { label: 'Audit Log',        icon: ClipboardList,   to: '/audit-log',   hint: 'Events' },
-    { label: 'Settings',         icon: Settings,        to: '/settings',    hint: 'Config' },
+    { label: 'Dashboard',         icon: LayoutDashboard, to: '/',              hint: 'Overview' },
+    { label: 'Posture',           icon: TrendingUp,      to: '/posture',       hint: 'Score' },
+    { label: 'New Scan',          icon: Plus,            to: '/new',           hint: 'Launch' },
+    { label: 'Asset Inventory',   icon: Globe,           to: '/assets',        hint: 'Assets' },
+    { label: 'Reports',           icon: FileText,        to: '/reports',       hint: 'Exports' },
+    { label: 'DevSecOps',         icon: Code2,           to: '/devsecops',     hint: 'Pipeline' },
+    { label: 'Threat Intel',      icon: Target,          to: '/threatintel',   hint: 'ATT&CK' },
+    { label: 'Monitoring',        icon: Activity,        to: '/monitoring',    hint: 'CASM' },
+    { label: 'Remediation',       icon: CheckSquare,     to: '/remediation',   hint: 'Track' },
+    { label: 'Scan Profiles',     icon: Tag,             to: '/profiles',      hint: 'Templates' },
+    { label: 'Schedules',         icon: Calendar,        to: '/schedules',     hint: 'Automate' },
+    { label: 'Vuln Intelligence', icon: ShieldOff,       to: '/vulns',         hint: 'Analytics' },
+    { label: 'Notifications',     icon: Bell,            to: '/notifications', hint: 'Alerts' },
+    { label: 'Knowledge Graph',   icon: Network,         to: '/graph',         hint: 'Graph' },
+    { label: 'Audit Log',         icon: ClipboardList,   to: '/audit-log',     hint: 'Events' },
+    { label: 'Settings',          icon: Settings,        to: '/settings',      hint: 'Config' },
 ]
 
-function NavItem({ item, isActive }) {
+function NavItem({ item, isActive, onNavigate }) {
     const Icon = item.icon
     return (
         <Link
             to={item.to}
+            onClick={onNavigate}
             className={[
                 'group relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors duration-200',
                 isActive
@@ -55,7 +56,7 @@ function NavItem({ item, isActive }) {
     )
 }
 
-export default function Sidebar() {
+function SidebarContent({ onNavigate }) {
     const location = useLocation()
     const [connected, setConnected] = useState(true)
     const [latency, setLatency] = useState(null)
@@ -88,7 +89,7 @@ export default function Sidebar() {
     }
 
     return (
-        <aside className="sidebar select-none">
+        <>
             {/* Logo / brand */}
             <div className="relative z-10 flex items-center gap-3 px-4 pt-5 pb-4 border-b border-white/[0.08]">
                 <div className="relative">
@@ -115,13 +116,12 @@ export default function Sidebar() {
                     <span className="h-px flex-1 bg-gradient-to-r from-transparent via-white/[0.08] to-transparent" />
                 </div>
                 {NAV_ITEMS.map((item) => (
-                    <NavItem key={item.to} item={item} isActive={isActive(item.to)} />
+                    <NavItem key={item.to} item={item} isActive={isActive(item.to)} onNavigate={onNavigate} />
                 ))}
             </nav>
 
             {/* Bottom status panel */}
             <div className="relative z-10 border-t border-white/[0.08] px-3 py-3 space-y-2">
-                {/* Connection chip */}
                 <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.06] backdrop-blur-md">
                     {connected ? (
                         <>
@@ -144,7 +144,6 @@ export default function Sidebar() {
                     )}
                 </div>
 
-                {/* Version / mode */}
                 <div className="flex items-center justify-between px-3 pt-0.5">
                     <div className="flex items-center gap-1.5">
                         <Activity className="w-3 h-3 text-accent-cyan/60" />
@@ -153,6 +152,83 @@ export default function Sidebar() {
                     <span className="text-[10px] text-text-muted font-mono uppercase tracking-widest">agentic</span>
                 </div>
             </div>
-        </aside>
+        </>
+    )
+}
+
+export default function Sidebar() {
+    const [mobileOpen, setMobileOpen] = useState(false)
+    const location = useLocation()
+
+    // Close mobile sidebar on navigation
+    useEffect(() => {
+        setMobileOpen(false)
+    }, [location.pathname])
+
+    // Close on Escape
+    useEffect(() => {
+        if (!mobileOpen) return
+        function handler(e) {
+            if (e.key === 'Escape') setMobileOpen(false)
+        }
+        document.addEventListener('keydown', handler)
+        return () => document.removeEventListener('keydown', handler)
+    }, [mobileOpen])
+
+    return (
+        <>
+            {/* Desktop sidebar — always visible on md+ */}
+            <aside className="sidebar select-none hidden md:flex flex-col">
+                <SidebarContent />
+            </aside>
+
+            {/* Mobile: hamburger trigger */}
+            <button
+                type="button"
+                onClick={() => setMobileOpen(true)}
+                className="md:hidden fixed top-4 left-4 z-40 w-10 h-10 flex items-center justify-center rounded-xl bg-surface-2/80 backdrop-blur-xl border border-white/[0.10] text-text-secondary hover:text-text-primary shadow-lg transition-colors"
+                aria-label="Open navigation"
+            >
+                <Menu className="w-4.5 h-4.5" style={{ width: 18, height: 18 }} />
+            </button>
+
+            {/* Mobile drawer */}
+            <AnimatePresence>
+                {mobileOpen && (
+                    <>
+                        {/* Backdrop */}
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="md:hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+                            onClick={() => setMobileOpen(false)}
+                        />
+
+                        {/* Drawer panel */}
+                        <motion.aside
+                            initial={{ x: '-100%' }}
+                            animate={{ x: 0 }}
+                            exit={{ x: '-100%' }}
+                            transition={{ duration: 0.26, ease: [0.2, 0.8, 0.2, 1] }}
+                            className="md:hidden fixed top-0 left-0 bottom-0 z-50 w-72 flex flex-col sidebar select-none"
+                        >
+                            {/* Close button */}
+                            <button
+                                type="button"
+                                onClick={() => setMobileOpen(false)}
+                                className="absolute top-4 right-4 z-20 w-8 h-8 flex items-center justify-center rounded-lg text-text-muted hover:text-text-primary hover:bg-white/[0.08] transition-colors"
+                                aria-label="Close navigation"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+
+                            <SidebarContent onNavigate={() => setMobileOpen(false)} />
+                        </motion.aside>
+                    </>
+                )}
+            </AnimatePresence>
+        </>
     )
 }
