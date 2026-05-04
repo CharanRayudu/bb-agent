@@ -77,11 +77,13 @@ React + Vite Frontend (port 3000)
 
 ### Operational
 - **RBAC** — Admin, Operator, and Viewer roles
-- **Scheduling** — Recurring scans with cron expressions
+- **Scheduling** — Recurring scans with cron expressions and schedule-plan management
 - **Webhooks** — HMAC-SHA256 signed webhook notifications on findings
 - **Audit Log** — Append-only event log for all user actions
 - **Burp Suite Export** — Findings exportable as Burp XML
 - **CI/CD Integration** — Webhook trigger endpoint for pipeline-initiated scans
+- **GitHub App Integration** — Webhook handler and DevSecOps pipeline scan trigger
+- **Ticketing** — Create tickets from findings via the integrations API
 - **Configurable Prompts** — `prompts.yaml` controls all phase and agent instructions without code changes
 
 ---
@@ -137,23 +139,75 @@ bb-agent/
 │   │   ├── ssrf/            # SSRF (cloud metadata, internal, OOB)
 │   │   ├── idor/            # Insecure Direct Object References
 │   │   ├── businesslogic/   # Business logic (price manipulation, coupon abuse)
+│   │   ├── llmpentest/      # LLM jailbreak and prompt injection testing
 │   │   ├── wafevasion/      # WAF bypass with LLM-driven mutation
-│   │   └── ...              # + 42 more specialists
+│   │   └── ...              # + 41 more specialists
 │   ├── knowledge/           # Knowledge graph (in-memory + Neo4j backend)
 │   ├── config/              # YAML prompt configuration loader
 │   ├── database/            # PostgreSQL queries and schema migrations
 │   ├── llm/                 # LLM provider integrations (OpenAI, Codex)
 │   ├── models/              # Data models (Flow, Task, SubTask, Action, CausalGraph)
+│   ├── notify/              # Notification dispatcher (Slack, webhook, email channels)
 │   ├── pipeline/            # 8-phase state machine with lifecycle management
 │   ├── queue/               # Per-specialist async queues with backpressure
-│   ├── server/              # HTTP REST API, WebSocket, and extended routes
-│   └── tools/               # Tool registry (execute_command, update_brain, OOB, browser, etc.)
-├── frontend/                # React + Vite dashboard
+│   ├── remediation/         # Remediation tracking and ticket integration
+│   ├── schedplan/           # Schedule plan runner (cron-based automation)
+│   ├── threatintel/         # ATT&CK mapping, CVE enrichment, risk prioritization
+│   └── server/              # HTTP REST API, WebSocket, and all route handlers
+│       ├── server.go        # Core mux registration, CORS, auth middleware
+│       ├── api_extensions.go       # Auth, knowledge graph, config, assets, notifications
+│       ├── apts_routes.go          # Autonomous Pentest System status and control
+│       ├── copilot_handler.go      # AI copilot chat sessions
+│       ├── github_app.go           # GitHub App webhook + DevSecOps scan trigger
+│       ├── integrations_handler.go # Ticketing integrations
+│       ├── monitoring_handler.go   # Continuous asset monitoring and alerting
+│       ├── notify_handler.go       # Notification channels and event routing
+│       ├── posture_handler.go      # Security posture scoring and history
+│       ├── profiles_handler.go     # Scan profile templates
+│       ├── remediation_tracking_handler.go  # Remediation items and metrics
+│       ├── report_generation_handler.go     # AI report generation
+│       ├── schedplan_handler.go    # Schedule plan CRUD
+│       ├── threatintel_handler.go  # ATT&CK, attack chains, CVE enrichment
+│       └── vuln_intel_handler.go   # Finding stats, search, and export
+├── frontend/                # React + Vite dashboard (Mirage Design System v3)
 │   └── src/
-│       ├── pages/           # Dashboard, FlowDetail, NewTask, Settings, KnowledgeGraph
-│       └── components/      # HypothesisTracker, FlowLedgerPanel, ScreenshotGallery, TrendChart
+│       ├── pages/
+│       │   ├── Dashboard.jsx        # Scan list + paginated findings grid
+│       │   ├── FlowDetail.jsx       # Real-time terminal, findings, evidence ledger
+│       │   ├── NewTask.jsx          # Scan launch form with profile selector
+│       │   ├── Assets.jsx           # Asset inventory with search/filter + pagination
+│       │   ├── Posture.jsx          # Security posture score and history chart
+│       │   ├── Remediation.jsx      # Remediation tracking board
+│       │   ├── ThreatIntel.jsx      # ATT&CK matrix and CVE enrichment
+│       │   ├── DevSecOps.jsx        # CI/CD pipeline integration
+│       │   ├── Monitoring.jsx       # Continuous asset monitoring
+│       │   ├── Reports.jsx          # Report generation and export
+│       │   ├── ScanProfiles.jsx     # Scan profile template management
+│       │   ├── ScheduledScans.jsx   # Cron-based scheduled scan management
+│       │   ├── Notifications.jsx    # Alert channel configuration
+│       │   ├── VulnIntel.jsx        # Vulnerability analytics and search
+│       │   ├── AuditLog.jsx         # Append-only user action log
+│       │   ├── KnowledgeGraph.jsx   # Cross-scan knowledge graph visualiser
+│       │   ├── Settings.jsx         # Platform configuration (providers, webhooks)
+│       │   └── NotFound.jsx         # 404 page with ambient Liquid Glass design
+│       └── components/
+│           ├── Sidebar.jsx          # Navigation with mobile drawer + hamburger toggle
+│           ├── CopilotPanel.jsx     # AI assistant side panel
+│           ├── ErrorBoundary.jsx    # Global React error boundary
+│           ├── Toast.jsx            # Stacked animated toast notifications (ToastProvider)
+│           ├── Modal.jsx            # Reusable glass modal/dialog (size variants, Esc-close)
+│           ├── EmptyState.jsx       # Unified empty state with icon, title, CTA
+│           ├── CopyButton.jsx       # Copy-to-clipboard with animated feedback
+│           ├── Pagination.jsx       # Sliding-window pagination controls
+│           ├── FlowLedgerPanel.jsx  # Finding ledger and evidence panel
+│           ├── HypothesisTracker.jsx # Live hypothesis confidence tracker
+│           ├── ScreenshotGallery.jsx # Visual evidence screenshot viewer
+│           ├── RiskOverview.jsx     # Risk gauge and severity chart
+│           ├── StatsRow.jsx         # Summary stat chips strip
+│           └── TrendChart.jsx       # Finding trend line chart
 ├── prompts.yaml             # All agent prompts — edit to tune behavior without rebuilding
 ├── docker-compose.yml       # PostgreSQL, backend, frontend, sandbox, Neo4j
+├── .golangci.yml            # Go static analysis config (golangci-lint v2)
 ├── start.ps1 / start.sh     # Launch scripts
 └── stop.ps1 / stop.sh       # Shutdown scripts
 ```
@@ -163,7 +217,7 @@ bb-agent/
 ## Prerequisites
 
 - **Docker** and **Docker Compose**
-- **Go 1.21+** (for native backend development)
+- **Go 1.25+** (for native backend development)
 - **Node.js 18+** and **npm** (for native frontend development)
 - An **OpenAI API Key** or Codex CLI authentication
 
@@ -280,23 +334,189 @@ AI-generated pentest report with deduplication, CVSS scoring, CWE/OWASP complian
 
 ## API Endpoints
 
-| Method | Path | Description |
+### Core
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/health` | — | Server health check |
+| `GET` | `/api/models` | — | Available LLM models |
+| `GET/PUT` | `/api/config` | — | Read or update runtime configuration |
+| `GET` | `/api/audit` | — | Append-only audit log |
+| `GET` | `/ws` | — | WebSocket for real-time event streaming |
+
+### Flows & Findings
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/flows/create` | Operator | Create and start a scan |
+| `GET` | `/api/flows` | — | List all flows |
+| `GET/POST` | `/api/flows/{id}` | — | Flow detail, pause, resume, cancel |
+| `GET` | `/api/findings` | — | All findings across flows |
+| `GET` | `/api/findings/remediation` | — | Remediation status list |
+| `GET` | `/api/findings/stats` | — | Severity counts and trend data |
+| `GET` | `/api/findings/search` | — | Full-text finding search |
+| `GET` | `/api/findings/export` | — | Export findings (JSON / Burp XML) |
+
+### Remediation
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET/POST` | `/api/remediation/items` | — | Remediation item list and creation |
+| `GET/PUT/DELETE` | `/api/remediation/items/{id}` | — | Individual remediation item |
+| `GET` | `/api/remediation/metrics` | — | Remediation completion metrics |
+| `POST` | `/api/remediation/promote` | — | Promote findings to remediation |
+
+### Intelligence & Posture
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/posture` | — | Current security posture score |
+| `GET` | `/api/posture/history` | — | Posture score history |
+| `GET` | `/api/threatintel/attck` | — | MITRE ATT&CK technique mapping |
+| `GET` | `/api/threatintel/chains` | — | Attack chain analysis |
+| `GET` | `/api/threatintel/risk` | — | Risk prioritization |
+| `POST` | `/api/threatintel/enrich` | — | Enrich CVEs with threat context |
+| `GET` | `/api/knowledge/graph` | — | Cross-scan knowledge graph nodes and edges |
+| `GET` | `/api/assets` | — | Discovered asset inventory |
+
+### Scheduling & Automation
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET/POST` | `/api/schedules` | Operator | Scheduled scan list and creation |
+| `GET/PUT/DELETE` | `/api/schedules/{id}` | Operator | Individual scheduled scan |
+| `GET/POST` | `/api/schedule-plans` | — | Schedule plan list and creation |
+| `GET/PUT/DELETE` | `/api/schedule-plans/{id}` | — | Individual schedule plan |
+| `POST` | `/api/cicd/trigger` | — | CI/CD webhook scan trigger |
+
+### Profiles & Reporting
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET/POST` | `/api/profiles` | — | Scan profile template list and creation |
+| `GET/PUT/DELETE` | `/api/profiles/{id}` | — | Individual scan profile |
+| `POST` | `/api/reports/generate` | — | Generate AI pentest report |
+| `GET` | `/api/reports/available` | — | List available generated reports |
+| `POST` | `/api/mutate` | Operator | Stateless LLM payload mutation |
+
+### Notifications & Monitoring
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET/POST` | `/api/notify/channels` | — | Notification channel list and creation |
+| `GET/PUT/DELETE` | `/api/notify/channels/{id}` | — | Individual channel (Slack, webhook, email) |
+| `GET` | `/api/notify/events` | — | Notification event routing rules |
+| `POST` | `/api/notifications/test` | — | Send test notification |
+| `GET/POST` | `/api/monitors` | — | Continuous monitor list and creation |
+| `GET/PUT/DELETE` | `/api/monitors/{id}` | — | Individual monitor |
+| `GET/POST` | `/api/alerting/channels` | — | Alerting channel configuration |
+| `GET/PUT/DELETE` | `/api/alerting/channels/{id}` | — | Individual alerting channel |
+| `POST` | `/api/alerting/test` | — | Test alerting channel |
+
+### Integrations & Auth
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/auth/login` | — | Authentication |
+| `GET/POST` | `/api/auth/keys` | — | API key management |
+| `GET/POST` | `/api/users` | Admin | User management |
+| `POST` | `/api/integrations/ticket` | — | Create ticket from finding |
+| `POST` | `/api/webhooks/github` | — | GitHub App webhook receiver |
+| `GET/PUT` | `/api/webhooks/github/config` | — | GitHub App configuration |
+| `POST` | `/api/devsecops/scan` | — | DevSecOps pipeline scan |
+| `GET` | `/api/system/migrations` | — | Database migration status |
+
+### AI Copilot
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET/POST` | `/api/copilot/sessions` | — | Copilot chat session list and creation |
+| `GET/DELETE` | `/api/copilot/sessions/{id}` | — | Individual copilot session |
+| `POST` | `/api/copilot/chat` | — | Send message to AI copilot |
+| `GET` | `/api/copilot/suggestions` | — | Contextual remediation suggestions |
+| `GET` | `/api/copilot/available` | — | Copilot availability check |
+
+### APTS (Autonomous Pentest System)
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/apts/status` | — | Autonomous system status |
+| `GET` | `/api/apts/autonomy-levels` | — | Available autonomy level definitions |
+| `GET` | `/api/apts/coverage` | — | Attack surface coverage metrics |
+| `GET` | `/api/apts/provenance` | — | Finding provenance and chain-of-evidence |
+| `POST` | `/api/apts/emergency-stop` | Operator | Emergency halt all active agents |
+
+---
+
+## Frontend — Mirage Design System v3
+
+The dashboard is built with React 18, Vite 5, Tailwind CSS 3, and Framer Motion using a custom **Liquid Glass** aesthetic — deep dark backgrounds, frosted glass surfaces, aurora gradients, and cyan accent glows.
+
+### Design Tokens
+
+| Token | Value | Purpose |
 |---|---|---|
-| `GET` | `/api/health` | Server health check |
-| `GET` | `/api/models` | Available LLM models |
-| `POST` | `/api/flows/create` | Create and start a scan |
-| `GET` | `/api/flows` | List all flows |
-| `GET/POST` | `/api/flows/{id}` | Flow detail, pause, resume, cancel |
-| `GET` | `/api/findings` | All findings across flows |
-| `GET` | `/api/findings/remediation` | Remediation status tracking |
-| `GET` | `/api/knowledge/graph` | Knowledge graph nodes and edges |
-| `GET/PUT` | `/api/config` | Read or update runtime configuration |
-| `GET` | `/api/schedules` | Scheduled scan management |
-| `POST` | `/api/cicd/trigger` | CI/CD webhook scan trigger |
-| `POST` | `/api/mutate` | Stateless LLM payload mutation |
-| `GET` | `/api/auth/login` | Authentication |
-| `GET` | `/api/audit` | Audit log |
-| `GET` | `/ws` | WebSocket for real-time event streaming |
+| `accent-cyan` | `#22d3ee` | Primary interactive accent |
+| `accent-purple` | `#a78bfa` | Secondary / hypothesis |
+| `accent-green` | `#4ade80` | Success / safe |
+| `severity-critical` | `#ff4757` | Critical findings |
+| `severity-high` | `#ff7f50` | High findings |
+| `severity-medium` | `#eccc68` | Medium findings |
+| `severity-low` | `#2ed573` | Low findings |
+
+### Utility Classes
+
+| Class | Description |
+|---|---|
+| `.lg-surface` | Frosted glass card with border and shadow |
+| `.lg-surface-hero` | Larger elevated hero card |
+| `.lg-btn` | Glass button with shine-sweep hover animation |
+| `.lg-btn-ghost` | Ghost/outline variant |
+| `.lg-pill` | Compact pill chip |
+| `.lg-gradient-text` | Aurora gradient text |
+| `.badge-severity` | Severity badge (`.badge-critical`, `.badge-high`, etc.) |
+| `.skeleton` | Shimmer loading placeholder |
+| `.spinner` | Spinning loader |
+| `.terminal-block` | Monospace terminal output block |
+
+### Key UI Features
+
+- **Command palette** (`⌘K` / `Ctrl+K`) — keyboard-driven page navigation
+- **Global toast system** — `ToastProvider` context with stacked animated toasts (`useToast()` hook)
+- **Mobile sidebar drawer** — hamburger toggle on small screens with slide-in animation and backdrop
+- **Paginated findings grid** — Dashboard findings paginate at 12/page with per-severity filter
+- **Asset search & pagination** — Assets page search/filter bar with 10/page pagination
+- **Copy-to-clipboard** — Terminal log copy in FlowDetail, webhook URL copy in Settings
+- **Unified empty states** — `EmptyState` component across all list/grid views
+- **Reusable modal** — `Modal` component with Escape-close, scroll lock, size variants
+- **404 page** — On-brand Not Found page with quick-nav grid
+- **Global error boundary** — Wraps the entire app tree with a polished fallback UI
+
+---
+
+## Code Quality
+
+### Go (`golangci-lint` v2)
+
+Static analysis is configured in `.golangci.yml` using golangci-lint v2 with the `standard` default linter set plus:
+
+- `copyloopvar` — detects redundant loop-variable capture patterns (Go 1.22+ semantics)
+- `misspell` — spelling corrections in comments and strings
+- `bodyclose` — ensures HTTP response bodies are closed
+- `noctx` — enforces context propagation on HTTP requests
+
+Run locally:
+```bash
+golangci-lint run ./...
+```
+
+### Frontend (ESLint v10)
+
+ESLint is configured in `frontend/eslint.config.js` using the flat config format with `eslint-plugin-react` and `eslint-plugin-react-hooks`.
+
+```bash
+cd frontend && npm run lint
+```
 
 ---
 
