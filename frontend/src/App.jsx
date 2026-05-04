@@ -1,13 +1,29 @@
 import React, { useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { LayoutDashboard, Zap, Database, Settings, Search, Command } from 'lucide-react'
+import { LayoutDashboard, Zap, Database, Settings, Search, Command, Globe, FileText } from 'lucide-react'
 import Sidebar from './components/Sidebar'
+import CopilotPanel from './components/CopilotPanel'
+import ErrorBoundary from './components/ErrorBoundary'
+import { ToastProvider } from './components/Toast'
 import Dashboard from './pages/Dashboard'
 import NewTask from './pages/NewTask'
 import FlowDetail from './pages/FlowDetail'
 import KnowledgeGraph from './pages/KnowledgeGraph'
 import SettingsPage from './pages/Settings'
+import Assets from './pages/Assets'
+import Reports from './pages/Reports'
+import DevSecOps from './pages/DevSecOps'
+import ThreatIntel from './pages/ThreatIntel'
+import Monitoring from './pages/Monitoring'
+import Remediation from './pages/Remediation'
+import Posture from './pages/Posture'
+import ScanProfiles from './pages/ScanProfiles'
+import ScheduledScans from './pages/ScheduledScans'
+import Notifications from './pages/Notifications'
+import VulnIntel from './pages/VulnIntel'
+import AuditLog from './pages/AuditLog'
+import NotFound from './pages/NotFound'
 
 // ============================================================
 // Command Palette
@@ -21,6 +37,8 @@ function CommandPalette() {
     const options = [
         { label: 'Go to Dashboard', action: () => navigate('/'), icon: LayoutDashboard },
         { label: 'Start New Scan', action: () => navigate('/new'), icon: Zap },
+        { label: 'Asset Inventory', action: () => navigate('/assets'), icon: Globe },
+        { label: 'Reports & Exports', action: () => navigate('/reports'), icon: FileText },
         { label: 'Knowledge Graph', action: () => navigate('/graph'), icon: Database },
         { label: 'Settings', action: () => navigate('/settings'), icon: Settings },
     ]
@@ -62,7 +80,6 @@ function CommandPalette() {
         }
         window.addEventListener('keydown', handler)
         return () => window.removeEventListener('keydown', handler)
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open, activeIndex, filtered])
 
     if (!open) return null
@@ -252,15 +269,94 @@ function AppShell() {
                             }
                         />
                         <Route
+                            path="/assets"
+                            element={
+                                <PageWrapper><Assets /></PageWrapper>
+                            }
+                        />
+                        <Route
+                            path="/reports"
+                            element={
+                                <PageWrapper><Reports /></PageWrapper>
+                            }
+                        />
+                        <Route
+                            path="/devsecops"
+                            element={
+                                <PageWrapper><DevSecOps /></PageWrapper>
+                            }
+                        />
+                        <Route
+                            path="/threatintel"
+                            element={
+                                <PageWrapper><ThreatIntel /></PageWrapper>
+                            }
+                        />
+                        <Route
+                            path="/monitoring"
+                            element={
+                                <PageWrapper><Monitoring /></PageWrapper>
+                            }
+                        />
+                        <Route
+                            path="/remediation"
+                            element={
+                                <PageWrapper><Remediation /></PageWrapper>
+                            }
+                        />
+                        <Route
+                            path="/posture"
+                            element={
+                                <PageWrapper><Posture /></PageWrapper>
+                            }
+                        />
+                        <Route
+                            path="/profiles"
+                            element={
+                                <PageWrapper><ScanProfiles /></PageWrapper>
+                            }
+                        />
+                        <Route
+                            path="/schedules"
+                            element={
+                                <PageWrapper><ScheduledScans /></PageWrapper>
+                            }
+                        />
+                        <Route
+                            path="/notifications"
+                            element={
+                                <PageWrapper><Notifications /></PageWrapper>
+                            }
+                        />
+                        <Route
+                            path="/vulns"
+                            element={
+                                <PageWrapper><VulnIntel /></PageWrapper>
+                            }
+                        />
+                        <Route
+                            path="/audit-log"
+                            element={
+                                <PageWrapper><AuditLog /></PageWrapper>
+                            }
+                        />
+                        <Route
                             path="/settings"
                             element={
                                 <PageWrapper><SettingsPage /></PageWrapper>
+                            }
+                        />
+                        <Route
+                            path="*"
+                            element={
+                                <PageWrapper><NotFound /></PageWrapper>
                             }
                         />
                     </Routes>
                 </AnimatePresence>
             </main>
             <CommandPalette />
+            <CopilotPanel />
         </div>
     )
 }
@@ -268,7 +364,11 @@ function AppShell() {
 function App() {
     return (
         <BrowserRouter>
-            <AppShell />
+            <ToastProvider>
+                <ErrorBoundary>
+                    <AppShell />
+                </ErrorBoundary>
+            </ToastProvider>
         </BrowserRouter>
     )
 }

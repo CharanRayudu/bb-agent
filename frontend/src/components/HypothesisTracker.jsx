@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Brain, ChevronDown, ChevronRight, Zap, Target, AlertTriangle, CheckCircle, Clock, XCircle } from 'lucide-react'
+import { Brain, ChevronDown, ChevronRight, Zap, Target, AlertTriangle, XCircle } from 'lucide-react'
 
 const VULN_COLORS = {
     SQLi: { bg: 'bg-orange-500/10', text: 'text-orange-400', border: 'border-orange-500/25' },

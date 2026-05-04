@@ -43,7 +43,7 @@ func NewSandbox(dockerHost, imageName string) (*Sandbox, error) {
 	sandboxName := "mirage-sandbox"
 	_, err = cli.ContainerInspect(ctx, sandboxName)
 	if err != nil {
-		if client.IsErrNotFound(err) {
+		if client.IsErrNotFound(err) { //nolint:staticcheck
 			log.Printf("[WARN] Sandbox container '%s' not found. It must be started via docker-compose.", sandboxName)
 		} else {
 			return nil, fmt.Errorf("failed to inspect sandbox container: %w", err)

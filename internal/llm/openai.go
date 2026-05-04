@@ -217,11 +217,6 @@ func (o *OpenAIProvider) completeViaCodexResponses(ctx context.Context, req Comp
 	if model == "" {
 		model = o.model
 	}
-	temp := req.Temperature
-	if temp == 0 {
-		temp = o.temperature
-	}
-
 	apiReq := responsesRequest{
 		Model:        model,
 		Instructions: instructions,
@@ -274,7 +269,7 @@ func (o *OpenAIProvider) completeViaCodexResponses(ctx context.Context, req Comp
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("Codex API error (HTTP %d): %s", resp.StatusCode, string(respBody))
+		return nil, fmt.Errorf("codex API error (HTTP %d): %s", resp.StatusCode, string(respBody))
 	}
 
 	// Parse SSE streaming response
@@ -394,7 +389,7 @@ func (o *OpenAIProvider) parseCodexSSEResponse(ctx context.Context, body io.Read
 			}
 
 		case "error":
-			return nil, fmt.Errorf("Codex streaming error: %s (%s)", event.Message, event.Code)
+			return nil, fmt.Errorf("codex streaming error: %s (%s)", event.Message, event.Code)
 		}
 	}
 
@@ -508,12 +503,8 @@ func (o *OpenAIProvider) completeViaChatCompletions(ctx context.Context, req Com
 	var tools []openAITool
 	for _, t := range req.Tools {
 		tools = append(tools, openAITool{
-			Type: "function",
-			Function: openAIToolFunction{
-				Name:        t.Name,
-				Description: t.Description,
-				Parameters:  t.Parameters,
-			},
+			Type:     "function",
+			Function: openAIToolFunction(t),
 		})
 	}
 

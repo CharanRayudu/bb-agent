@@ -286,9 +286,7 @@ func extractTargetsFromText(text string) []string {
 // String returns a human-readable representation of the scope.
 func (se *ScopeEngine) String() string {
 	var parts []string
-	for _, d := range se.AllowedDomains {
-		parts = append(parts, d)
-	}
+	parts = append(parts, se.AllowedDomains...)
 	for _, ip := range se.AllowedIPs {
 		parts = append(parts, ip.String())
 	}

@@ -247,9 +247,6 @@ func (w *Worker) Start(ctx context.Context) {
 				// Phase 15: Record finding in payload success memory
 				if w.orchestrator != nil && w.orchestrator.memory != nil && f.Payload != "" {
 					tech := "generic"
-					if w.orchestrator.pipeline != nil {
-						// Extract tech stack from context if possible
-					}
 					w.orchestrator.memory.RecordPayloadResult(tech, f.Type, f.Payload, true)
 				}
 

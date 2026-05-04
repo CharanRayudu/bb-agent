@@ -171,7 +171,7 @@ function TrendChart({ flows }) {
                                 stroke="#0f172a"
                                 strokeWidth={1.5}
                                 style={{ cursor: 'pointer' }}
-                                onMouseEnter={(e) => {
+                                onMouseEnter={(_e) => {
                                     setTooltip({
                                         x: cx,
                                         y: cy,

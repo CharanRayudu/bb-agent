@@ -6,7 +6,7 @@ const API_BASE = '/api'
 
 function KnowledgeGraph() {
     const [nodes, setNodes] = useState([])
-    const [edges, setEdges] = useState([])
+    const [_edges, setEdges] = useState([])
     const [selectedNode, setSelectedNode] = useState(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState(null)

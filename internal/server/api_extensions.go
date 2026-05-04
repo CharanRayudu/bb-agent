@@ -21,6 +21,48 @@ func (s *Server) registerExtendedRoutes() {
 
 	// Schema migrations info
 	s.mux.HandleFunc("/api/system/migrations", s.handleMigrations)
+
+	// Asset inventory
+	s.mux.HandleFunc("/api/assets", s.handleAssets)
+
+	// Notification test endpoint
+	s.mux.HandleFunc("/api/notifications/test", s.handleNotificationTest)
+
+	// Enterprise integrations (ticketing, compliance, SSO)
+	s.registerIntegrationRoutes()
+
+	// GitHub App webhook (DevSecOps PR scanning)
+	s.registerGitHubAppRoutes()
+
+	// Threat Intelligence (ATT&CK, chains, risk scoring, EPSS/KEV)
+	s.registerThreatIntelRoutes()
+
+	// Continuous monitoring (monitors, deltas, alert channels)
+	s.registerMonitoringRoutes()
+
+	// AI-powered report generation (Claude API streaming)
+	s.registerReportGenerationRoutes()
+
+	// AI security copilot (chat assistant with platform context)
+	s.registerCopilotRoutes()
+
+	// Remediation tracking (lifecycle, SLA, Jira/GitHub integration)
+	s.registerRemediationTrackingRoutes()
+
+	// Security posture scoring and history
+	s.registerPostureRoutes()
+
+	// Scan profile marketplace
+	s.registerProfilesRoutes()
+
+	// Scheduled scan plans (profile-aware, enable/disable, run-now)
+	s.registerSchedulePlanRoutes()
+
+	// Notification channels (Slack, webhook, email)
+	s.registerNotifyRoutes()
+
+	// Vulnerability intelligence (stats, search, CSV export)
+	s.registerVulnIntelRoutes()
 }
 
 func (s *Server) handleKnowledgeGraph(w http.ResponseWriter, r *http.Request) {

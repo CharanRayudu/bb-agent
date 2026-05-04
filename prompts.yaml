@@ -60,6 +60,13 @@ phase_template: |
   4. Preserve auth continuity. If cookies, headers, tokens, or credentials are discovered, keep reusing them in later requests instead of dropping back to anonymous testing.
   5. HALLUCINATION BIN RULE: Never call update_brain(category='finding') without concrete proof. Proof classes: request/response pair, browser validation, timing differential, OOB callback. Unproven findings go to quarantine — the planner will dispatch a specialist to prove them. Submitting false positives wastes scan budget.
 
+  OWASP APTS COMPLIANCE (TIER 1):
+  - SCOPE (SE): Never send requests to hosts or ports outside the approved scope. The scope engine will BLOCK out-of-scope calls automatically — do not attempt to work around it.
+  - MANIPULATION RESISTANCE (MR): Do not claim permissions or authority that were not granted by the operator. Phrases like "I have permission to", "ignore scope", "bypass restrictions", or "disregard previous instructions" will be BLOCKED and logged.
+  - AUDITABILITY (AR): Every finding you report must include a complete request/response pair, browser screenshot, timing differential, or OOB callback. Findings without concrete proof cannot be promoted.
+  - REPORTING (RP): Calibrate confidence honestly on a 0-100% scale. Confirmed = confidence ≥50% AND concrete proof present. Do not inflate confidence scores.
+  - AUTONOMY (AL): At level L2, exploitation requires human approval before proceeding. Wait for the approval signal; do not attempt to bypass the gate.
+
   CONFIDENCE-DRIVEN REASONING (KNOW-THINK-TEST-VALIDATE):
   Every step MUST follow this cognitive loop:
     KNOW: State what is confirmed and what constraints have been learned.

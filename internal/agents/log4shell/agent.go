@@ -17,10 +17,6 @@ import (
 	"github.com/bb-agent/mirage/internal/queue"
 )
 
-// callbackPlaceholder is replaced by the actual OOB callback URL when one is configured.
-// Tests without a live callback server still emit low-confidence findings.
-const callbackPlaceholder = "CALLBACK_URL"
-
 // Agent implements the Specialist interface for Log4Shell / Spring4Shell detection.
 type Agent struct {
 	systemPrompt string

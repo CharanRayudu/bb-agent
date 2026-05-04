@@ -65,6 +65,10 @@ import (
 	"github.com/bb-agent/mirage/internal/agents/websocket"
 	"github.com/bb-agent/mirage/internal/agents/xss"
 	"github.com/bb-agent/mirage/internal/agents/xxe"
+	"github.com/bb-agent/mirage/internal/agents/llmpentest"
+	"github.com/bb-agent/mirage/internal/agents/cloudsecurity"
+	"github.com/bb-agent/mirage/internal/agents/netpentest"
+	"github.com/bb-agent/mirage/internal/agents/devsecops"
 	"github.com/bb-agent/mirage/internal/config"
 	"github.com/bb-agent/mirage/internal/database"
 	"github.com/bb-agent/mirage/internal/llm"
@@ -196,6 +200,15 @@ type Orchestrator struct {
 	// Pause/Resume support
 	pausedFlows map[uuid.UUID]context.CancelFunc
 	pauseMu     sync.RWMutex
+
+	// APTS Domain 3/4: Autonomy level and approval gates
+	autonomyLevel  AutonomyLevel
+	autonomyPolicy APTSAutonomyPolicy
+	approvalGates  map[uuid.UUID]*APTSApprovalGate
+	approvalGateMu sync.RWMutex
+
+	// Webhook notifier for critical/high finding alerts
+	webhookNotifier *WebhookNotifier
 }
 
 func buildSpecialists(provider llm.Provider) map[string]Specialist {
@@ -261,6 +274,10 @@ func buildSpecialists(provider llm.Provider) map[string]Specialist {
 		"websocket":         websocket.New(),
 		"xss":               xss.New(),
 		"xxe":               xxe.New(),
+		"llmpentest":        llmpentest.New(),
+		"cloudsecurity":     cloudsecurity.New(),
+		"netpentest":        netpentest.New(),
+		"devsecops":         devsecops.New(),
 	}
 }
 
@@ -447,6 +464,14 @@ func NewOrchestrator(provider llm.Provider, registry *tools.Registry, db *sql.DB
 	qm.Register("smuggling", 30, 2.0)
 	qm.Register("ssti", 50, 3.0)
 	qm.Register("websocket", 30, 2.0)
+	// LLM/AI Red Team agent — lower rate limit since probes are slower (LLM response time)
+	qm.Register("llmpentest", 20, 1.0)
+	// Cloud Security agent — rate-limited to avoid triggering cloud WAF/rate limits
+	qm.Register("cloudsecurity", 30, 2.0)
+	// Network Pentest — port scan is burst-heavy; subdomain/CT is slower
+	qm.Register("netpentest", 20, 1.0)
+	// DevSecOps — SAST/SCA/secrets/container scanning; low rate limit (file-based)
+	qm.Register("devsecops", 10, 0.5)
 
 	o := &Orchestrator{
 		llmProvider:      provider,
@@ -463,6 +488,9 @@ func NewOrchestrator(provider llm.Provider, registry *tools.Registry, db *sql.DB
 		strategist:       NewWAFStrategist(),
 		workers:          make(map[string]*Worker),
 		pausedFlows:      make(map[uuid.UUID]context.CancelFunc),
+		autonomyLevel:    AutonomyDefault,
+		autonomyPolicy:   GetAutonomyPolicy(AutonomyDefault),
+		approvalGates:    make(map[uuid.UUID]*APTSApprovalGate),
 		hypothesisEngine: NewHypothesisEngine(provider, ""),
 		knowledgeGraph:   knowledge.NewInMemoryGraph(),
 		payloadEngine:    NewPayloadEngine(provider),
@@ -603,7 +631,7 @@ func (o *Orchestrator) PauseFlow(flowID uuid.UUID) error {
 	delete(o.pausedFlows, flowID)
 
 	if o.queries != nil {
-		o.queries.UpdateFlowStatus(flowID, models.FlowStatusPaused)
+		_ = o.queries.UpdateFlowStatus(flowID, models.FlowStatusPaused)
 	}
 	return nil
 }
@@ -641,6 +669,50 @@ func (o *Orchestrator) UnregisterFlowCancel(flowID uuid.UUID) {
 	o.pauseMu.Lock()
 	defer o.pauseMu.Unlock()
 	delete(o.pausedFlows, flowID)
+}
+
+// SetWebhookNotifier attaches a webhook notifier for critical/high finding alerts.
+func (o *Orchestrator) SetWebhookNotifier(n *WebhookNotifier) {
+	o.webhookNotifier = n
+}
+
+// SetAutonomyLevel configures the APTS autonomy level for this orchestrator instance.
+func (o *Orchestrator) SetAutonomyLevel(level AutonomyLevel) {
+	o.autonomyLevel = level
+	o.autonomyPolicy = GetAutonomyPolicy(level)
+}
+
+// RegisterApprovalGate creates an APTS L2 approval gate for a flow's exploitation phase.
+func (o *Orchestrator) RegisterApprovalGate(flowID uuid.UUID) *APTSApprovalGate {
+	gate := NewAPTSApprovalGate()
+	o.approvalGateMu.Lock()
+	o.approvalGates[flowID] = gate
+	o.approvalGateMu.Unlock()
+	return gate
+}
+
+// ApproveExploitation unblocks an L2 exploitation gate. Returns false if no gate exists.
+func (o *Orchestrator) ApproveExploitation(flowID uuid.UUID) bool {
+	o.approvalGateMu.RLock()
+	gate, ok := o.approvalGates[flowID]
+	o.approvalGateMu.RUnlock()
+	if !ok {
+		return false
+	}
+	gate.Approve()
+	return true
+}
+
+// DenyExploitation rejects an L2 exploitation gate. Returns false if no gate exists.
+func (o *Orchestrator) DenyExploitation(flowID uuid.UUID) bool {
+	o.approvalGateMu.RLock()
+	gate, ok := o.approvalGates[flowID]
+	o.approvalGateMu.RUnlock()
+	if !ok {
+		return false
+	}
+	gate.Deny()
+	return true
 }
 
 // RunFlow executes a complete penetration testing flow using concurrent agents
@@ -948,10 +1020,38 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		rem := RemediationFor(finding.Type)
 		finding.Evidence["remediation_summary"] = rem.Summary
 		finding.Evidence["remediation_priority"] = rem.Priority
+
+		// ── OWASP APTS compliance ─────────────────────────────────────────
+		// RP-003: Compute composite confidence score (0-100)
+		aptsScore := CalculateAPTSConfidence(finding, DefaultPlatformTPRates)
+		finding.APTSScore = aptsScore.Total
+		finding.ConfirmationStatus = aptsScore.ConfirmationStatus
+		finding.Evidence["apts_score"] = aptsScore.Total
+		finding.Evidence["apts_confirmation"] = aptsScore.ConfirmationStatus
+		finding.Evidence["apts_score_breakdown"] = aptsScore
+		// AR: SHA-256 integrity hash for tamper-evident evidence binding
+		finding.EvidenceHash = ComputeEvidenceHash(finding)
+		finding.Evidence["evidence_hash"] = finding.EvidenceHash
+		// MR: Check for manipulation in the finding's payload/evidence
+		if check := CheckToolArguments("report_findings", finding.Payload); check.Blocked {
+			finding.Evidence["apts_mr_flag"] = check.Reason
+		}
+
 		brain.Findings = append(brain.Findings, finding)
 		updateFindingAttackGraph(&brain, flow.Target, finding)
 		brainMu.Unlock()
 		persistBrainState("finding")
+
+		// Fire webhook notification for critical/high findings
+		if o.webhookNotifier != nil {
+			sev := strings.ToLower(finding.Severity)
+			if sev == "critical" || sev == "high" {
+				go func(f Finding) {
+					_ = o.webhookNotifier.NotifyFinding(&f)
+				}(*finding)
+			}
+		}
+
 		note := fmt.Sprintf("%s %s", finding.Type, finding.URL)
 		o.emit(flowID.String(), Event{
 			Type:    EventToolResult,
@@ -1576,12 +1676,12 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 				break // exit iterative loop; reporting phase runs after
 			}
 		} else {
-			stableLoops = 0
+			stableLoops = 0 //nolint:ineffassign
 		}
-		prevFindingCount = currentFindingCount
+		prevFindingCount = currentFindingCount //nolint:ineffassign,staticcheck // read at top of next iteration
 		// ─────────────────────────────────────────────────────────────────────
 
-		var swarmResults string = "Asynchronous swarm analysis completed."
+		swarmResults := "Asynchronous swarm analysis completed."
 
 		// ── Mythos: Hypothesis Refinement ──────────────────────────────────────
 		// After each exploitation round, refine hypothesis confidence based on
@@ -1778,7 +1878,7 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 							TaskID:  task.ID.String(),
 							Content: "[WARN] Browser automation became unavailable during visual validation. Remaining browser-driven checks will be skipped.",
 						})
-						browserUnavailableNotified = true
+						browserUnavailableNotified = true //nolint:ineffassign
 					}
 					break
 				}
@@ -2391,7 +2491,7 @@ func formatFindingReport(f *Finding) string {
 		description += fmt.Sprintf(" using payload `%s`", f.Payload)
 	}
 
-	return fmt.Sprintf("## %s\n**Severity**: %s\n\n%s", f.Type, strings.Title(strings.ToLower(f.Severity)), description)
+	return fmt.Sprintf("## %s\n**Severity**: %s\n\n%s", f.Type, strings.Title(strings.ToLower(f.Severity)), description) //nolint:staticcheck
 }
 
 func (o *Orchestrator) updateTechStackFromNote(ts *TechStack, note string) {
@@ -2616,6 +2716,52 @@ func normalizeSpecialistName(name string) string {
 		"Server-Side Template Injection": "ssti",
 		"websocket":           "websocket",
 		"WebSocket":           "websocket",
+		// Network Pentest
+		"netpentest":          "netpentest",
+		"Network Pentest":     "netpentest",
+		"Port Scan":           "netpentest",
+		"Port Scanner":        "netpentest",
+		"Network Recon":       "netpentest",
+		"Subdomain Takeover":  "netpentest",
+		"Subdomain Enum":      "netpentest",
+		"Default Creds":       "netpentest",
+		"Default Credentials": "netpentest",
+		"CT Log":              "netpentest",
+		// Cloud Security
+		"cloudsecurity":       "cloudsecurity",
+		"Cloud Security":      "cloudsecurity",
+		"AWS Security":        "cloudsecurity",
+		"Azure Security":      "cloudsecurity",
+		"GCP Security":        "cloudsecurity",
+		"IMDS":                "cloudsecurity",
+		"Cloud Misconfig":     "cloudsecurity",
+		"S3 Misconfig":        "cloudsecurity",
+		"Cloud Credentials":   "cloudsecurity",
+		// LLM/AI Red Team
+		"llmpentest":          "llmpentest",
+		"LLM Pentest":         "llmpentest",
+		"LLM Red Team":        "llmpentest",
+		"AI Red Team":         "llmpentest",
+		"Prompt Injection":    "llmpentest",
+		"Jailbreak":           "llmpentest",
+		"LLM Security":        "llmpentest",
+		"AI Security":         "llmpentest",
+		// DevSecOps pipeline
+		"devsecops":           "devsecops",
+		"DevSecOps":           "devsecops",
+		"SAST":                "devsecops",
+		"SCA":                 "devsecops",
+		"Secret Scan":         "devsecops",
+		"Secret Detection":    "devsecops",
+		"Container Scan":      "devsecops",
+		"Container Security":  "devsecops",
+		"Dependency Scan":     "devsecops",
+		"Supply Chain":        "devsecops",
+		"Pipeline Security":   "devsecops",
+		"CI Security":         "devsecops",
+		"Semgrep":             "devsecops",
+		"Grype":               "devsecops",
+		"Trivy":               "devsecops",
 	}
 	if q, ok := nameMap[name]; ok {
 		return q

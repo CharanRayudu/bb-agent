@@ -81,6 +81,11 @@ func VersionedMigrations() []Migration {
 				created_at TIMESTAMP DEFAULT NOW()
 			);`,
 		},
+		{
+			Version:     5,
+			Description: "APTS AL: Add autonomy_level column to flows table",
+			SQL:         `ALTER TABLE flows ADD COLUMN IF NOT EXISTS autonomy_level TEXT NOT NULL DEFAULT 'L3';`,
+		},
 	}
 }
 

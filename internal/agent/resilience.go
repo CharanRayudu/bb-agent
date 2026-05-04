@@ -192,7 +192,7 @@ func ExecuteWithHealing(ctx context.Context, toolName string, execFn func(json.R
 
 func injectTimeoutFlag(args json.RawMessage) string {
 	var params map[string]interface{}
-	json.Unmarshal(args, &params)
+	_ = json.Unmarshal(args, &params)
 	if cmd, ok := params["command"].(string); ok {
 		// Reduce timeout for common tools
 		if strings.Contains(cmd, "nuclei") && !strings.Contains(cmd, "-timeout") {

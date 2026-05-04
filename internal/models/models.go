@@ -63,9 +63,10 @@ type Flow struct {
 	Name        string     `json:"name" db:"name"`
 	Description string     `json:"description" db:"description"`
 	Target      string     `json:"target" db:"target"`
-	Status      FlowStatus `json:"status" db:"status"`
-	CreatedAt   time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at" db:"updated_at"`
+	Status        FlowStatus `json:"status" db:"status"`
+	AutonomyLevel string     `json:"autonomy_level" db:"autonomy_level"` // APTS AL: "L1"|"L2"|"L3"|"L4"
+	CreatedAt     time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at" db:"updated_at"`
 	Tasks       []Task     `json:"tasks,omitempty"`
 }
 

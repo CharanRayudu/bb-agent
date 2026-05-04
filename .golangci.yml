@@ -1,0 +1,66 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - misspell
+    - bodyclose
+    - noctx
+    - copyloopvar
+  exclusions:
+    rules:
+      # Test files: don't check unchecked errors (test helpers commonly skip them)
+      - path: '_test\.go'
+        linters:
+          - errcheck
+      # Database package: heavily uses defer rows.Close() and context-free DB calls
+      - path: 'internal/database/'
+        linters:
+          - errcheck
+          - noctx
+      # Agent package: fire-and-forget DB status updates, defer rows.Close patterns
+      - path: 'internal/agent/'
+        linters:
+          - errcheck
+          - noctx
+      # Specialist agents: pre-existing noctx patterns
+      - path: 'internal/agents/'
+        linters:
+          - noctx
+          - errcheck
+      # Server: noctx excluded (uses pre-existing DB helpers); json.Encode in HTTP handlers
+      - path: 'internal/server/'
+        linters:
+          - noctx
+          - errcheck
+      # Supporting packages with pre-existing patterns
+      - path: 'internal/llm/'
+        linters:
+          - errcheck
+      - path: 'internal/copilot/'
+        linters:
+          - errcheck
+      - path: 'internal/reporter/'
+        linters:
+          - errcheck
+      - path: 'internal/monitoring/'
+        linters:
+          - errcheck
+      - path: 'internal/docker/'
+        linters:
+          - errcheck
+      - path: 'internal/threatintel/'
+        linters:
+          - errcheck
+      - path: 'internal/mcp/'
+        linters:
+          - errcheck
+      - path: 'internal/notify/'
+        linters:
+          - errcheck
+      - path: 'internal/integrations/'
+        linters:
+          - errcheck
+      - path: 'internal/remediation/'
+        linters:
+          - errcheck

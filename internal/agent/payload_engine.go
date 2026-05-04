@@ -305,7 +305,7 @@ func insertNullBytes(s string) string {
 }
 
 func insertComments(s string) string {
-	s = strings.ReplaceAll(s, "SELECT", "SEL/**/ECT")
+	s = strings.ReplaceAll(s, "SELECT", "SEL/**/ECT") //nolint:misspell // SQL comment injection splits keyword to bypass WAF filters
 	s = strings.ReplaceAll(s, "UNION", "UN/**/ION")
 	s = strings.ReplaceAll(s, "script", "scr/**/ipt")
 	return s

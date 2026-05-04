@@ -25,6 +25,13 @@ import (
 	"github.com/bb-agent/mirage/internal/knowledge"
 	"github.com/bb-agent/mirage/internal/llm"
 	"github.com/bb-agent/mirage/internal/models"
+	"github.com/bb-agent/mirage/internal/copilot"
+	"github.com/bb-agent/mirage/internal/monitoring"
+	"github.com/bb-agent/mirage/internal/posture"
+	"github.com/bb-agent/mirage/internal/profiles"
+	"github.com/bb-agent/mirage/internal/remediation"
+	"github.com/bb-agent/mirage/internal/notify"
+	"github.com/bb-agent/mirage/internal/schedplan"
 	"github.com/bb-agent/mirage/internal/tools"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -60,6 +67,10 @@ type Server struct {
 	activeScans   map[uuid.UUID]context.CancelFunc
 	activeScansMu sync.RWMutex
 
+	// Active orchestrators indexed by flow ID (for APTS L2 approval gates)
+	activeOrchestrators   map[uuid.UUID]*agent.Orchestrator
+	activeOrchestratorsMu sync.RWMutex
+
 	// Live operator collaboration
 	operatorAnnotations   map[string][]OperatorAnnotation
 	operatorAnnotationsMu sync.RWMutex
@@ -89,6 +100,30 @@ type Server struct {
 	// In-memory config store for /api/config GET/PUT.
 	configStore   map[string]interface{}
 	configStoreMu sync.RWMutex
+
+	// Continuous monitoring subsystem.
+	monitorStore    *monitoring.Store
+	alertDispatcher *monitoring.Dispatcher
+
+	// AI security copilot session store.
+	copilotStore *copilot.Store
+
+	// Rich remediation tracking store (separate from the basic remediationTracker).
+	remStore *remediation.Store
+
+	// Security posture score history.
+	postureHistory *posture.HistoryStore
+
+	// Scan profile store.
+	profileStore *profiles.Store
+
+	// Scheduled scan plan store and runner.
+	schedPlanStore  *schedplan.Store
+	schedPlanRunner *schedplan.Runner
+
+	// Notification channels and dispatcher.
+	notifyStore      *notify.Store
+	notifyDispatcher *notify.Dispatcher
 }
 
 // New creates a new server instance
@@ -162,6 +197,7 @@ func New(cfg *config.Config, db *sql.DB) *Server {
 		},
 		clients:             make(map[*websocket.Conn]bool),
 		activeScans:         make(map[uuid.UUID]context.CancelFunc),
+		activeOrchestrators: make(map[uuid.UUID]*agent.Orchestrator),
 		operatorAnnotations: make(map[string][]OperatorAnnotation),
 		authSessions:        make(map[string]*base.AuthSession),
 		rbac:               rbac,
@@ -172,13 +208,54 @@ func New(cfg *config.Config, db *sql.DB) *Server {
 		llmProvider:        sharedProvider,
 	}
 
+	// Continuous monitoring subsystem
+	s.monitorStore = monitoring.NewStore()
+	s.alertDispatcher = monitoring.NewDispatcher(s.monitorStore)
+	s.copilotStore = copilot.NewStore()
+	s.remStore = remediation.NewStore()
+	s.postureHistory = posture.NewHistoryStore()
+	s.profileStore = profiles.NewStore()
+	s.schedPlanStore = schedplan.NewStore()
+	s.schedPlanRunner = schedplan.NewRunner(s.schedPlanStore, s.firePlan)
+	s.schedPlanRunner.Start()
+	s.notifyStore = notify.NewStore()
+	s.notifyDispatcher = notify.NewDispatcher(s.notifyStore)
+
 	s.setupRoutes()
 	return s
 }
 
+// firePlan is the FireFunc called by the schedplan Runner when a schedule fires.
+func (s *Server) firePlan(sc *schedplan.Schedule) {
+	flow, err := s.queries.CreateFlow(
+		"Scheduled: "+sc.Name,
+		"Automated scan — profile: "+sc.ProfileName,
+		sc.Target,
+		"L3",
+	)
+	if err != nil {
+		log.Printf("[SCHEDPLAN] Failed to create flow for %s: %v", sc.Target, err)
+		return
+	}
+	s.auditLog.Record("scheduler", "scan_started", flow.ID.String(), map[string]interface{}{
+		"target":        sc.Target,
+		"profile_id":    sc.ProfileID,
+		"profile_name":  sc.ProfileName,
+		"schedule_id":   sc.ID,
+		"schedule_name": sc.Name,
+	}, "")
+	s.notifyDispatcher.Dispatch("schedule_fired", map[string]interface{}{
+		"schedule": sc.Name,
+		"target":   sc.Target,
+		"profile":  sc.ProfileName,
+		"flow_id":  flow.ID.String(),
+	})
+	go s.runAgent(flow.ID, "Automated scheduled scan via profile: "+sc.ProfileName, "", 0, 0)
+}
+
 // schedulerTrigger is the callback invoked by the Scheduler to start a new scan.
 func (s *Server) schedulerTrigger(target, profile string) {
-	flow, err := s.queries.CreateFlow("Scheduled: "+target, "Scheduled scan via profile "+profile, target)
+	flow, err := s.queries.CreateFlow("Scheduled: "+target, "Scheduled scan via profile "+profile, target, "L3")
 	if err != nil {
 		log.Printf("[SCHEDULER] Failed to create flow for %s: %v", target, err)
 		return
@@ -215,6 +292,9 @@ func (s *Server) setupRoutes() {
 
 	// Extended API routes (knowledge graph, analytics, config, metrics, schedules)
 	s.registerExtendedRoutes()
+
+	// OWASP APTS compliance endpoints
+	s.registerAPTSRoutes()
 
 	// WebSocket
 	s.mux.HandleFunc("/ws", s.handleWebSocket)
@@ -370,6 +450,12 @@ func (s *Server) handleFlow(w http.ResponseWriter, r *http.Request) {
 			return
 		} else if subRoute == "/hypotheses" && r.Method == http.MethodGet {
 			s.handleFlowHypotheses(w, r, id)
+			return
+		} else if subRoute == "/approve-exploitation" && r.Method == http.MethodPost {
+			s.handleApproveExploitation(w, r, id)
+			return
+		} else if subRoute == "/deny-exploitation" && r.Method == http.MethodPost {
+			s.handleDenyExploitation(w, r, id)
 			return
 		}
 
@@ -578,13 +664,13 @@ func (s *Server) handleFlowEvents(w http.ResponseWriter, r *http.Request, id uui
 
 	// Add reconstructed events from actions if not already present
 	for _, a := range actions {
-		sType := string(a.Type)
 		var toolName string
-		if sType == "command" {
+		switch sType := string(a.Type); sType {
+		case "command":
 			toolName = "execute_command"
-		} else if sType == "analyze" || sType == "llm_call" {
+		case "analyze", "llm_call":
 			toolName = "think"
-		} else if sType == "report" {
+		case "report":
 			toolName = "report_findings"
 		}
 
@@ -719,6 +805,7 @@ type CreateFlowRequest struct {
 	AgentTimeout      int      `json:"agent_timeout"`      // Per-agent timeout in minutes
 	AdditionalTargets []string `json:"additional_targets"` // Up to 5 extra targets for multi-target scans
 	Profile           string   `json:"profile"`            // Scan profile name (see agent.DefaultProfiles)
+	AutonomyLevel     string   `json:"autonomy_level"`     // APTS AL: "L1"|"L2"|"L3"|"L4" (default "L3")
 }
 
 func (s *Server) handleCreateFlow(w http.ResponseWriter, r *http.Request) {
@@ -738,7 +825,8 @@ func (s *Server) handleCreateFlow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	flow, err := s.queries.CreateFlow(req.Name, req.Description, req.Target)
+	autonomyLevel := agent.ParseAutonomyLevel(req.AutonomyLevel).String()
+	flow, err := s.queries.CreateFlow(req.Name, req.Description, req.Target, autonomyLevel)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -747,9 +835,10 @@ func (s *Server) handleCreateFlow(w http.ResponseWriter, r *http.Request) {
 	// Record audit event for scan start
 	actor := s.actorFromRequest(r)
 	s.auditLog.Record(actor, "scan_started", flow.ID.String(), map[string]interface{}{
-		"target":  req.Target,
-		"name":    req.Name,
-		"profile": req.Profile,
+		"target":         req.Target,
+		"name":           req.Name,
+		"profile":        req.Profile,
+		"autonomy_level": autonomyLevel,
 	}, r.RemoteAddr)
 
 	// Initialize the agent and run the primary flow asynchronously
@@ -761,11 +850,10 @@ func (s *Server) handleCreateFlow(w http.ResponseWriter, r *http.Request) {
 		additionalTargets = additionalTargets[:5]
 	}
 	for _, additionalTarget := range additionalTargets {
-		additionalTarget := additionalTarget // capture loop variable
 		if additionalTarget == "" {
 			continue
 		}
-		extraFlow, err := s.queries.CreateFlow(req.Name+" ["+additionalTarget+"]", req.Description, additionalTarget)
+		extraFlow, err := s.queries.CreateFlow(req.Name+" ["+additionalTarget+"]", req.Description, additionalTarget, autonomyLevel)
 		if err != nil {
 			log.Printf("[WARN] Failed to create additional target flow for %s: %v", additionalTarget, err)
 			continue
@@ -854,6 +942,18 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 		s.broadcast(event)
 	})
 
+	// Wire webhook notifier from config store
+	s.configStoreMu.RLock()
+	webhookURL, _ := s.configStore["webhook_url"].(string)
+	webhookSecret, _ := s.configStore["webhook_secret"].(string)
+	s.configStoreMu.RUnlock()
+	if webhookURL != "" {
+		notifier := agent.NewWebhookNotifier([]agent.WebhookConfig{
+			{URL: webhookURL, Secret: webhookSecret, Events: []string{"critical_finding", "high_finding", "scan_complete"}},
+		})
+		orchestrator.SetWebhookNotifier(notifier)
+	}
+
 	// Wrap Orchestrator with Conductor
 	conductor := agent.NewConductor(orchestrator, orchestrator.GetEventBus())
 	if timeout != 0 {
@@ -880,17 +980,31 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 		})
 	})
 
+	// Apply APTS autonomy level from the flow record
+	flow, err := s.queries.GetFlow(flowID)
+	if err == nil && flow.AutonomyLevel != "" {
+		orchestrator.SetAutonomyLevel(agent.ParseAutonomyLevel(flow.AutonomyLevel))
+	}
+
 	// Setup cancellable context and track it
 	ctx, cancel := context.WithCancel(context.Background())
 	s.activeScansMu.Lock()
 	s.activeScans[flowID] = cancel
 	s.activeScansMu.Unlock()
 
+	// Register orchestrator for APTS L2 approval gate access
+	s.activeOrchestratorsMu.Lock()
+	s.activeOrchestrators[flowID] = orchestrator
+	s.activeOrchestratorsMu.Unlock()
+
 	// Ensure cleanup when runAgent completes
 	defer func() {
 		s.activeScansMu.Lock()
 		delete(s.activeScans, flowID)
 		s.activeScansMu.Unlock()
+		s.activeOrchestratorsMu.Lock()
+		delete(s.activeOrchestrators, flowID)
+		s.activeOrchestratorsMu.Unlock()
 		cancel()
 	}()
 
@@ -905,6 +1019,14 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 		}
 	} else {
 		s.queries.UpdateFlowStatus(flowID, models.FlowStatusCompleted)
+		flow, ferr := s.queries.GetFlow(flowID)
+		if ferr == nil {
+			s.notifyDispatcher.Dispatch("scan_complete", map[string]interface{}{
+				"flow_id": flowID.String(),
+				"target":  flow.Target,
+				"name":    flow.Name,
+			})
+		}
 	}
 }
 
@@ -1046,31 +1168,6 @@ func (s *Server) handleRemediationList(w http.ResponseWriter, r *http.Request) {
 }
 
 // ============ RBAC / Users ============
-
-func (s *Server) authMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Bootstrapping mode: if no users exist, allow all requests.
-		if s.rbac.UserCount() == 0 {
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		apiKey := r.Header.Get("X-API-Key")
-		if apiKey == "" {
-			http.Error(w, `{"error":"X-API-Key header required"}`, http.StatusUnauthorized)
-			return
-		}
-
-		user, ok := s.rbac.Authenticate(apiKey)
-		if !ok {
-			http.Error(w, `{"error":"invalid API key"}`, http.StatusUnauthorized)
-			return
-		}
-
-		ctx := context.WithValue(r.Context(), agentUserKey, user)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
 
 type agentContextKey string
 
@@ -1254,7 +1351,7 @@ func (s *Server) handleCICDTrigger(w http.ResponseWriter, r *http.Request) {
 	}
 
 	name := fmt.Sprintf("CI/CD: %s [%s]", req.Repo, req.Ref)
-	flow, err := s.queries.CreateFlow(name, "Triggered by CI/CD pipeline", req.Target)
+	flow, err := s.queries.CreateFlow(name, "Triggered by CI/CD pipeline", req.Target, "L3")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

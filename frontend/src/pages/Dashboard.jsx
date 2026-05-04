@@ -1,20 +1,137 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Search, Zap, Clock, Activity, Target, ArrowRight, Trash2, X, ExternalLink, ChevronDown, ChevronUp, TrendingUp } from 'lucide-react'
+import { Search, Zap, Clock, Activity, Target, ArrowRight, Trash2, X, ExternalLink, ChevronDown, ChevronUp, TrendingUp, ShieldCheck, Bell, Calendar, Wrench } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import TrendChart from '../components/TrendChart'
 import StatsRow from '../components/StatsRow'
+import RiskOverview from '../components/RiskOverview'
+import Pagination from '../components/Pagination'
 import remarkGfm from 'remark-gfm'
 
 const API_BASE = '/api'
 
 const CHIP_BASE = 'inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-mono uppercase tracking-[0.16em]'
 
+// ── Platform Status strip ─────────────────────────────────────────────────
+function PlatformStatus() {
+    const [posture, setPosture] = useState(null)
+    const [remMetrics, setRemMetrics] = useState(null)
+    const [schedules, setSchedules] = useState([])
+    const [channels, setChannels] = useState([])
+
+    useEffect(() => {
+        const load = async () => {
+            try {
+                const [pr, rm, sc, ch] = await Promise.allSettled([
+                    fetch('/api/posture').then(r => r.ok ? r.json() : null),
+                    fetch('/api/remediation/metrics').then(r => r.ok ? r.json() : null),
+                    fetch('/api/schedule-plans').then(r => r.ok ? r.json() : null),
+                    fetch('/api/notify/channels').then(r => r.ok ? r.json() : null),
+                ])
+                if (pr.value) setPosture(pr.value)
+                if (rm.value) setRemMetrics(rm.value)
+                if (sc.value) setSchedules(Array.isArray(sc.value) ? sc.value : (sc.value?.plans || []))
+                if (ch.value) setChannels(Array.isArray(ch.value) ? ch.value : (ch.value?.channels || []))
+            } catch { /* silent */ }
+        }
+        load()
+        const id = setInterval(load, 30000)
+        return () => clearInterval(id)
+    }, [])
+
+    const score = posture?.score ?? null
+    const grade = posture?.grade ?? '—'
+    const gradeColor = grade === 'A' ? 'text-accent-green' : grade === 'B' ? 'text-accent-cyan' : grade === 'C' ? 'text-yellow-400' : grade === 'D' ? 'text-orange-400' : grade === 'F' ? 'text-red-400' : 'text-text-muted'
+
+    const openRem = remMetrics?.open ?? remMetrics?.total_open ?? null
+    const breached = remMetrics?.sla_breached ?? remMetrics?.overdue ?? null
+
+    const enabledSched = schedules.filter(s => s.enabled !== false).length
+    const nextDue = schedules
+        .filter(s => s.enabled !== false && s.next_run)
+        .map(s => new Date(s.next_run))
+        .filter(d => !isNaN(d))
+        .sort((a, b) => a - b)[0]
+
+    function fmtNext(d) {
+        if (!d) return 'none'
+        const diff = (d - Date.now()) / 1000
+        if (diff < 60) return 'now'
+        if (diff < 3600) return `${Math.floor(diff / 60)}m`
+        if (diff < 86400) return `${Math.floor(diff / 3600)}h`
+        return `${Math.floor(diff / 86400)}d`
+    }
+
+    const activeChannels = channels.filter(c => c.enabled !== false).length
+
+    const items = [
+        {
+            label: 'Posture Score',
+            icon: ShieldCheck,
+            to: '/posture',
+            value: score !== null ? `${score}` : '—',
+            sub: grade !== '—' ? `Grade ${grade}` : 'No data',
+            valueClass: score !== null ? gradeColor : 'text-text-muted',
+            accent: 'from-accent-cyan/20 to-accent-cyan/5',
+            border: 'border-accent-cyan/20',
+        },
+        {
+            label: 'Open Remediations',
+            icon: Wrench,
+            to: '/remediation',
+            value: openRem !== null ? `${openRem}` : '—',
+            sub: breached ? `${breached} overdue` : 'on track',
+            valueClass: breached > 0 ? 'text-red-400' : openRem > 0 ? 'text-yellow-400' : 'text-accent-green',
+            accent: 'from-accent-purple/20 to-accent-purple/5',
+            border: 'border-accent-purple/20',
+        },
+        {
+            label: 'Next Scheduled Scan',
+            icon: Calendar,
+            to: '/schedules',
+            value: nextDue ? fmtNext(nextDue) : '—',
+            sub: enabledSched > 0 ? `${enabledSched} active plan${enabledSched !== 1 ? 's' : ''}` : 'no plans',
+            valueClass: nextDue ? 'text-accent-cyan' : 'text-text-muted',
+            accent: 'from-blue-500/20 to-blue-500/5',
+            border: 'border-blue-500/20',
+        },
+        {
+            label: 'Alert Channels',
+            icon: Bell,
+            to: '/notifications',
+            value: `${activeChannels}`,
+            sub: channels.length > activeChannels ? `${channels.length - activeChannels} disabled` : activeChannels > 0 ? 'all active' : 'none configured',
+            valueClass: activeChannels > 0 ? 'text-accent-green' : 'text-text-muted',
+            accent: 'from-accent-green/20 to-accent-green/5',
+            border: 'border-accent-green/20',
+        },
+    ]
+
+    return (
+        <div className="relative z-10 grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {items.map(({ label, icon: Icon, to, value, sub, valueClass, accent, border }) => (
+                <Link
+                    key={label}
+                    to={to}
+                    className={`group relative overflow-hidden rounded-2xl bg-gradient-to-br ${accent} border ${border} p-4 hover:scale-[1.02] transition-transform duration-200`}
+                >
+                    <div className="flex items-start justify-between mb-3">
+                        <span className="text-[10px] text-text-muted uppercase tracking-widest font-semibold">{label}</span>
+                        <Icon className="w-4 h-4 text-text-muted group-hover:text-text-secondary transition-colors" />
+                    </div>
+                    <div className={`text-2xl font-bold font-mono ${valueClass}`}>{value}</div>
+                    <div className="text-[11px] text-text-muted mt-1">{sub}</div>
+                </Link>
+            ))}
+        </div>
+    )
+}
+
 function Dashboard() {
     const [flows, setFlows] = useState([])
     const [loading, setLoading] = useState(true)
-    const [error, setError] = useState(null)
+    const [_error, setError] = useState(null)
     const [findings, setFindings] = useState([])
     const [findingsLoading, setFindingsLoading] = useState(false)
     const [statusFilter, setStatusFilter] = useState('all')
@@ -24,6 +141,8 @@ function Dashboard() {
     const [deleteError, setDeleteError] = useState(null)
     const [selectedFinding, setSelectedFinding] = useState(null)
     const [trendOpen, setTrendOpen] = useState(true)
+    const [findingsPage, setFindingsPage] = useState(1)
+    const FINDINGS_PAGE_SIZE = 12
 
     useEffect(() => {
         fetchFlows()
@@ -142,6 +261,9 @@ function Dashboard() {
     const filteredFindings = findingsFilter === 'all'
         ? findings
         : findings.filter((f) => f.severity === findingsFilter)
+
+    const findingsTotalPages = Math.max(1, Math.ceil(filteredFindings.length / FINDINGS_PAGE_SIZE))
+    const pagedFindings = filteredFindings.slice((findingsPage - 1) * FINDINGS_PAGE_SIZE, findingsPage * FINDINGS_PAGE_SIZE)
 
     if (loading) {
         return (
@@ -292,6 +414,14 @@ function Dashboard() {
                 <StatsRow flows={flows} findings={findings} />
             </div>
 
+            {/* Risk Overview — score gauge + severity chart */}
+            <div className="relative z-10">
+                <RiskOverview findings={findings} flows={flows} />
+            </div>
+
+            {/* Platform Status — posture, remediations, schedules, channels */}
+            <PlatformStatus />
+
             {/* Top Level Tabs */}
             <div className="mb-8 relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                 <div className="flex bg-white/5 backdrop-blur-md rounded-2xl p-1 border border-white/10 mt-1">
@@ -356,7 +486,7 @@ function Dashboard() {
                                 <button
                                     key={key}
                                     type="button"
-                                    onClick={() => setFindingsFilter(key)}
+                                    onClick={() => { setFindingsFilter(key); setFindingsPage(1) }}
                                     className={`relative z-10 px-3 py-1.5 rounded-xl uppercase tracking-[0.1em] text-center transition-colors duration-200 ${findingsFilter === key ? 'bg-white/10 text-white' : 'text-text-muted hover:text-text-primary hover:bg-white/5'
                                         }`}
                                 >
@@ -394,8 +524,9 @@ function Dashboard() {
                             <p className="text-text-muted max-w-md mb-8">Try adjusting your filters or initiate a new scan to discover vulnerabilities.</p>
                         </motion.div>
                     ) : (
+                        <>
                         <motion.div variants={containerVariants} initial="hidden" animate="visible" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 auto-rows-[1fr]">
-                            {filteredFindings.map((finding) => {
+                            {pagedFindings.map((finding) => {
                                 const { severity } = finding
                                 const severityClasses =
                                     severity === 'critical' ? 'bg-[#ff4757]/15 text-[#ff4757] border-[#ff4757]/40 shadow-[0_0_15px_rgba(255,71,87,0.15)]'
@@ -438,6 +569,14 @@ function Dashboard() {
                                 )
                             })}
                         </motion.div>
+                        <Pagination
+                            page={findingsPage}
+                            totalPages={findingsTotalPages}
+                            onChange={p => { setFindingsPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
+                            pageSize={FINDINGS_PAGE_SIZE}
+                            totalItems={filteredFindings.length}
+                        />
+                        </>
                     )}
                 </div>
 
