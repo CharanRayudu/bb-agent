@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/bb-agent/mirage/internal/execution"
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
@@ -204,6 +205,9 @@ type CrawlResults struct {
 
 // RunCrawl executes a discovery-focused browser task
 func RunCrawl(ctx context.Context, targetURL string, opts BrowserOptions) (*CrawlResults, error) {
+	if err := execution.CheckDestination(ctx, "browser.navigate", "browser.crawl", targetURL); err != nil {
+		return nil, err
+	}
 	if !BrowserAvailable() {
 		return nil, ErrBrowserUnavailable
 	}

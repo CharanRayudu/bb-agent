@@ -6,6 +6,7 @@ package cors
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/bb-agent/mirage/internal/agent/base"
+	"github.com/bb-agent/mirage/internal/execution"
 	"github.com/bb-agent/mirage/internal/queue"
 )
 
@@ -53,6 +55,9 @@ func (a *Agent) ProcessItem(ctx context.Context, item *queue.Item) ([]*base.Find
 	// Test 1: Origin reflection — send evil.com as Origin
 	evilOrigin := "https://evil.com"
 	res1 := sendCORSProbe(ctx, client, targetURL, evilOrigin)
+	if stop, err := probeBlocked(res1.err); stop {
+		return nil, err
+	}
 	if res1.err == nil {
 		conf, evidence := evaluateReflection(evilOrigin, res1)
 		if conf > 0 {
@@ -133,7 +138,17 @@ func (a *Agent) ProcessItem(ctx context.Context, item *queue.Item) ([]*base.Find
 
 // sendCORSProbe sends a GET request with the given Origin header.
 // An empty origin skips the Origin header (tests default CORS response).
+func probeBlocked(err error) (bool, error) {
+	if errors.Is(err, execution.ErrDenied) || errors.Is(err, execution.ErrGatewayRequired) {
+		return true, err
+	}
+	return false, nil
+}
+
 func sendCORSProbe(ctx context.Context, client *http.Client, targetURL, origin string) corsResult {
+	if execution.Required(ctx) || execution.HasGateway(ctx) {
+		return sendCORSViaGateway(ctx, targetURL, origin)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
 	if err != nil {
 		return corsResult{err: err}
@@ -218,6 +233,39 @@ func corsSeverity(conf float64) string {
 		return "high"
 	}
 	return "medium"
+}
+
+func sendCORSViaGateway(ctx context.Context, targetURL, origin string) corsResult {
+	gw := execution.GatewayFrom(ctx)
+	if gw == nil {
+		return corsResult{err: execution.ErrGatewayRequired}
+	}
+	action, err := execution.HTTPAction(execution.FlowID(ctx), "web.cors.audit", http.MethodGet, targetURL)
+	if err != nil {
+		return corsResult{err: err}
+	}
+	action.FollowRedirects = false
+	if origin != "" {
+		action.Arguments["origin"] = origin
+	}
+	resp, err := gw.Do(ctx, action, func(req *http.Request) (*http.Response, error) {
+		if origin != "" {
+			req.Header.Set("Origin", origin)
+		}
+		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; SecurityScanner/1.0)")
+		return newHTTPClient().Do(req)
+	})
+	if err != nil {
+		return corsResult{err: err}
+	}
+	defer resp.Body.Close()
+	return corsResult{
+		statusCode:    resp.StatusCode,
+		allowOrigin:   resp.Header.Get("Access-Control-Allow-Origin"),
+		allowCreds:    resp.Header.Get("Access-Control-Allow-Credentials"),
+		varyHeader:    resp.Header.Get("Vary"),
+		exposeHeaders: resp.Header.Get("Access-Control-Expose-Headers"),
+	}
 }
 
 func newHTTPClient() *http.Client {
