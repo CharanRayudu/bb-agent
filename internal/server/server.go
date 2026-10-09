@@ -99,6 +99,7 @@ type Server struct {
 	engagements *policy.Book
 	execLog     *execution.MemoryStore
 	gateway     *execution.Gateway
+	restoreErr  error
 
 	// Shared knowledge graph — persists across scans within the same server process.
 	knowledgeGraph   knowledge.Graph
@@ -207,6 +208,10 @@ func New(cfg *config.Config, db *sql.DB) *Server {
 	}
 	var execStore execution.Store = s.execLog
 	if db != nil {
+		if err := execution.LoadState(context.Background(), db, s.engagements, s.execLog); err != nil {
+			log.Printf("[policy] authorization restore failed: %v", err)
+			s.restoreErr = err
+		}
 		execStore = execution.NewDurableStore(s.execLog, db)
 	}
 	s.gateway = execution.NewGateway(s.engagements, execStore, execution.NetResolver{})
@@ -447,6 +452,9 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) Start(ctx context.Context, addr string) error {
+	if s.restoreErr != nil {
+		return fmt.Errorf("authorization restore failed: %w", s.restoreErr)
+	}
 	if s.cfg != nil {
 		if err := s.cfg.ValidateProduction(); err != nil {
 			return err
@@ -1891,7 +1899,13 @@ func (s *Server) handleCaptureScreenshot(w http.ResponseWriter, r *http.Request,
 		body.Title = body.URL
 	}
 
-	rec, err := agent.CaptureAndStore(r.Context(), id.String(), "", body.URL, body.Title)
+	captureCtx := r.Context()
+	if s.cfg != nil && s.cfg.ExecutionV2 && s.gateway != nil {
+		captureCtx = execution.WithGateway(captureCtx, s.gateway)
+		captureCtx = execution.WithRequired(captureCtx)
+		captureCtx = execution.WithFlowID(captureCtx, id.String())
+	}
+	rec, err := agent.CaptureAndStore(captureCtx, id.String(), "", body.URL, body.Title)
 	if err != nil {
 		log.Printf("[SCREENSHOT] capture error for flow %s: %v", id, err)
 		http.Error(w, fmt.Sprintf("capture failed: %v", err), http.StatusInternalServerError)

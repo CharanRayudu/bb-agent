@@ -109,14 +109,14 @@ func TestL1BlocksUntilApproval(t *testing.T) {
 
 func TestL2ExploitationRequiresApproval(t *testing.T) {
 	auth := testAuth(policy.AutonomyL2, "http://example.com")
-	auth.AllowUnrestrictedShell = true
 	gw, _ := newGW(t, auth, "93.184.216.34")
 	calls := 0
 	run := func(context.Context) (string, error) {
 		calls++
 		return "ran", nil
 	}
-	_, err := gw.ExecuteTool(context.Background(), "flow-1", "execute_command", "orchestrator", []byte(`{"command":"curl -s http://example.com/"}`), run)
+	payload := []byte(`{"tool":"nuclei","args":["-u","http://example.com/"]}`)
+	_, err := gw.ExecuteTool(context.Background(), "flow-1", "run_security_tool", "orchestrator", payload, run)
 	if !errors.Is(err, ErrDenied) || calls != 0 {
 		t.Fatalf("L2 shell ran before approval: calls=%d err=%v", calls, err)
 	}
@@ -127,7 +127,7 @@ func TestL2ExploitationRequiresApproval(t *testing.T) {
 	if _, err := gw.ResolveApproval(pending[0].ID, "operator", "approved", "proceed", time.Hour); err != nil {
 		t.Fatal(err)
 	}
-	out, err := gw.ExecuteTool(context.Background(), "flow-1", "execute_command", "orchestrator", []byte(`{"command":"curl -s http://example.com/"}`), run)
+	out, err := gw.ExecuteTool(context.Background(), "flow-1", "run_security_tool", "orchestrator", payload, run)
 	if err != nil || out != "ran" || calls != 1 {
 		t.Fatalf("approved L2 shell should run, out=%q calls=%d err=%v", out, calls, err)
 	}

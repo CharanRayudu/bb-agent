@@ -84,6 +84,9 @@ func checkDestination(auth Authorization, subject Subject) Decision {
 	if !authorizedHost(auth, host) {
 		return deny(CodeOutOfScope, "host "+host+" is not an authorized target")
 	}
+	if !protocolMatches(auth, host, scheme) {
+		return deny(CodeSchemeNotAllowed, "protocol "+scheme+" is not authorized for "+host)
+	}
 	if !authorizedPort(auth, host, port, scheme) {
 		return deny(CodePortNotAuthorized, fmt.Sprintf("port %d is not authorized for %s", port, host))
 	}
@@ -172,12 +175,28 @@ func authorizedHost(auth Authorization, host string) bool {
 	return false
 }
 
+func protocolMatches(auth Authorization, host, scheme string) bool {
+	scheme = strings.ToLower(scheme)
+	if scheme == "tcp" {
+		return true
+	}
+	for _, target := range auth.Targets {
+		if !hostMatch(target.Host, host, auth.AllowSubdomains) {
+			continue
+		}
+		if target.Scheme == "" || strings.EqualFold(target.Scheme, scheme) {
+			return true
+		}
+	}
+	return false
+}
+
 func authorizedPort(auth Authorization, host string, port int, scheme string) bool {
 	for _, target := range auth.Targets {
 		if !hostMatch(target.Host, host, auth.AllowSubdomains) {
 			continue
 		}
-		if effectivePort(target.Port, firstNonEmpty(target.Scheme, scheme)) == port {
+		if portMatches(target, port, scheme) {
 			return true
 		}
 	}
@@ -186,11 +205,28 @@ func authorizedPort(auth Authorization, host string, port int, scheme string) bo
 
 func excluded(auth Authorization, host string, port int, scheme string) bool {
 	for _, target := range auth.Exclusions {
-		if hostMatch(target.Host, host, false) && effectivePort(target.Port, firstNonEmpty(target.Scheme, scheme)) == port {
+		if hostMatch(target.Host, host, false) && portMatches(target, port, scheme) {
 			return true
 		}
 	}
 	return false
+}
+
+func portMatches(target Target, port int, scheme string) bool {
+	scheme = strings.ToLower(scheme)
+	targetScheme := strings.ToLower(target.Scheme)
+	if targetScheme != "" && scheme != "tcp" && targetScheme != scheme {
+		return false
+	}
+	basis := targetScheme
+	if basis == "" {
+		if scheme == "" || scheme == "tcp" {
+			basis = "http"
+		} else {
+			basis = scheme
+		}
+	}
+	return effectivePort(target.Port, basis) == port
 }
 
 func hostMatch(pattern, host string, subdomains bool) bool {
@@ -198,6 +234,10 @@ func hostMatch(pattern, host string, subdomains bool) bool {
 	host = normalizeHost(host)
 	if pattern == "" || host == "" {
 		return false
+	}
+	if strings.HasPrefix(pattern, "*.") {
+		suffix := strings.TrimPrefix(pattern, "*.")
+		return host == suffix || strings.HasSuffix(host, "."+suffix)
 	}
 	if pattern == host {
 		return true

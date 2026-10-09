@@ -101,3 +101,15 @@ func TestShellVariableNotScopeBlocked(t *testing.T) {
 		t.Fatalf("expected shell-variable URL to be filtered (not blocked as OOS), got: %s", reason)
 	}
 }
+
+func TestRunSecurityToolValidatesEachDestination(t *testing.T) {
+	scope := NewScopeEngine("http://example.com")
+	ok, reason := scope.ValidateToolArgs("run_security_tool", json.RawMessage(`{"tool":"ffuf","args":["-u","http://example.com/FUZZ","-w","/usr/share/dirb/wordlists/common.txt"]}`))
+	if !ok {
+		t.Fatalf("in-scope ffuf was blocked: %s", reason)
+	}
+	ok, reason = scope.ValidateToolArgs("run_security_tool", json.RawMessage(`{"tool":"curl","args":["http://evil.com"]}`))
+	if ok {
+		t.Fatal("out-of-scope curl argv was allowed")
+	}
+}

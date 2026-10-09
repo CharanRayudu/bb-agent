@@ -48,6 +48,10 @@ func DialAuthorized(ctx context.Context, network, address string) (net.Conn, err
 	if !decision.Allowed {
 		return nil, ErrDenied
 	}
+	ctx = WithEgress(ctx, gw.egress)
+	if FlowID(ctx) == "" {
+		ctx = WithFlowID(ctx, action.FlowID)
+	}
 	return dialPinned(ctx, network, address, ips)
 }
 
@@ -62,6 +66,12 @@ func dialPinned(ctx context.Context, network, address string, ips []net.IP) (net
 	var last error
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
 	for _, ip := range ips {
+		if egress := EgressFrom(ctx); egress != nil && FlowID(ctx) != "" {
+			portNum, _ := strconv.Atoi(port)
+			if !egress.Allows(FlowID(ctx), ip, portNum) {
+				return nil, ErrEgressDenied
+			}
+		}
 		conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
 		if err == nil {
 			return conn, nil

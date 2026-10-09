@@ -2,8 +2,10 @@ package base
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -74,6 +76,30 @@ func TestProbeGETIsActiveAtL2(t *testing.T) {
 	if NewFuzzClient().Baseline(baseCtx, baseSrv.URL) == 0 || !baselineHit {
 		t.Fatal("passive baseline should still run at L2")
 	}
+}
+
+func TestRunHeadlessPOSTChecksTheFormTarget(t *testing.T) {
+	auth, err := policy.AuthorizationForTarget("flow-1", "http://example.com", policy.AutonomyL3, "tester", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	book := policy.NewBook()
+	stored := book.Put(auth)
+	gw := execution.NewGateway(book, execution.NewMemoryStore(), fixedResolver{}).WithAuthorization(stored)
+	ctx := execution.WithGateway(context.Background(), gw)
+	_, err = RunHeadlessPOST(ctx, "http://evil.example/login", map[string]string{"user": "a"}, DefaultBrowserOptions())
+	if err == nil {
+		t.Fatal("expected the form action to be denied")
+	}
+	if strings.Contains(err.Error(), "data:") {
+		t.Fatalf("egress check parsed the data URL: %v", err)
+	}
+}
+
+type fixedResolver struct{}
+
+func (fixedResolver) LookupIP(context.Context, string) ([]net.IP, error) {
+	return []net.IP{net.ParseIP("93.184.216.34")}, nil
 }
 
 func TestRunCrawlDeniedBeforeBrowserLaunch(t *testing.T) {

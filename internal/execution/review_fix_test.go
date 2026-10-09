@@ -60,7 +60,7 @@ func TestApprovalResumeReleasesTheWaitingAction(t *testing.T) {
 func TestNucleiStaysAvailableInsideScope(t *testing.T) {
 	gw, _ := newGW(t, testAuth(policy.AutonomyL3, "http://example.com"), "93.184.216.34")
 	calls := 0
-	out, err := gw.ExecuteTool(context.Background(), "flow-1", "execute_command", "orchestrator", []byte(`{"command":"nuclei -u http://example.com"}`), func(context.Context) (string, error) {
+	out, err := gw.ExecuteTool(context.Background(), "flow-1", "run_security_tool", "orchestrator", []byte(`{"tool":"nuclei","args":["-u","http://example.com"]}`), func(context.Context) (string, error) {
 		calls++
 		return "template-match", nil
 	})
@@ -72,7 +72,7 @@ func TestNucleiStaysAvailableInsideScope(t *testing.T) {
 func TestSecondDestinationBlocksTheWholeCommand(t *testing.T) {
 	gw, _ := newGW(t, testAuth(policy.AutonomyL3, "http://example.com"), "93.184.216.34")
 	calls := 0
-	_, err := gw.ExecuteTool(context.Background(), "flow-1", "execute_command", "orchestrator", []byte(`{"command":"curl http://example.com http://evil.example"}`), func(context.Context) (string, error) {
+	_, err := gw.ExecuteTool(context.Background(), "flow-1", "run_security_tool", "orchestrator", []byte(`{"tool":"curl","args":["http://example.com","http://evil.example"]}`), func(context.Context) (string, error) {
 		calls++
 		return "ran", nil
 	})

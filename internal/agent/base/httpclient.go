@@ -201,7 +201,26 @@ func (fc *FuzzClient) gatewayDo(ctx context.Context, method, targetURL, body str
 	} else {
 		action = action.WithRisk(policy.RiskPassive)
 	}
-	action.Digest = execution.Digest(method + "\n" + targetURL + "\n" + body)
+	header := http.Header{}
+	if body != "" {
+		header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
+	if fc.auth != nil {
+		for key, value := range fc.auth.Headers {
+			header.Set(key, value)
+		}
+		var cookies []string
+		for _, cookie := range fc.auth.Cookies {
+			if cookie == nil {
+				continue
+			}
+			cookies = append(cookies, cookie.Name+"="+cookie.Value)
+		}
+		if len(cookies) > 0 {
+			header.Set("Cookie", strings.Join(cookies, "; "))
+		}
+	}
+	action.Digest = execution.RequestFingerprint(method, targetURL, header, []byte(body))
 	action.IdempotencyKey += ":" + action.Digest
 	action.FollowRedirects = false
 	resp, err := gw.Do(ctx, action, func(req *http.Request) {

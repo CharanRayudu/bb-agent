@@ -3,69 +3,8 @@ package execution
 import (
 	"encoding/json"
 	"net"
-	"path"
 	"strings"
-
-	"github.com/bb-agent/mirage/internal/policy"
 )
-
-// knownSecurityTools may run inside scope without the unrestricted-shell grant.
-// Anything else remains an arbitrary shell command.
-var knownSecurityTools = map[string]policy.Risk{
-	"nuclei":      policy.RiskExploitation,
-	"nmap":        policy.RiskActive,
-	"ffuf":        policy.RiskActive,
-	"curl":        policy.RiskActive,
-	"sqlmap":      policy.RiskExploitation,
-	"httpx":       policy.RiskPassive,
-	"katana":      policy.RiskPassive,
-	"gobuster":    policy.RiskActive,
-	"gau":         policy.RiskPassive,
-	"waybackurls": policy.RiskPassive,
-}
-
-func classifyCommand(flowID, raw string) Action {
-	command := extractCommand(raw)
-	action := Action{
-		FlowID:         flowID,
-		EngagementID:   flowID,
-		ActionType:     "shell.command",
-		Risk:           policy.RiskExploitation,
-		Phase:          "exploitation",
-		Shell:          true,
-		SkillID:        "shell.command",
-		ToolID:         "execute_command",
-		IdempotencyKey: flowID + ":shell:" + hashArgs([]byte(command)),
-		Arguments:      map[string]string{"command": command},
-	}
-	argv := splitArgs(command)
-	if len(argv) == 0 {
-		return action
-	}
-	tool := strings.ToLower(strings.TrimSuffix(path.Base(strings.Trim(argv[0], `"'`)), ".exe"))
-	risk, known := knownSecurityTools[tool]
-	targets := commandDestinations(command, argv)
-	if !known {
-		applyDestinationList(&action, targets)
-		return action
-	}
-	if len(targets) == 0 {
-		action.Shell = true
-		action.Arguments["reason"] = "known tool missing a destination"
-		return action
-	}
-	action.Shell = false
-	action.ActionType = "tool." + tool
-	action.SkillID = "tool." + tool
-	action.ToolID = tool
-	action.Risk = risk
-	if risk == policy.RiskPassive {
-		action.Phase = "recon"
-	}
-	action.IdempotencyKey = flowID + ":" + tool + ":" + hashArgs([]byte(command))
-	applyDestinationList(&action, targets)
-	return action
-}
 
 func extractCommand(raw string) string {
 	raw = strings.TrimSpace(raw)
@@ -78,32 +17,6 @@ func extractCommand(raw string) string {
 		}
 	}
 	return raw
-}
-
-func commandDestinations(command string, argv []string) []string {
-	seen := map[string]bool{}
-	var out []string
-	add := func(value string) {
-		value = strings.Trim(value, `"'`)
-		if value == "" || seen[value] {
-			return
-		}
-		if !strings.Contains(value, "://") && !looksLikeHost(value) {
-			return
-		}
-		seen[value] = true
-		out = append(out, value)
-	}
-	for _, match := range commandURLRe.FindAllString(command, -1) {
-		add(match)
-	}
-	for _, arg := range argv[1:] {
-		if strings.HasPrefix(arg, "-") && !strings.Contains(arg, "://") {
-			continue
-		}
-		add(arg)
-	}
-	return out
 }
 
 func applyDestinationList(action *Action, targets []string) {
@@ -133,34 +46,4 @@ func looksLikeHost(value string) bool {
 		return ok && looksLikeHost(host)
 	}
 	return strings.Contains(value, ".") || net.ParseIP(value) != nil
-}
-
-func splitArgs(command string) []string {
-	var args []string
-	var current strings.Builder
-	quote := byte(0)
-	for i := 0; i < len(command); i++ {
-		ch := command[i]
-		switch {
-		case quote != 0:
-			if ch == quote {
-				quote = 0
-				continue
-			}
-			current.WriteByte(ch)
-		case ch == '"' || ch == '\'':
-			quote = ch
-		case ch == ' ' || ch == '\t':
-			if current.Len() > 0 {
-				args = append(args, current.String())
-				current.Reset()
-			}
-		default:
-			current.WriteByte(ch)
-		}
-	}
-	if current.Len() > 0 {
-		args = append(args, current.String())
-	}
-	return args
 }

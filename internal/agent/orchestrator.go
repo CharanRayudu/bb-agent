@@ -509,6 +509,7 @@ func NewOrchestrator(provider llm.Provider, registry *tools.Registry, db *sql.DB
 	// Register brain-integrated tools
 	o.toolRegistry.AddPayloadMutationTool(provider)
 	o.toolRegistry.AddVisualCrawlTool(func(ctx context.Context, url string) (string, error) {
+		ctx = o.bindExecutionContext(ctx, uuid.Nil)
 		res, err := base.RunCrawl(ctx, url, base.DefaultBrowserOptions())
 		if err != nil {
 			if base.IsBrowserUnavailableError(err) {
@@ -617,6 +618,24 @@ func (o *Orchestrator) GetEventBus() *EventBus {
 func (o *Orchestrator) SetExecutionGateway(g *execution.Gateway, required bool) {
 	o.execGateway = g
 	o.requireExecutionV2 = required
+}
+
+// bindExecutionContext attaches the flow gateway so direct browser calls,
+// including the SPA crawl, cannot skip the action gateway.
+func (o *Orchestrator) bindExecutionContext(ctx context.Context, flowID uuid.UUID) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if o != nil && o.execGateway != nil {
+		ctx = execution.WithGateway(ctx, o.execGateway)
+	}
+	if o != nil && o.requireExecutionV2 {
+		ctx = execution.WithRequired(ctx)
+	}
+	if flowID != uuid.Nil {
+		ctx = execution.WithFlowID(ctx, flowID.String())
+	}
+	return ctx
 }
 
 func (o *Orchestrator) executeToolCall(ctx context.Context, name string, args json.RawMessage, tool *tools.Tool, flowID, taskID uuid.UUID) (string, error) {
@@ -793,6 +812,15 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 	}
 
 	base.ResetBrowserAutomation()
+	ctx = o.bindExecutionContext(ctx, flowID)
+	if o.execGateway != nil {
+		flowProxy, proxyErr := execution.StartFlowProxy(o.execGateway, flowID.String())
+		if proxyErr != nil {
+			return fmt.Errorf("flow egress proxy: %w", proxyErr)
+		}
+		defer flowProxy.Close()
+		ctx = execution.WithFlowProxy(ctx, flowProxy)
+	}
 
 	// Reset internal event bus for this flow to clear old subscribers
 	o.bus.Reset()
@@ -1330,7 +1358,7 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		// ==========================================
 		o.emit(flowID.String(), Event{Type: EventMessage, FlowID: flowID.String(), TaskID: task.ID.String(), Content: "[CRAWL] Phase 1.5: SPA Deep Crawl (Headless Browser Discovery)"})
 
-		crawlCtx, cancelCrawl := context.WithTimeout(ctx, 30*time.Second)
+		crawlCtx, cancelCrawl := context.WithTimeout(o.bindExecutionContext(ctx, flowID), 30*time.Second)
 		crawlResults, crawlErr := base.RunCrawl(crawlCtx, flow.Target, base.DefaultBrowserOptions())
 		cancelCrawl()
 
@@ -2275,7 +2303,7 @@ func (o *Orchestrator) runAgentLoop(ctx context.Context, flowID uuid.UUID, taskI
 				// ============================================
 				// Feature: Redirect Tracking (302 Intelligence)
 				// ============================================
-				if tc.Name == "execute_command" {
+				if tc.Name == "execute_command" || tc.Name == "run_security_tool" {
 					if insight := redirectTracker.Analyze(res); insight != nil && insight.ShouldPivot {
 						// Inject auth wall alert into the conversation
 						chatMsgs = append(chatMsgs, models.ChatMessage{
@@ -2411,7 +2439,7 @@ func (o *Orchestrator) runAgentLoop(ctx context.Context, flowID uuid.UUID, taskI
 				}
 
 				// Victory Hierarchy Check: Stop if we've achieved high impact
-				if tc.Name == "execute_command" {
+				if tc.Name == "execute_command" || tc.Name == "run_security_tool" {
 					lowerRes := strings.ToLower(res)
 					if strings.Contains(lowerRes, "success") || strings.Contains(lowerRes, "pwned") || strings.Contains(lowerRes, "vulnerable") {
 						successCount++

@@ -53,6 +53,7 @@ type Gateway struct {
 	resume    bool
 	waiters   map[string][]chan struct{}
 	roundTrip func(*http.Request, []net.IP) (*http.Response, error)
+	egress    *FlowEgress
 }
 
 func NewGateway(book *policy.Book, store Store, resolver Resolver) *Gateway {
@@ -75,6 +76,7 @@ func NewGateway(book *policy.Book, store Store, resolver Resolver) *Gateway {
 		completed: map[string]Result{},
 		lock:      make(chan struct{}, 1),
 		waiters:   map[string][]chan struct{}{},
+		egress:    NewFlowEgress(),
 	}
 }
 
@@ -201,7 +203,7 @@ func (g *Gateway) authorizeOnce(ctx context.Context, action Action) (Decision, [
 		}
 		extraAction.Risk = action.Risk
 		extraAction.Phase = action.Phase
-		verdict, _, err := g.evaluate(ctx, extraAction)
+		verdict, extraIPs, err := g.evaluate(ctx, extraAction)
 		if err != nil {
 			return Decision{}, nil, fmt.Errorf("%w: %v", ErrAudit, err)
 		}
@@ -213,6 +215,7 @@ func (g *Gateway) authorizeOnce(ctx context.Context, action Action) (Decision, [
 			g.remember(action.ID, decisionState(verdict), d)
 			return d, nil, denial(d)
 		}
+		g.permit(action.FlowID, extraIPs, extraAction.Port, extraAction.Scheme)
 	}
 	if !g.consume(action.FlowID) {
 		denied := policy.Decision{Allowed: false, Code: policy.CodeBudgetExhausted, Reason: "request budget for this authorization is exhausted"}
@@ -228,6 +231,7 @@ func (g *Gateway) authorizeOnce(ctx context.Context, action Action) (Decision, [
 		return d, nil, err
 	}
 	g.remember(action.ID, "authorized", d)
+	g.permit(action.FlowID, secondIPs, action.Port, action.Scheme)
 	return d, parseIPs(secondIPs), nil
 }
 
@@ -359,10 +363,8 @@ func (g *Gateway) ResolveApproval(id, actor, status, reason string, ttl time.Dur
 	if !found {
 		return policy.Approval{}, fmt.Errorf("approval %s not found", id)
 	}
-	if current.Status == "denied" || current.Status == "consumed" || current.Status == "expired" {
-		if status == "approved" {
-			return policy.Approval{}, fmt.Errorf("approval %s is %s and cannot become approved", id, current.Status)
-		}
+	if err := transitionApproval(current.Status, status); err != nil {
+		return policy.Approval{}, fmt.Errorf("approval %s: %w", id, err)
 	}
 	current.Status = status
 	current.Actor = actor
@@ -473,19 +475,35 @@ func (g *Gateway) matchApproval(action Action) (policy.Approval, bool) {
 			phaseHit = &cp
 		}
 	}
-	if actionHit != nil && (actionHit.Status == "denied" || actionHit.Status == "approved") {
-		return *actionHit, true
-	}
-	if phaseHit != nil && (phaseHit.Status == "approved" || phaseHit.Status == "denied") {
-		return *phaseHit, true
-	}
 	if actionHit != nil {
 		return *actionHit, true
+	}
+	// A phase grant does not authorize a different method, body, or credential.
+	if action.Digest != "" {
+		return policy.Approval{}, false
 	}
 	if phaseHit != nil {
 		return *phaseHit, true
 	}
 	return policy.Approval{}, false
+}
+
+func transitionApproval(from, to string) error {
+	switch from {
+	case "denied", "consumed", "expired":
+		return fmt.Errorf("is %s and cannot become %s", from, to)
+	case "approved":
+		if to != "consumed" && to != "expired" {
+			return fmt.Errorf("is approved and cannot become %s", to)
+		}
+	case "pending":
+		if to != "approved" && to != "denied" && to != "expired" {
+			return fmt.Errorf("is pending and cannot become %s", to)
+		}
+	default:
+		return fmt.Errorf("is %s and cannot become %s", from, to)
+	}
+	return nil
 }
 
 func (g *Gateway) ensurePending(action Action) (policy.Approval, error) {

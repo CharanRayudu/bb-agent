@@ -1,6 +1,8 @@
 package base
 
 import (
+	"bytes"
+	"io"
 	"net/http"
 	"time"
 
@@ -36,12 +38,23 @@ func (t gatedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if gw == nil {
 		return nil, execution.ErrGatewayRequired
 	}
+	var body []byte
+	if req.Body != nil {
+		var err error
+		body, err = io.ReadAll(req.Body)
+		if err != nil {
+			return nil, err
+		}
+		req.Body = io.NopCloser(bytes.NewReader(body))
+	}
 	action, err := execution.HTTPAction(execution.FlowID(ctx), "http.probe", req.Method, req.URL.String())
 	if err != nil {
 		return nil, err
 	}
 	action = action.WithRisk(policy.RiskActive)
 	action.FollowRedirects = false
+	action.Digest = execution.RequestFingerprint(req.Method, req.URL.String(), req.Header, body)
+	action.IdempotencyKey += ":" + action.Digest
 	return gw.Do(ctx, action, func(out *http.Request) {
 		if req.Header != nil {
 			out.Header = req.Header.Clone()

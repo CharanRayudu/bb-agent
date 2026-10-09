@@ -12,6 +12,7 @@ type Book struct {
 	mu     sync.Mutex
 	byFlow map[string]*Authorization
 	order  []*Authorization
+	spent  map[string]int
 }
 
 func NewBook() *Book {
@@ -27,6 +28,7 @@ func (b *Book) Put(auth Authorization) *Authorization {
 	defer b.mu.Unlock()
 	if existing, ok := b.byFlow[auth.FlowID]; ok && auth.FlowID != "" {
 		*existing = auth
+		b.syncSpend(existing)
 		return existing
 	}
 	stored := new(Authorization)
@@ -35,6 +37,7 @@ func (b *Book) Put(auth Authorization) *Authorization {
 		b.byFlow[auth.FlowID] = stored
 	}
 	b.order = append(b.order, stored)
+	b.syncSpend(stored)
 	return stored
 }
 
@@ -89,11 +92,50 @@ func (b *Book) TryConsume(flowID string) bool {
 	if auth == nil {
 		return false
 	}
-	if auth.MaxRequests > 0 && auth.RequestsUsed >= auth.MaxRequests {
+	key := engagementKey(auth)
+	if b.spent == nil {
+		b.spent = map[string]int{}
+	}
+	used := b.spent[key]
+	if auth.MaxRequests > 0 && used >= auth.MaxRequests {
 		return false
 	}
-	auth.RequestsUsed++
+	b.spent[key] = used + 1
+	for _, other := range b.order {
+		if other != nil && engagementKey(other) == key {
+			other.RequestsUsed = b.spent[key]
+		}
+	}
 	return true
+}
+
+func (b *Book) syncSpend(auth *Authorization) {
+	if auth == nil {
+		return
+	}
+	if b.spent == nil {
+		b.spent = map[string]int{}
+	}
+	key := engagementKey(auth)
+	if prev, ok := b.spent[key]; ok && prev > auth.RequestsUsed {
+		auth.RequestsUsed = prev
+	}
+	b.spent[key] = auth.RequestsUsed
+	for _, other := range b.order {
+		if other != nil && engagementKey(other) == key {
+			other.RequestsUsed = b.spent[key]
+		}
+	}
+}
+
+func engagementKey(auth *Authorization) string {
+	if auth == nil {
+		return ""
+	}
+	if auth.EngagementID != "" {
+		return auth.EngagementID
+	}
+	return auth.FlowID
 }
 
 // AuthorizeStart is the check used by scheduled scans and CI triggers.
@@ -170,23 +212,32 @@ func (a Authorization) CloneForFlow(flowID string) Authorization {
 	if clone.EngagementID == "" {
 		clone.EngagementID = a.FlowID
 	}
-	clone.RequestsUsed = 0
 	clone.InFlight = 0
 	return clone
 }
 
-// Revoke expires an authorization immediately.
+// Revoke expires an authorization and every flow cloned from the same engagement.
 func (b *Book) Revoke(id string, now time.Time) bool {
 	if b == nil {
 		return false
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	var matched *Authorization
 	for _, auth := range b.order {
-		if auth != nil && auth.ID == id {
-			auth.ExpiresAt = now
-			return true
+		if auth != nil && (auth.ID == id || auth.FlowID == id) {
+			matched = auth
+			break
 		}
 	}
-	return false
+	if matched == nil {
+		return false
+	}
+	key := engagementKey(matched)
+	for _, auth := range b.order {
+		if auth != nil && engagementKey(auth) == key {
+			auth.ExpiresAt = now
+		}
+	}
+	return true
 }

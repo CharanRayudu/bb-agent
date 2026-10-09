@@ -31,11 +31,17 @@ func PrepareBrowserEgress(ctx context.Context, targetURL string, opts *BrowserOp
 	if err := execution.CheckDestination(ctx, "browser.navigate", "browser.crawl", targetURL); err != nil {
 		return nil, err
 	}
+	if existing := execution.ProxyFrom(ctx); existing != nil {
+		if opts != nil && opts.Proxy == "" {
+			opts.Proxy = "http://" + existing.Addr
+		}
+		return noop, nil
+	}
 	gw := execution.GatewayFrom(ctx)
 	if gw == nil {
 		return nil, execution.ErrGatewayRequired
 	}
-	proxy, err := execution.StartEgressProxy(gw)
+	proxy, err := execution.StartFlowProxy(gw, execution.FlowID(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -153,6 +159,10 @@ func RunHeadless(ctx context.Context, targetURL string, opts BrowserOptions) (*B
 		return nil, err
 	}
 	defer closeProxy()
+	return runHeadlessNavigation(ctx, targetURL, opts)
+}
+
+func runHeadlessNavigation(ctx context.Context, targetURL string, opts BrowserOptions) (*BrowserMetadata, error) {
 	if !BrowserAvailable() {
 		return nil, ErrBrowserUnavailable
 	}
@@ -204,7 +214,7 @@ func RunHeadless(ctx context.Context, targetURL string, opts BrowserOptions) (*B
 	})
 
 	var buf []byte
-	err = chromedp.Run(timeoutCtx,
+	err := chromedp.Run(timeoutCtx,
 		chromedp.Navigate(targetURL),
 		chromedp.Sleep(2*time.Second),
 		chromedp.Title(&metadata.Title),
@@ -297,7 +307,12 @@ func RunHeadlessPOST(ctx context.Context, actionURL string, data map[string]stri
 	formHTML += `</form></body></html>`
 
 	dataURL := fmt.Sprintf("data:text/html;base64,%s", base64.StdEncoding.EncodeToString([]byte(formHTML)))
-	return RunHeadless(ctx, dataURL, opts)
+	closeProxy, err := PrepareBrowserEgress(ctx, actionURL, &opts)
+	if err != nil {
+		return nil, err
+	}
+	defer closeProxy()
+	return runHeadlessNavigation(ctx, dataURL, opts)
 }
 
 func saveScreenshot(buf []byte) (string, error) {

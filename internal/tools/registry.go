@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/bb-agent/mirage/internal/docker"
+	"github.com/bb-agent/mirage/internal/execution"
 	"github.com/bb-agent/mirage/internal/llm"
 )
 
@@ -80,7 +81,7 @@ func (r *Registry) registerBuiltins() {
 	r.Register(&Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "execute_command",
-			Description: "Execute a shell command inside the sandbox to enumerate the in-scope target and gather reproducible evidence. Prefer short commands, multi-line scripts, or inline Python over brittle nested shell quoting. Use the command output to confirm behavior with concrete request/response, timing, browser, or callback proof.\n\nAVAILABLE SANDBOX TOOLS:\n- Recon and assets: `subfinder`, `amass`, `puredns`, `waybackurls`, `gau`\n- Ports and services: `naabu`, `nmap`, `masscan`\n- HTTP probing and crawling: `httpx`, `hakrawler`, `katana`, `curl`\n- Content discovery and fuzzing: `feroxbuster`, `gobuster`, `ffuf`, `dirsearch`\n- Parameter and reflection discovery: `arjun`, `paramspider`, `x8`, `qsreplace`, `kxss`\n- Vulnerability scanning and exploitation: `nuclei`, `dalfox`, `crlfuzz`, `sqlmap`, `ghauri`, `commix`, `tplmap`\n- JavaScript and JWT analysis: `jsluice`, `jwt-hack`\n- Tool management: `pdtm`\n\nIMPORTANT LOCATIONS:\n- Wordlists for gobuster/dirb are located at: `/usr/share/dirb/wordlists/common.txt` and others in `/usr/share/dirb/wordlists/`. Do NOT assume `/usr/share/wordlists` exists.\n\nIMPORTANT: This container is PERSISTENT, so keep commands tidy and deterministic. If a command becomes quote-heavy, switch to a heredoc or a small script instead of stacking escapes. Match tool choice to the user's request whenever possible.",
+			Description: "Run an unrestricted shell command inside the sandbox. This is denied unless the engagement explicitly grants unrestricted shell. For nuclei, nmap, ffuf, curl, sqlmap, httpx, and the other scanners listed below, use run_security_tool with a tool name and an args array so the command is not parsed by a shell.\n\nAVAILABLE SANDBOX TOOLS:\n- Recon and assets: `subfinder`, `amass`, `puredns`, `waybackurls`, `gau`\n- Ports and services: `naabu`, `nmap`, `masscan`\n- HTTP probing and crawling: `httpx`, `hakrawler`, `katana`, `curl`\n- Content discovery and fuzzing: `feroxbuster`, `gobuster`, `ffuf`, `dirsearch`\n- Parameter and reflection discovery: `arjun`, `paramspider`, `x8`, `qsreplace`, `kxss`\n- Vulnerability scanning and exploitation: `nuclei`, `dalfox`, `crlfuzz`, `sqlmap`, `ghauri`, `commix`, `tplmap`\n- JavaScript and JWT analysis: `jsluice`, `jwt-hack`\n- Tool management: `pdtm`\n\nIMPORTANT LOCATIONS:\n- Wordlists for gobuster/dirb are located at: `/usr/share/dirb/wordlists/common.txt` and others in `/usr/share/dirb/wordlists/`. Do NOT assume `/usr/share/wordlists` exists.\n\nIMPORTANT: This container is PERSISTENT, so keep commands tidy and deterministic. If a command becomes quote-heavy, switch to a heredoc or a small script instead of stacking escapes. Match tool choice to the user's request whenever possible.",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -97,6 +98,33 @@ func (r *Registry) registerBuiltins() {
 			},
 		},
 		Execute: r.executeCommand,
+	})
+
+	r.Register(&Tool{
+		Definition: llm.ToolDefinition{
+			Name:        "run_security_tool",
+			Description: "Run one authorized security tool as an argv array, without a shell. Use this for scanning, fuzzing, and verification. The tool name is a single executable such as nuclei, nmap, ffuf, curl, sqlmap, httpx, katana, gobuster, gau, or waybackurls. Put the target URL and flags in args. Do not put shell operators, command substitutions, or a second program in the tool name.",
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"tool": map[string]interface{}{
+						"type":        "string",
+						"description": "Executable name only, for example nuclei, nmap, ffuf, curl, or sqlmap",
+					},
+					"args": map[string]interface{}{
+						"type":        "array",
+						"items":       map[string]interface{}{"type": "string"},
+						"description": "Argv elements. Include the in-scope target URL or host. Example: [\"-u\", \"http://target.example/FUZZ\", \"-w\", \"/usr/share/dirb/wordlists/common.txt\"]",
+					},
+					"timeout": map[string]interface{}{
+						"type":        "integer",
+						"description": "Maximum execution time in seconds (default: 300, max: 1800)",
+					},
+				},
+				"required": []string{"tool", "args"},
+			},
+		},
+		Execute: r.executeSecurityTool,
 	})
 
 	// think -- internal reasoning/planning step
@@ -335,20 +363,42 @@ func (r *Registry) executeCommand(ctx context.Context, args json.RawMessage) (st
 	if err != nil {
 		return "", fmt.Errorf("sandbox execution failed: %w", err)
 	}
+	return formatSandboxOutput(result), nil
+}
 
+func (r *Registry) executeSecurityTool(ctx context.Context, args json.RawMessage) (string, error) {
+	argv, timeout, err := execution.ParseSecurityArgv(args)
+	if err != nil {
+		return "", err
+	}
+	if proxy := execution.ToolProxyURL(ctx); proxy != "" {
+		argv = execution.AppendProxyArg(argv, proxy)
+	}
+	if r.sandbox == nil {
+		return "", fmt.Errorf("sandbox is not configured")
+	}
+	log.Printf("[TOOL] Executing argv: %s", strings.Join(argv, " "))
+	result, err := r.sandbox.ExecuteArgv(ctx, argv, timeout)
+	if err != nil {
+		return "", fmt.Errorf("sandbox execution failed: %w", err)
+	}
+	return formatSandboxOutput(result), nil
+}
+
+func formatSandboxOutput(result *docker.ExecResult) string {
+	if result == nil {
+		return ""
+	}
 	output := result.Stdout
 	if result.Stderr != "" {
 		output += "\n" + result.Stderr
 	}
 	output += fmt.Sprintf("\n\n[Exit Code: %d | Duration: %s]", result.ExitCode, result.Duration.Round(time.Millisecond))
-
-	// Truncate very long output to avoid filling LLM context
 	const maxOutput = 15000
 	if len(output) > maxOutput {
 		output = output[:maxOutput] + "\n\n... [output truncated, showing first 15000 characters]"
 	}
-
-	return output, nil
+	return output
 }
 
 // Register adds a tool to the registry

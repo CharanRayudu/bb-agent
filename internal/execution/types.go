@@ -101,9 +101,9 @@ func ToolAction(flowID, name, actor string, args json.RawMessage) Action {
 		action.Local = true
 		action.SkillID = "control." + name
 	case "execute_command":
-		classified := classifyCommand(flowID, string(args))
-		classified.ActorID = actor
-		return classified
+		return shellAction(flowID, actor, args)
+	case "run_security_tool":
+		return SecurityToolAction(flowID, actor, args)
 	case "visual_crawl":
 		action.ActionType = "browser.navigate"
 		action.Risk = policy.RiskPassive
@@ -188,6 +188,7 @@ func HTTPAction(flowID, skillID, method, rawURL string) (Action, error) {
 		risk = policy.RiskActive
 		phase = "exploitation"
 	}
+	digest := Digest(method + "\n" + rawURL)
 	return Action{
 		FlowID:          flowID,
 		EngagementID:    flowID,
@@ -200,7 +201,8 @@ func HTTPAction(flowID, skillID, method, rawURL string) (Action, error) {
 		Port:            target.Port,
 		Path:            path,
 		Risk:            risk,
-		IdempotencyKey:  flowID + ":http:" + method + ":" + rawURL,
+		Digest:          digest,
+		IdempotencyKey:  flowID + ":http:" + method + ":" + rawURL + ":" + digest,
 		FollowRedirects: true,
 		Arguments:       map[string]string{"method": method, "url": rawURL},
 	}, nil

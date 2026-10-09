@@ -147,6 +147,18 @@ func (se *ScopeEngine) ValidateToolArgs(toolName string, rawArgs json.RawMessage
 			return false, "BLOCKED: execute_command requires a non-empty command."
 		}
 		return se.IsCommandInScope(params.Command)
+	case "run_security_tool":
+		var params struct {
+			Tool string   `json:"tool"`
+			Args []string `json:"args"`
+		}
+		if err := json.Unmarshal(rawArgs, &params); err != nil {
+			return false, fmt.Sprintf("BLOCKED: Invalid run_security_tool arguments: %v", err)
+		}
+		if strings.TrimSpace(params.Tool) == "" {
+			return false, "BLOCKED: run_security_tool requires a tool name."
+		}
+		return se.validateTargets(extractTargetsFromText(strings.Join(params.Args, " ")))
 	case "visual_crawl":
 		var params struct {
 			URL string `json:"url"`

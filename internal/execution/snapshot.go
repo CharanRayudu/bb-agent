@@ -14,8 +14,13 @@ func (g *Gateway) Export() Snapshot {
 		return Snapshot{}
 	}
 	snap := Snapshot{Authorizations: g.book.All()}
-	if mem, ok := g.store.(*MemoryStore); ok {
-		snap.Approvals = mem.allLocked()
+	switch store := g.store.(type) {
+	case *MemoryStore:
+		snap.Approvals = store.allLocked()
+	case *sqlStore:
+		if store.mem != nil {
+			snap.Approvals = store.mem.allLocked()
+		}
 	}
 	return snap
 }

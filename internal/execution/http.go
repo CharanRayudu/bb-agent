@@ -26,6 +26,10 @@ func (g *Gateway) Do(ctx context.Context, action Action, mutate func(*http.Reque
 		}
 		return nil, err
 	}
+	ctx = WithEgress(ctx, g.egress)
+	if FlowID(ctx) == "" && current.FlowID != "" {
+		ctx = WithFlowID(ctx, current.FlowID)
+	}
 	req, err := http.NewRequestWithContext(ctx, methodOf(current), urlOf(current), nil)
 	if err != nil {
 		return nil, err
@@ -64,7 +68,7 @@ func methodOf(action Action) string {
 }
 
 func urlOf(action Action) string {
-	if action.Arguments != nil && action.Arguments["url"] != "" && action.Port == 0 {
+	if action.Arguments != nil && action.Arguments["url"] != "" {
 		return action.Arguments["url"]
 	}
 	scheme := action.Scheme
