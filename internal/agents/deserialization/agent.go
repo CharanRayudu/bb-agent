@@ -213,7 +213,7 @@ func newHTTPClient() *http.Client {
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
 	}
-	return &http.Client{Timeout: 15 * time.Second, Transport: transport}
+	return base.WrapClient(&http.Client{Timeout: 15 * time.Second, Transport: transport})
 }
 
 const defaultSystemPrompt = `You are an Insecure Deserialization specialist. You detect applications that

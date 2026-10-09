@@ -23,6 +23,28 @@ var (
 	browserDisabled       atomic.Bool
 )
 
+func PrepareBrowserEgress(ctx context.Context, targetURL string, opts *BrowserOptions) (func(), error) {
+	noop := func() {}
+	if !execution.HasGateway(ctx) && !execution.Required(ctx) {
+		return noop, nil
+	}
+	if err := execution.CheckDestination(ctx, "browser.navigate", "browser.crawl", targetURL); err != nil {
+		return nil, err
+	}
+	gw := execution.GatewayFrom(ctx)
+	if gw == nil {
+		return nil, execution.ErrGatewayRequired
+	}
+	proxy, err := execution.StartEgressProxy(gw)
+	if err != nil {
+		return nil, err
+	}
+	if opts != nil && opts.Proxy == "" {
+		opts.Proxy = "http://" + proxy.Addr
+	}
+	return func() { _ = proxy.Close() }, nil
+}
+
 func shouldIgnoreBrowserErrorMessage(msg string) bool {
 	lower := strings.ToLower(strings.TrimSpace(msg))
 	return strings.Contains(lower, "could not unmarshal event") &&
@@ -126,6 +148,11 @@ func normalizeBrowserError(err error) error {
 
 // RunHeadless executes a browser task and returns metadata.
 func RunHeadless(ctx context.Context, targetURL string, opts BrowserOptions) (*BrowserMetadata, error) {
+	closeProxy, err := PrepareBrowserEgress(ctx, targetURL, &opts)
+	if err != nil {
+		return nil, err
+	}
+	defer closeProxy()
 	if !BrowserAvailable() {
 		return nil, ErrBrowserUnavailable
 	}
@@ -177,7 +204,7 @@ func RunHeadless(ctx context.Context, targetURL string, opts BrowserOptions) (*B
 	})
 
 	var buf []byte
-	err := chromedp.Run(timeoutCtx,
+	err = chromedp.Run(timeoutCtx,
 		chromedp.Navigate(targetURL),
 		chromedp.Sleep(2*time.Second),
 		chromedp.Title(&metadata.Title),
@@ -205,9 +232,11 @@ type CrawlResults struct {
 
 // RunCrawl executes a discovery-focused browser task
 func RunCrawl(ctx context.Context, targetURL string, opts BrowserOptions) (*CrawlResults, error) {
-	if err := execution.CheckDestination(ctx, "browser.navigate", "browser.crawl", targetURL); err != nil {
+	closeProxy, err := PrepareBrowserEgress(ctx, targetURL, &opts)
+	if err != nil {
 		return nil, err
 	}
+	defer closeProxy()
 	if !BrowserAvailable() {
 		return nil, ErrBrowserUnavailable
 	}
@@ -233,7 +262,7 @@ func RunCrawl(ctx context.Context, targetURL string, opts BrowserOptions) (*Craw
 	defer cancelTimeout()
 
 	results := &CrawlResults{}
-	err := chromedp.Run(timeoutCtx,
+	err = chromedp.Run(timeoutCtx,
 		chromedp.Navigate(targetURL),
 		chromedp.Sleep(3*time.Second),
 		chromedp.Evaluate(`

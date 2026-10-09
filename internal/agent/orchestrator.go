@@ -633,30 +633,39 @@ func (o *Orchestrator) executeToolCall(ctx context.Context, name string, args js
 				}
 			}
 		}
-		output, err := tool.Execute(ctx, finalArgs)
-		if o.isWAFBlocked(output) {
-			o.emit(flowID.String(), Event{
-				Type:    EventMessage,
-				FlowID:  flowID.String(),
-				TaskID:  taskID.String(),
-				Content: "[ALERT] [WAF BLOCK] Evasion strategy triggered.",
-			})
-			if o.strategist != nil {
-				strategy := o.strategist.SuggestedEncoding(name, output)
+		run := func(runCtx context.Context) (string, error) {
+			output, err := tool.Execute(runCtx, finalArgs)
+			if o.isWAFBlocked(output) {
 				o.emit(flowID.String(), Event{
 					Type:    EventMessage,
 					FlowID:  flowID.String(),
 					TaskID:  taskID.String(),
-					Content: fmt.Sprintf("[STRATEGY] Strategist suggesting shift to: %s", strategy),
+					Content: "[ALERT] [WAF BLOCK] Evasion strategy triggered.",
 				})
+				if o.strategist != nil {
+					strategy := o.strategist.SuggestedEncoding(name, output)
+					o.emit(flowID.String(), Event{
+						Type:    EventMessage,
+						FlowID:  flowID.String(),
+						TaskID:  taskID.String(),
+						Content: fmt.Sprintf("[STRATEGY] Strategist suggesting shift to: %s", strategy),
+					})
+				}
+				if o.rateLimiter != nil {
+					o.rateLimiter.SlowDown()
+				}
+			} else if o.rateLimiter != nil && o.rateLimiter.IsWAFDetected() {
+				o.rateLimiter.SpeedUp()
 			}
-			if o.rateLimiter != nil {
-				o.rateLimiter.SlowDown()
-			}
-		} else if o.rateLimiter != nil && o.rateLimiter.IsWAFDetected() {
-			o.rateLimiter.SpeedUp()
+			return output, err
 		}
-		return output, err
+		if o.requireExecutionV2 && o.execGateway == nil {
+			return "", execution.ErrGatewayRequired
+		}
+		if o.execGateway != nil {
+			return o.execGateway.ExecuteTool(ctx, flowID.String(), name, "orchestrator", finalArgs, run)
+		}
+		return run(ctx)
 	}, args, func(msg string) {
 		o.emit(flowID.String(), Event{
 			Type:    EventMessage,
@@ -843,7 +852,14 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 
 	// ── Mythos: WAF fingerprint at scan start (shared across all agents) ──
 	{
-		wafCtx, cancelWAF := context.WithTimeout(ctx, 10*time.Second)
+		wafBase := ctx
+		if o.execGateway != nil {
+			wafBase = execution.WithGateway(wafBase, o.execGateway)
+		}
+		if o.requireExecutionV2 {
+			wafBase = execution.WithRequired(wafBase)
+		}
+		wafCtx, cancelWAF := context.WithTimeout(wafBase, 10*time.Second)
 		wafRes := FingerprintWAF(wafCtx, flow.Target)
 		cancelWAF()
 		o.wafResultMu.Lock()
@@ -2213,14 +2229,15 @@ func (o *Orchestrator) runAgentLoop(ctx context.Context, flowID uuid.UUID, taskI
 
 				tool, ok := o.toolRegistry.Get(tc.Name)
 				var res string
+				var callErr error
 				if !ok {
 					res = "Tool not found: " + tc.Name
-				} else if o.requireExecutionV2 && o.execGateway == nil {
-					res = "BLOCKED: execution gateway required"
-				} else if o.execGateway != nil {
-					res, _ = o.execGateway.ExecuteTool(ctx, flowID.String(), tc.Name, "orchestrator", json.RawMessage(tc.Arguments), func(runCtx context.Context) (string, error) {
-						return o.executeToolCall(runCtx, tc.Name, json.RawMessage(tc.Arguments), tool, flowID, taskID)
-					})
+					callErr = fmt.Errorf("tool not found")
+				} else if o.execGateway != nil || o.requireExecutionV2 {
+					res, callErr = o.executeToolCall(ctx, tc.Name, json.RawMessage(tc.Arguments), tool, flowID, taskID)
+					if callErr != nil && res == "" {
+						res = callErr.Error()
+					}
 				} else {
 					inScope := true
 					reason := ""
@@ -2229,14 +2246,18 @@ func (o *Orchestrator) runAgentLoop(ctx context.Context, flowID uuid.UUID, taskI
 					}
 					if !inScope {
 						res = reason
+						callErr = fmt.Errorf("%s", reason)
 					} else {
-						res, _ = o.executeToolCall(ctx, tc.Name, json.RawMessage(tc.Arguments), tool, flowID, taskID)
+						res, callErr = o.executeToolCall(ctx, tc.Name, json.RawMessage(tc.Arguments), tool, flowID, taskID)
 					}
 				}
 
-				// Restore Action Persistence
 				if o.queries != nil {
-					o.queries.CreateAction(subtaskID, models.ActionTypeCommand, tc.Arguments, res, "success")
+					status := "success"
+					if callErr != nil {
+						status = "denied"
+					}
+					o.queries.CreateAction(subtaskID, models.ActionTypeCommand, tc.Arguments, res, status)
 				}
 
 				o.emit(flowID.String(), Event{

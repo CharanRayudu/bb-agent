@@ -49,7 +49,9 @@ type Authorization struct {
 	AllowUnrestrictedShell bool      `json:"allow_unrestricted_shell,omitempty"`
 	AllowSubdomains        bool      `json:"allow_subdomains,omitempty"`
 	MaxRequests            int       `json:"max_requests,omitempty"`
+	MaxConcurrent          int       `json:"max_concurrent,omitempty"`
 	RequestsUsed           int       `json:"requests_used,omitempty"`
+	InFlight               int       `json:"-"`
 	NotBefore              time.Time `json:"not_before"`
 	ExpiresAt              time.Time `json:"expires_at"`
 }
@@ -71,15 +73,20 @@ type Subject struct {
 
 // Approval is a durable human decision for one action or one phase.
 type Approval struct {
-	ID        string
-	FlowID    string
-	ActionKey string
-	Phase     string
-	Status    string
-	Actor     string
-	Reason    string
-	ExpiresAt time.Time
-	CreatedAt time.Time
+	ID         string
+	FlowID     string
+	ActionKey  string
+	Phase      string
+	Status     string
+	Actor      string
+	Reason     string
+	Method     string
+	Target     string
+	Digest     string
+	Risk       string
+	Capability string
+	ExpiresAt  time.Time
+	CreatedAt  time.Time
 }
 
 // Decision is a machine-readable authorization result.

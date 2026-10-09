@@ -51,6 +51,32 @@ func (b *Book) Snapshot(flowID string) (Authorization, bool) {
 	return *auth, true
 }
 
+// Get returns the canonical record for a flow, if one was stored.
+func (b *Book) Get(flowID string) *Authorization {
+	if b == nil {
+		return nil
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.byFlow[flowID]
+}
+
+// All returns a copy of every stored authorization.
+func (b *Book) All() []Authorization {
+	if b == nil {
+		return nil
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	out := make([]Authorization, 0, len(b.order))
+	for _, auth := range b.order {
+		if auth != nil {
+			out = append(out, *auth)
+		}
+	}
+	return out
+}
+
 // TryConsume increments the request counter when budget remains.
 // A zero MaxRequests means unlimited.
 func (b *Book) TryConsume(flowID string) bool {
@@ -101,4 +127,66 @@ func (b *Book) AuthorizeStart(target string, now time.Time) Decision {
 		}
 	}
 	return deny(CodeOutOfScope, "target is not covered by an unexpired authorization record")
+}
+
+// Match returns the authorization a scheduled or CI scan must inherit.
+func (b *Book) Match(target string, now time.Time) (Authorization, bool) {
+	if b == nil {
+		return Authorization{}, false
+	}
+	parsed, err := ParseTarget(target)
+	if err != nil {
+		return Authorization{}, false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, auth := range b.order {
+		if auth == nil || !windowOpen(*auth, now) {
+			continue
+		}
+		port := effectivePort(parsed.Port, parsed.Scheme)
+		if authorizedHost(*auth, parsed.Host) && authorizedPort(*auth, parsed.Host, port, parsed.Scheme) && !excluded(*auth, parsed.Host, port, parsed.Scheme) {
+			return *auth, true
+		}
+	}
+	return Authorization{}, false
+}
+
+func windowOpen(auth Authorization, now time.Time) bool {
+	if !auth.NotBefore.IsZero() && now.Before(auth.NotBefore) {
+		return false
+	}
+	if !auth.ExpiresAt.IsZero() && !now.Before(auth.ExpiresAt) {
+		return false
+	}
+	return true
+}
+
+// CloneForFlow copies restrictions onto a new flow without widening them.
+func (a Authorization) CloneForFlow(flowID string) Authorization {
+	clone := a
+	clone.ID = "auth:" + flowID
+	clone.FlowID = flowID
+	if clone.EngagementID == "" {
+		clone.EngagementID = a.FlowID
+	}
+	clone.RequestsUsed = 0
+	clone.InFlight = 0
+	return clone
+}
+
+// Revoke expires an authorization immediately.
+func (b *Book) Revoke(id string, now time.Time) bool {
+	if b == nil {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, auth := range b.order {
+		if auth != nil && auth.ID == id {
+			auth.ExpiresAt = now
+			return true
+		}
+	}
+	return false
 }

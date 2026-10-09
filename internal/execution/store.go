@@ -3,6 +3,7 @@ package execution
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"sync"
 	"time"
 
@@ -121,28 +122,28 @@ func NewDurableStore(mem *MemoryStore, db SQLExec) Store {
 }
 
 func (s *sqlStore) AppendDecision(d Decision) error {
-	if err := s.mem.AppendDecision(d); err != nil {
-		return err
-	}
-	_, err := s.db.ExecContext(context.Background(), `
+	if _, err := s.db.ExecContext(context.Background(), `
 		INSERT INTO action_decisions (id, action_id, flow_id, allowed, code, reason, idempotency_key, actor_id, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-		d.ID, d.ActionID, d.FlowID, d.Allowed, d.Code, d.Reason, d.IdempotencyKey, d.ActorID, d.CreatedAt)
-	return err
+		d.ID, d.ActionID, d.FlowID, d.Allowed, d.Code, d.Reason, d.IdempotencyKey, d.ActorID, d.CreatedAt); err != nil {
+		return err
+	}
+	return s.mem.AppendDecision(d)
 }
 
 func (s *sqlStore) Decisions() []Decision { return s.mem.Decisions() }
 
 func (s *sqlStore) SaveApproval(a policy.Approval) error {
-	if err := s.mem.SaveApproval(a); err != nil {
+	if _, err := s.db.ExecContext(context.Background(), `
+		INSERT INTO approval_requests (id, action_key, flow_id, phase, status, actor, reason, expires_at, created_at, method, target, digest, risk, capability)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, actor = EXCLUDED.actor, reason = EXCLUDED.reason, expires_at = EXCLUDED.expires_at,
+			method = EXCLUDED.method, target = EXCLUDED.target, digest = EXCLUDED.digest, risk = EXCLUDED.risk, capability = EXCLUDED.capability`,
+		a.ID, a.ActionKey, a.FlowID, a.Phase, a.Status, a.Actor, a.Reason, nullableTime(a.ExpiresAt), a.CreatedAt,
+		a.Method, a.Target, a.Digest, a.Risk, a.Capability); err != nil {
 		return err
 	}
-	_, err := s.db.ExecContext(context.Background(), `
-		INSERT INTO approval_requests (id, action_key, flow_id, phase, status, actor, reason, expires_at, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, actor = EXCLUDED.actor, reason = EXCLUDED.reason, expires_at = EXCLUDED.expires_at`,
-		a.ID, a.ActionKey, a.FlowID, a.Phase, a.Status, a.Actor, a.Reason, nullableTime(a.ExpiresAt), a.CreatedAt)
-	return err
+	return s.mem.SaveApproval(a)
 }
 
 func (s *sqlStore) ApprovalsForFlow(flowID string) []policy.Approval {
@@ -150,15 +151,18 @@ func (s *sqlStore) ApprovalsForFlow(flowID string) []policy.Approval {
 }
 
 func (s *sqlStore) SaveAuthorization(a policy.Authorization) error {
-	if err := s.mem.SaveAuthorization(a); err != nil {
+	document, err := json.Marshal(a)
+	if err != nil {
 		return err
 	}
-	_, err := s.db.ExecContext(context.Background(), `
-		INSERT INTO engagement_authorizations (id, engagement_id, flow_id, owner, autonomy, expires_at, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, NOW())
-		ON CONFLICT (id) DO UPDATE SET autonomy = EXCLUDED.autonomy, expires_at = EXCLUDED.expires_at`,
-		a.ID, a.EngagementID, a.FlowID, a.Owner, string(a.Autonomy), nullableTime(a.ExpiresAt))
-	return err
+	if _, err := s.db.ExecContext(context.Background(), `
+		INSERT INTO engagement_authorizations (id, engagement_id, flow_id, owner, autonomy, expires_at, created_at, document)
+		VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7::jsonb)
+		ON CONFLICT (id) DO UPDATE SET autonomy = EXCLUDED.autonomy, expires_at = EXCLUDED.expires_at, document = EXCLUDED.document`,
+		a.ID, a.EngagementID, a.FlowID, a.Owner, string(a.Autonomy), nullableTime(a.ExpiresAt), string(document)); err != nil {
+		return err
+	}
+	return s.mem.SaveAuthorization(a)
 }
 
 func nullableTime(t time.Time) any {

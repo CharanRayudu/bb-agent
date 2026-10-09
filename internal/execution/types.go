@@ -34,6 +34,8 @@ type Action struct {
 	Local           bool              `json:"local"`
 	Shell           bool              `json:"shell"`
 	FollowRedirects bool              `json:"follow_redirects"`
+	Digest          string            `json:"digest,omitempty"`
+	ExtraTargets    []string          `json:"extra_targets,omitempty"`
 }
 
 // Decision is persisted for every authorization attempt.
@@ -99,12 +101,9 @@ func ToolAction(flowID, name, actor string, args json.RawMessage) Action {
 		action.Local = true
 		action.SkillID = "control." + name
 	case "execute_command":
-		action.ActionType = "shell.command"
-		action.Risk = policy.RiskExploitation
-		action.Phase = "exploitation"
-		action.Shell = true
-		action.SkillID = "shell.command"
-		applyFirstURL(&action, commandURLRe.FindString(string(args)))
+		classified := classifyCommand(flowID, string(args))
+		classified.ActorID = actor
+		return classified
 	case "visual_crawl":
 		action.ActionType = "browser.navigate"
 		action.Risk = policy.RiskPassive
@@ -116,7 +115,14 @@ func ToolAction(flowID, name, actor string, args json.RawMessage) Action {
 		action.Risk = policy.RiskActive
 		action.Phase = "recon"
 		action.SkillID = "source.fetch"
-		applyFirstURL(&action, commandURLRe.FindString(string(args)))
+		action.Shell = false
+		urls := commandURLRe.FindAllString(string(args), -1)
+		if len(urls) > 0 {
+			applyFirstURL(&action, urls[0])
+		}
+		if len(urls) > 1 {
+			action.ExtraTargets = append(action.ExtraTargets, urls[1:]...)
+		}
 	default:
 		action.ActionType = "tool." + name
 		action.Risk = policy.RiskActive
@@ -160,6 +166,11 @@ func hashArgs(args json.RawMessage) string {
 	return string(buf)
 }
 
+// Digest is a stable short hash for payloads and approval keys.
+func Digest(value string) string {
+	return hashArgs([]byte(value))
+}
+
 // HTTPAction builds a passive or caller-specified HTTP action for a specialist.
 func HTTPAction(flowID, skillID, method, rawURL string) (Action, error) {
 	target, err := policy.ParseTarget(rawURL)
@@ -193,4 +204,18 @@ func HTTPAction(flowID, skillID, method, rawURL string) (Action, error) {
 		FollowRedirects: true,
 		Arguments:       map[string]string{"method": method, "url": rawURL},
 	}, nil
+}
+
+// WithRisk overrides the default method classification.
+// A GET that carries a probe payload is active, not a passive read.
+func (a Action) WithRisk(risk policy.Risk) Action {
+	a.Risk = risk
+	if risk == policy.RiskPassive {
+		a.Phase = "recon"
+		return a
+	}
+	if a.Phase == "" || a.Phase == "recon" {
+		a.Phase = "exploitation"
+	}
+	return a
 }

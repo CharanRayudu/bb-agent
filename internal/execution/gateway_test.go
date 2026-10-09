@@ -254,7 +254,10 @@ func TestRedirectIsAuthorizedBeforeFollow(t *testing.T) {
 	action := httpAct(t, "http://example.com/start")
 	action.FollowRedirects = true
 	trips := 0
-	_, err := gw.Do(context.Background(), action, func(req *http.Request) (*http.Response, error) {
+	gw.SetRoundTrip(func(req *http.Request, ips []net.IP) (*http.Response, error) {
+		if len(ips) == 0 {
+			t.Fatal("redirect hop had no pinned addresses")
+		}
 		trips++
 		if trips > 1 {
 			t.Fatal("transport was called for the redirected host")
@@ -266,6 +269,7 @@ func TestRedirectIsAuthorizedBeforeFollow(t *testing.T) {
 			Request:    req,
 		}, nil
 	})
+	_, err := gw.FollowRedirect(context.Background(), action, nil)
 	if !errors.Is(err, ErrDenied) {
 		t.Fatalf("redirect err=%v", err)
 	}
@@ -277,7 +281,7 @@ func TestRedirectIsAuthorizedBeforeFollow(t *testing.T) {
 func TestUnrestrictedShellDeniedForAutonomousFlow(t *testing.T) {
 	gw, _ := newGW(t, testAuth(policy.AutonomyL3, "http://example.com"), "93.184.216.34")
 	calls := 0
-	_, err := gw.ExecuteTool(context.Background(), "flow-1", "execute_command", "orchestrator", []byte(`{"command":"curl http://example.com"}`), func(context.Context) (string, error) {
+	_, err := gw.ExecuteTool(context.Background(), "flow-1", "execute_command", "orchestrator", []byte(`{"command":"bash -c id"}`), func(context.Context) (string, error) {
 		calls++
 		return "ran", nil
 	})

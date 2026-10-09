@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/bb-agent/mirage/internal/execution"
+	"github.com/bb-agent/mirage/internal/policy"
 )
 
 // ErrOutOfScope is returned by FuzzClient probe methods when the target URL
@@ -72,7 +73,7 @@ func readBody(resp *http.Response) string {
 // If paramName is empty, appends as ?inject=payload.
 func (fc *FuzzClient) ProbeGET(ctx context.Context, targetURL, paramName, payload string) ProbeResult {
 	probeURL := injectParam(targetURL, paramName, payload)
-	if result, handled := fc.gatewayDo(ctx, http.MethodGet, probeURL, ""); handled {
+	if result, handled := fc.gatewayDo(ctx, http.MethodGet, probeURL, "", true); handled {
 		return result
 	}
 
@@ -113,7 +114,7 @@ func (fc *FuzzClient) ProbePOST(ctx context.Context, targetURL, paramName, paylo
 	formData := url.Values{}
 	formData.Set(paramName, payload)
 
-	if result, handled := fc.gatewayDo(ctx, http.MethodPost, targetURL, formData.Encode()); handled {
+	if result, handled := fc.gatewayDo(ctx, http.MethodPost, targetURL, formData.Encode(), true); handled {
 		return result
 	}
 	if !scopeAllows(ctx, targetURL) {
@@ -154,7 +155,7 @@ func (fc *FuzzClient) ProbeURL(ctx context.Context, targetURL, paramName, payloa
 
 // Baseline measures a clean response for timing comparison.
 func (fc *FuzzClient) Baseline(ctx context.Context, targetURL string) time.Duration {
-	if result, handled := fc.gatewayDo(ctx, http.MethodGet, targetURL, ""); handled {
+	if result, handled := fc.gatewayDo(ctx, http.MethodGet, targetURL, "", false); handled {
 		if result.Error != nil {
 			return 0
 		}
@@ -182,7 +183,7 @@ func (fc *FuzzClient) Baseline(ctx context.Context, targetURL string) time.Durat
 	return dur
 }
 
-func (fc *FuzzClient) gatewayDo(ctx context.Context, method, targetURL, body string) (ProbeResult, bool) {
+func (fc *FuzzClient) gatewayDo(ctx context.Context, method, targetURL, body string, active bool) (ProbeResult, bool) {
 	if !execution.Required(ctx) && !execution.HasGateway(ctx) {
 		return ProbeResult{}, false
 	}
@@ -195,11 +196,15 @@ func (fc *FuzzClient) gatewayDo(ctx context.Context, method, targetURL, body str
 	if err != nil {
 		return ProbeResult{Error: err, Duration: time.Since(start)}, true
 	}
-	action.FollowRedirects = true
-	if body != "" {
-		action.Arguments["body"] = body
+	if active {
+		action = action.WithRisk(policy.RiskActive)
+	} else {
+		action = action.WithRisk(policy.RiskPassive)
 	}
-	resp, err := gw.Do(ctx, action, func(req *http.Request) (*http.Response, error) {
+	action.Digest = execution.Digest(method + "\n" + targetURL + "\n" + body)
+	action.IdempotencyKey += ":" + action.Digest
+	action.FollowRedirects = false
+	resp, err := gw.Do(ctx, action, func(req *http.Request) {
 		if body != "" {
 			req.Body = io.NopCloser(strings.NewReader(body))
 			req.ContentLength = int64(len(body))
@@ -207,11 +212,6 @@ func (fc *FuzzClient) gatewayDo(ctx context.Context, method, targetURL, body str
 		}
 		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; SecurityScanner/1.0)")
 		injectAuth(req, fc.auth)
-		client := *fc.client
-		client.CheckRedirect = func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		}
-		return client.Do(req)
 	})
 	dur := time.Since(start)
 	if err != nil {

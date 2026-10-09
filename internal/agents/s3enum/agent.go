@@ -87,13 +87,13 @@ func newHTTPClient() *http.Client {
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
 	}
-	return &http.Client{
+	return base.WrapClient(&http.Client{
 		Timeout:   10 * time.Second,
 		Transport: transport,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
-	}
+	})
 }
 
 // get performs a GET and returns (statusCode, body, error).

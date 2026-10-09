@@ -53,7 +53,7 @@ type gqlClient struct {
 
 func newGQLClient() *gqlClient {
 	return &gqlClient{
-		hc: &http.Client{
+		hc: base.WrapClient(&http.Client{
 			Timeout: 15 * time.Second,
 			Transport: &http.Transport{
 				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
@@ -61,7 +61,7 @@ func newGQLClient() *gqlClient {
 			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 				return http.ErrUseLastResponse
 			},
-		},
+		}),
 	}
 }
 

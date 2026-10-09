@@ -325,7 +325,7 @@ func extractHost(rawURL string) string {
 }
 
 func newHTTPClient() *http.Client {
-	return &http.Client{
+	return base.WrapClient(&http.Client{
 		Timeout: 10 * time.Second,
 		Transport: &http.Transport{
 			TLSClientConfig:   &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
@@ -339,5 +339,5 @@ func newHTTPClient() *http.Client {
 			}
 			return nil
 		},
-	}
+	})
 }

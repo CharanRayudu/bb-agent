@@ -124,6 +124,16 @@ func VersionedMigrations() []Migration {
 			);
 			CREATE INDEX IF NOT EXISTS idx_approval_requests_flow ON approval_requests(flow_id);`,
 		},
+		{
+			Version:     7,
+			Description: "Persist full authorization documents and approval action metadata",
+			SQL: `ALTER TABLE engagement_authorizations ADD COLUMN IF NOT EXISTS document JSONB NOT NULL DEFAULT '{}';
+			ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS method TEXT NOT NULL DEFAULT '';
+			ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS target TEXT NOT NULL DEFAULT '';
+			ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS digest TEXT NOT NULL DEFAULT '';
+			ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS risk TEXT NOT NULL DEFAULT '';
+			ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS capability TEXT NOT NULL DEFAULT '';`,
+		},
 	}
 }
 

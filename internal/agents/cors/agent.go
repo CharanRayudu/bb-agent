@@ -248,12 +248,11 @@ func sendCORSViaGateway(ctx context.Context, targetURL, origin string) corsResul
 	if origin != "" {
 		action.Arguments["origin"] = origin
 	}
-	resp, err := gw.Do(ctx, action, func(req *http.Request) (*http.Response, error) {
+	resp, err := gw.Do(ctx, action, func(req *http.Request) {
 		if origin != "" {
 			req.Header.Set("Origin", origin)
 		}
 		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; SecurityScanner/1.0)")
-		return newHTTPClient().Do(req)
 	})
 	if err != nil {
 		return corsResult{err: err}
@@ -272,13 +271,13 @@ func newHTTPClient() *http.Client {
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
 	}
-	return &http.Client{
+	return base.WrapClient(&http.Client{
 		Timeout:   10 * time.Second,
 		Transport: transport,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
-	}
+	})
 }
 
 const defaultSystemPrompt = `You are a CORS misconfiguration specialist. You detect overly permissive

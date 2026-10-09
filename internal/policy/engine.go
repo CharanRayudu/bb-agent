@@ -27,6 +27,8 @@ const (
 	CodeApprovalExpired      = "approval_expired"
 	CodeBudgetExhausted      = "budget_exhausted"
 	CodeInvalidTarget        = "invalid_target"
+	CodeDNSRebinding         = "dns_rebinding"
+	CodeAuditFailed          = "audit_failed"
 )
 
 // Engine evaluates one subject against an authorization record.
@@ -46,13 +48,13 @@ func (e Engine) Decide(auth *Authorization, subject Subject, approval *Approval,
 	if containsFold(auth.ProhibitedActions, subject.ActionType) {
 		return deny(CodeActionProhibited, "action type is prohibited by the authorization record")
 	}
+	if subject.Shell && !auth.AllowUnrestrictedShell {
+		return deny(CodeUnrestrictedShell, "unrestricted shell execution is not authorized for this engagement")
+	}
 	if !subject.Local {
 		if d := checkDestination(*auth, subject); !d.Allowed {
 			return d
 		}
-	}
-	if subject.Shell && !auth.AllowUnrestrictedShell {
-		return deny(CodeUnrestrictedShell, "unrestricted shell execution is not authorized for this engagement")
 	}
 	if d := checkRisk(*auth, subject, approval, now); !d.Allowed {
 		return d
@@ -68,7 +70,7 @@ func checkDestination(auth Authorization, subject Subject) Decision {
 	if scheme == "" {
 		scheme = "http"
 	}
-	if !schemeAllowed(auth, scheme) {
+	if scheme != "tcp" && !schemeAllowed(auth, scheme) {
 		return deny(CodeSchemeNotAllowed, "protocol "+scheme+" is not allowed")
 	}
 	host := normalizeHost(subject.Host)

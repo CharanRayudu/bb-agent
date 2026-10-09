@@ -312,7 +312,7 @@ func truncate(s string, max int) string {
 }
 
 func newClient() *http.Client {
-	return &http.Client{
+	return base.WrapClient(&http.Client{
 		Timeout: 15 * time.Second,
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
@@ -320,7 +320,7 @@ func newClient() *http.Client {
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
-	}
+	})
 }
 
 const systemPrompt = `You are a Host Header Injection specialist. You test web applications for:
