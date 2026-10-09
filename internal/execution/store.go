@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"time"
 
@@ -18,6 +19,11 @@ type Store interface {
 	SaveApproval(policy.Approval) error
 	ApprovalsForFlow(flowID string) []policy.Approval
 	SaveAuthorization(policy.Authorization) error
+}
+
+// budgetStore increments an engagement budget inside PostgreSQL.
+type budgetStore interface {
+	TryConsumeBudget(ctx context.Context, engagementID string, max int) (used int, allowed bool, err error)
 }
 
 // MemoryStore is the process-local audit log used in tests and as the
@@ -149,6 +155,64 @@ func (s *sqlStore) SaveApproval(a policy.Approval) error {
 func (s *sqlStore) ApprovalsForFlow(flowID string) []policy.Approval {
 	return s.mem.ApprovalsForFlow(flowID)
 }
+
+func (s *sqlStore) TryConsumeBudget(ctx context.Context, engagementID string, max int) (int, bool, error) {
+	queryer, ok := s.db.(interface {
+		QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	})
+	if !ok || engagementID == "" {
+		return 0, false, fmt.Errorf("engagement budget is not stored")
+	}
+	var used int
+	var rows int
+	err := queryer.QueryRowContext(ctx, engagementBudgetSQL, engagementID).Scan(&used, &rows)
+	if err != nil {
+		return 0, false, err
+	}
+	if rows == 0 {
+		return 0, false, fmt.Errorf("engagement budget is not stored")
+	}
+	if used < 0 {
+		if max > 0 {
+			return max, false, nil
+		}
+		return 0, false, nil
+	}
+	return used, true, nil
+}
+
+const engagementBudgetSQL = `
+WITH locked AS (
+    SELECT COALESCE((document->>'requests_used')::int, 0) AS used,
+           COALESCE((document->>'max_requests')::int, 0) AS max_requests
+    FROM engagement_authorizations
+    WHERE engagement_id = $1
+    FOR UPDATE
+),
+stats AS (
+    SELECT COALESCE(MAX(used), 0) AS used,
+           COALESCE(MAX(max_requests), 0) AS max_requests,
+           COUNT(*) AS n
+    FROM locked
+),
+updated AS (
+    UPDATE engagement_authorizations AS e
+    SET document = jsonb_set(
+        CASE WHEN e.document IS NULL OR e.document = 'null'::jsonb THEN '{}'::jsonb ELSE e.document END,
+        '{requests_used}',
+        to_jsonb((SELECT used FROM stats) + 1),
+        true
+    )
+    WHERE e.engagement_id = $1
+      AND (SELECT n FROM stats) > 0
+      AND (
+        (SELECT max_requests FROM stats) = 0
+        OR (SELECT used FROM stats) < (SELECT max_requests FROM stats)
+      )
+    RETURNING COALESCE((document->>'requests_used')::int, 0) AS used
+)
+SELECT COALESCE((SELECT used FROM updated LIMIT 1), -1),
+       COALESCE((SELECT n FROM stats), 0)`
 
 func (s *sqlStore) SaveAuthorization(a policy.Authorization) error {
 	document, err := json.Marshal(a)

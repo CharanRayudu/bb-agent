@@ -17,6 +17,7 @@ func NewVisualValidator() *VisualValidator {
 // ValidateXSS confirms an XSS vulnerability by reaching the page in a real browser.
 func (v *VisualValidator) ValidateXSS(ctx context.Context, targetURL string, param string, payload string, isPOST bool) (bool, string, string, error) {
 	opts := DefaultBrowserOptions()
+	opts.Active = true
 
 	var metadata *BrowserMetadata
 	var err error

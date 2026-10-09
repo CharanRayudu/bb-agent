@@ -27,7 +27,7 @@ func ExecutionPaths() []Path {
 		{ID: "netpentest", Kind: "network", Entry: "internal/agents/netpentest", ScopeToday: "Specialist-owned network activity.", V2Status: "TCP connect scan uses DialAuthorized; HTTP clients are wrapped"},
 		{ID: "schedule", Kind: "trigger", Entry: "server.schedulerTrigger and server.firePlan", ScopeToday: "Creates a flow and calls runAgent with no extra authorization record.", V2Status: "inherits the parent authorization, including autonomy and expiry"},
 		{ID: "cicd", Kind: "trigger", Entry: "POST /api/cicd/trigger", ScopeToday: "Creates a flow for any target when the optional HMAC secret matches.", V2Status: "same inheritance check as scheduled scans"},
-		{ID: "docker.shared_sandbox", Kind: "shell", Entry: "server.runAgent → docker.NewSandbox", ScopeToday: "Executes in the long-lived mirage-sandbox container. FlowSandbox exists and is not used here.", V2Status: "security tools are argv-authorized and their resolved addresses are added to the per-flow allow-list. Go and browser dials refuse other addresses. The shared container bridge itself is still not an iptables allow-list"},
+		{ID: "docker.shared_sandbox", Kind: "shell", Entry: "server.runAgent → docker.FlowSandbox when execution v2 is on", ScopeToday: "Executes in the long-lived mirage-sandbox container. FlowSandbox exists and is not used here.", V2Status: "v2 tool execution uses a per-flow container. iptables and ip6tables in that network namespace allow only authorized IP:port pairs for TCP and UDP"},
 		{ID: "plugins", Kind: "latent", Entry: "internal/plugins/loader.go", ScopeToday: "Loads prompts and script paths. This package does not execute those scripts.", V2Status: "no execution hook added"},
 	}
 }

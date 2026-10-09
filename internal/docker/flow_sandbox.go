@@ -38,7 +38,8 @@ type FlowSandboxConfig struct {
 	CPULimit    int64  // CPU quota (nanoCPUs, e.g., 2e9 = 2 CPUs)
 	MemoryLimit int64  // Memory limit in bytes (e.g., 2<<30 = 2GB)
 	DiskLimit   string // Disk limit (e.g., "5g")
-	NetworkMode string // "bridge", "none", or a user-managed network name
+	NetworkMode string // retained for callers; flow sandboxes use a dedicated bridge plus an in-container filter
+	Image       string // optional image override
 }
 
 // DefaultFlowConfig returns a sensible default sandbox configuration.
@@ -56,6 +57,7 @@ type FlowSandbox struct {
 	client      *client.Client
 	imageName   string
 	containers  map[string]string // flowID -> containerID
+	networks    map[string]string // flowID -> network name
 	mu          sync.Mutex
 	networkName string
 }
@@ -83,8 +85,25 @@ func NewFlowSandbox(dockerHost, imageName string) (*FlowSandbox, error) {
 		client:      cli,
 		imageName:   imageName,
 		containers:  make(map[string]string),
+		networks:    make(map[string]string),
 		networkName: "mirage-net",
 	}, nil
+}
+
+func shortFlowID(flowID string) string {
+	var b strings.Builder
+	for _, r := range flowID {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+		if b.Len() == 12 {
+			break
+		}
+	}
+	if b.Len() == 0 {
+		return "flow"
+	}
+	return b.String()
 }
 
 // CreateForFlow creates an isolated sandbox container for a specific flow.
@@ -97,15 +116,15 @@ func (fs *FlowSandbox) CreateForFlow(ctx context.Context, flowID string, profile
 		return containerID, nil
 	}
 
-	containerName := fmt.Sprintf("mirage-flow-%s", flowID[:8])
-	image := fs.resolveImage(profile)
-
-	netMode := config.NetworkMode
-	if netMode == "" {
-		netMode = "none"
+	id := shortFlowID(flowID)
+	containerName := fmt.Sprintf("mirage-flow-%s", id)
+	image := config.Image
+	if image == "" {
+		image = fs.resolveImage(profile)
 	}
-	if netMode == "bridge" {
-		log.Printf("[sandbox] flow %s uses unrestricted bridge egress; set NetworkMode=\"none\" or configure host firewall for strict isolation", flowID[:8])
+	netName, err := fs.ensureNetwork(ctx, flowID)
+	if err != nil {
+		return "", err
 	}
 
 	hostConfig := &container.HostConfig{
@@ -113,7 +132,8 @@ func (fs *FlowSandbox) CreateForFlow(ctx context.Context, flowID string, profile
 			NanoCPUs: config.CPULimit,
 			Memory:   config.MemoryLimit,
 		},
-		NetworkMode: container.NetworkMode(netMode),
+		NetworkMode: container.NetworkMode(netName),
+		CapAdd:      []string{"NET_ADMIN"},
 		SecurityOpt: []string{
 			"no-new-privileges",
 		},
@@ -130,7 +150,9 @@ func (fs *FlowSandbox) CreateForFlow(ctx context.Context, flowID string, profile
 			},
 		},
 		hostConfig,
-		&network.NetworkingConfig{},
+		&network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{
+			netName: {},
+		}},
 		nil,
 		containerName,
 	)
@@ -144,8 +166,41 @@ func (fs *FlowSandbox) CreateForFlow(ctx context.Context, flowID string, profile
 	}
 
 	fs.containers[flowID] = resp.ID
-	log.Printf("[sandbox] Created flow sandbox %s (%s) with profile %s", containerName, resp.ID[:12], profile)
+	log.Printf("[sandbox] Created flow sandbox %s (%s) with profile %s on %s", containerName, shortID(resp.ID), profile, netName)
 	return resp.ID, nil
+}
+
+func (fs *FlowSandbox) ensureNetwork(ctx context.Context, flowID string) (string, error) {
+	if name, ok := fs.networks[flowID]; ok && name != "" {
+		return name, nil
+	}
+	name := "mirage-flow-" + shortFlowID(flowID)
+	if _, err := fs.client.NetworkInspect(ctx, name, network.InspectOptions{}); err != nil {
+		if _, createErr := fs.client.NetworkCreate(ctx, name, network.CreateOptions{
+			Driver: "bridge",
+			Labels: map[string]string{"mirage.flow_id": flowID},
+		}); createErr != nil {
+			return "", fmt.Errorf("create flow network: %w", createErr)
+		}
+	}
+	fs.networks[flowID] = name
+	return name, nil
+}
+
+func shortID(id string) string {
+	if len(id) > 12 {
+		return id[:12]
+	}
+	return id
+}
+
+// Ensure creates the per-flow container if it does not already exist.
+func (fs *FlowSandbox) Ensure(ctx context.Context, flowID string) error {
+	if fs == nil {
+		return fmt.Errorf("flow sandbox is not configured")
+	}
+	_, err := fs.CreateForFlow(ctx, flowID, ProfileDefault, DefaultFlowConfig())
+	return err
 }
 
 // ExecuteInFlow runs a shell command in a flow-specific sandbox via `bash -c`.
@@ -190,19 +245,36 @@ func (fs *FlowSandbox) DestroyForFlow(ctx context.Context, flowID string) error 
 		return nil
 	}
 	delete(fs.containers, flowID)
+	netName := fs.networks[flowID]
+	delete(fs.networks, flowID)
 	fs.mu.Unlock()
 
 	timeout := 10
 	if err := fs.client.ContainerStop(ctx, containerID, container.StopOptions{Timeout: &timeout}); err != nil {
-		log.Printf("[sandbox] Warning: stop failed for %s: %v", containerID[:12], err)
+		log.Printf("[sandbox] Warning: stop failed for %s: %v", shortID(containerID), err)
 	}
 
 	if err := fs.client.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true}); err != nil {
 		return fmt.Errorf("failed to remove flow sandbox: %w", err)
 	}
 
-	log.Printf("[sandbox] Destroyed flow sandbox for %s", flowID[:8])
+	if netName != "" {
+		if err := fs.client.NetworkRemove(ctx, netName); err != nil {
+			log.Printf("[sandbox] Warning: network remove failed for %s: %v", netName, err)
+		}
+	}
+	log.Printf("[sandbox] Destroyed flow sandbox for %s", shortFlowID(flowID))
 	return nil
+}
+
+// NetworkName returns the dedicated bridge for a flow, if it has been created.
+func (fs *FlowSandbox) NetworkName(flowID string) string {
+	if fs == nil {
+		return ""
+	}
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	return fs.networks[flowID]
 }
 
 // CleanupAll removes all flow sandboxes (called on shutdown).
@@ -216,7 +288,7 @@ func (fs *FlowSandbox) CleanupAll(ctx context.Context) {
 
 	for _, fid := range flowIDs {
 		if err := fs.DestroyForFlow(ctx, fid); err != nil {
-			log.Printf("[sandbox] Cleanup error for flow %s: %v", fid[:8], err)
+			log.Printf("[sandbox] Cleanup error for flow %s: %v", shortFlowID(fid), err)
 		}
 	}
 }

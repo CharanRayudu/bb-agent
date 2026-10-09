@@ -78,6 +78,27 @@ func TestProbeGETIsActiveAtL2(t *testing.T) {
 	}
 }
 
+func TestBrowserNavigationIsPassiveAndProbesAreActive(t *testing.T) {
+	auth, err := policy.AuthorizationForTarget("flow-1", "http://example.com", policy.AutonomyL2, "tester", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	book := policy.NewBook()
+	stored := book.Put(auth)
+	gw := execution.NewGateway(book, execution.NewMemoryStore(), fixedResolver{}).WithAuthorization(stored)
+	ctx := execution.WithFlowID(execution.WithGateway(context.Background(), gw), "flow-1")
+	opts := DefaultBrowserOptions()
+	closeNav, err := PrepareBrowserEgress(ctx, "http://example.com/", &opts)
+	if err != nil {
+		t.Fatalf("passive navigation was blocked: %v", err)
+	}
+	closeNav()
+	opts.Active = true
+	if _, err := PrepareBrowserEgress(ctx, "http://example.com/?q=%3Cscript%3E", &opts); err == nil {
+		t.Fatal("active GET probe did not require approval")
+	}
+}
+
 func TestRunHeadlessPOSTChecksTheFormTarget(t *testing.T) {
 	auth, err := policy.AuthorizationForTarget("flow-1", "http://example.com", policy.AutonomyL3, "tester", time.Now())
 	if err != nil {

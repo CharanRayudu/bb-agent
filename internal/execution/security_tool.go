@@ -45,9 +45,10 @@ var knownSecurityTools = map[string]policy.Risk{
 func SecurityToolAction(flowID, actor string, raw json.RawMessage) Action {
 	action := shellAction(flowID, actor, raw)
 	action.ToolID = "run_security_tool"
-	tool, argv, timeout, targets, err := parseSecurityArgv(raw)
+	tool, argv, timeout, endpoints, err := parseSecurityArgv(raw)
 	if err != nil {
-		action.Arguments["reason"] = err.Error()
+		action.Shell = false
+		action.Arguments["reject"] = err.Error()
 		return action
 	}
 	risk := knownSecurityTools[tool]
@@ -64,7 +65,7 @@ func SecurityToolAction(flowID, actor string, raw json.RawMessage) Action {
 	action.IdempotencyKey = flowID + ":" + tool + ":" + hashArgs(raw)
 	action.Digest = Digest(tool + "\n" + strings.Join(argv, "\n"))
 	action.Arguments = map[string]string{"tool": tool}
-	applyDestinationList(&action, targets)
+	applyEndpoints(&action, endpoints)
 	return action
 }
 
@@ -81,7 +82,7 @@ func ParseSecurityArgv(raw json.RawMessage) ([]string, int, error) {
 	return argv, timeout, nil
 }
 
-func parseSecurityArgv(raw json.RawMessage) (string, []string, int, []string, error) {
+func parseSecurityArgv(raw json.RawMessage) (string, []string, int, []policy.Target, error) {
 	var params struct {
 		Tool    string   `json:"tool"`
 		Args    []string `json:"args"`
@@ -109,11 +110,21 @@ func parseSecurityArgv(raw json.RawMessage) (string, []string, int, []string, er
 			return "", nil, 0, nil, fmt.Errorf("security tool arguments cannot contain NUL")
 		}
 	}
-	targets := argvDestinations(params.Args)
-	if len(targets) == 0 {
-		return "", nil, 0, nil, fmt.Errorf("security tool %s is missing a destination", tool)
+	endpoints, err := parseScanEndpoints(tool, params.Args)
+	if err != nil {
+		return "", nil, 0, nil, err
 	}
-	return tool, params.Args, timeout, targets, nil
+	return tool, params.Args, timeout, endpoints, nil
+}
+
+func applyEndpoints(action *Action, endpoints []policy.Target) {
+	if action == nil || len(endpoints) == 0 {
+		return
+	}
+	action.Endpoints = endpoints
+	action.Scheme = endpoints[0].Scheme
+	action.Host = endpoints[0].Host
+	action.Port = endpoints[0].Port
 }
 
 func canonicalTool(name string) (string, error) {

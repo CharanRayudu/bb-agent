@@ -58,6 +58,35 @@ func (e *FlowEgress) Allows(flowID string, ip net.IP, port int) bool {
 	return ok
 }
 
+// SocketPermit is one IP and port the flow may open.
+type SocketPermit struct {
+	IP   net.IP
+	Port int
+}
+
+// Permits returns the sockets currently allowed for a flow.
+func (e *FlowEgress) Permits(flowID string) []SocketPermit {
+	if e == nil {
+		return nil
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	var out []SocketPermit
+	for key := range e.allowed[flowID] {
+		ipText, portText, ok := strings.Cut(key, "|")
+		if !ok {
+			continue
+		}
+		port, err := strconv.Atoi(portText)
+		ip := net.ParseIP(ipText)
+		if err != nil || ip == nil || port <= 0 {
+			continue
+		}
+		out = append(out, SocketPermit{IP: ip, Port: port})
+	}
+	return out
+}
+
 // ClearFlow drops every permit for one flow. Used when its authorization ends.
 func (e *FlowEgress) ClearFlow(flowID string) {
 	if e == nil {

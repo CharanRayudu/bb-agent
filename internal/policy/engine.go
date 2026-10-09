@@ -70,7 +70,7 @@ func checkDestination(auth Authorization, subject Subject) Decision {
 	if scheme == "" {
 		scheme = "http"
 	}
-	if scheme != "tcp" && !schemeAllowed(auth, scheme) {
+	if !transportScheme(scheme) && !schemeAllowed(auth, scheme) {
 		return deny(CodeSchemeNotAllowed, "protocol "+scheme+" is not allowed")
 	}
 	host := normalizeHost(subject.Host)
@@ -175,9 +175,18 @@ func authorizedHost(auth Authorization, host string) bool {
 	return false
 }
 
+func transportScheme(scheme string) bool {
+	switch strings.ToLower(scheme) {
+	case "tcp", "udp":
+		return true
+	default:
+		return false
+	}
+}
+
 func protocolMatches(auth Authorization, host, scheme string) bool {
 	scheme = strings.ToLower(scheme)
-	if scheme == "tcp" {
+	if transportScheme(scheme) {
 		return true
 	}
 	for _, target := range auth.Targets {
@@ -215,12 +224,12 @@ func excluded(auth Authorization, host string, port int, scheme string) bool {
 func portMatches(target Target, port int, scheme string) bool {
 	scheme = strings.ToLower(scheme)
 	targetScheme := strings.ToLower(target.Scheme)
-	if targetScheme != "" && scheme != "tcp" && targetScheme != scheme {
+	if targetScheme != "" && !transportScheme(scheme) && targetScheme != scheme {
 		return false
 	}
 	basis := targetScheme
 	if basis == "" {
-		if scheme == "" || scheme == "tcp" {
+		if scheme == "" || transportScheme(scheme) {
 			basis = "http"
 		} else {
 			basis = scheme

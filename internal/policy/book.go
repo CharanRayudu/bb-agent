@@ -109,6 +109,29 @@ func (b *Book) TryConsume(flowID string) bool {
 	return true
 }
 
+// SetSpent records the engagement counter after a durable increment.
+func (b *Book) SetSpent(flowID string, used int) {
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	auth := b.byFlow[flowID]
+	if auth == nil {
+		return
+	}
+	key := engagementKey(auth)
+	if b.spent == nil {
+		b.spent = map[string]int{}
+	}
+	b.spent[key] = used
+	for _, other := range b.order {
+		if other != nil && engagementKey(other) == key {
+			other.RequestsUsed = used
+		}
+	}
+}
+
 func (b *Book) syncSpend(auth *Authorization) {
 	if auth == nil {
 		return

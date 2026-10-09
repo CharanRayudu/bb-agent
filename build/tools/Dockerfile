@@ -53,6 +53,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     vim-tiny \
     iputils-ping \
+    iptables \
     traceroute \
     unzip \
     python3-requests \

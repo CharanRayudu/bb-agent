@@ -64,6 +64,14 @@ type Tool struct {
 type Registry struct {
 	tools   map[string]*Tool
 	sandbox *docker.Sandbox
+	flows   *docker.FlowSandbox
+}
+
+// UseFlowSandbox routes tool execution into the per-flow container.
+func (r *Registry) UseFlowSandbox(fs *docker.FlowSandbox) {
+	if r != nil {
+		r.flows = fs
+	}
 }
 
 // NewRegistry creates a tool registry with all built-in tools
@@ -359,7 +367,7 @@ func (r *Registry) executeCommand(ctx context.Context, args json.RawMessage) (st
 
 	log.Printf("[TOOL] Executing: %s (timeout: %ds)", params.Command, params.Timeout)
 
-	result, err := r.sandbox.Execute(ctx, params.Command, params.Timeout)
+	result, err := r.execShell(ctx, params.Command, params.Timeout)
 	if err != nil {
 		return "", fmt.Errorf("sandbox execution failed: %w", err)
 	}
@@ -374,15 +382,68 @@ func (r *Registry) executeSecurityTool(ctx context.Context, args json.RawMessage
 	if proxy := execution.ToolProxyURL(ctx); proxy != "" {
 		argv = execution.AppendProxyArg(argv, proxy)
 	}
-	if r.sandbox == nil {
-		return "", fmt.Errorf("sandbox is not configured")
-	}
 	log.Printf("[TOOL] Executing argv: %s", strings.Join(argv, " "))
-	result, err := r.sandbox.ExecuteArgv(ctx, argv, timeout)
+	result, err := r.execArgv(ctx, argv, timeout)
 	if err != nil {
 		return "", fmt.Errorf("sandbox execution failed: %w", err)
 	}
 	return formatSandboxOutput(result), nil
+}
+
+func (r *Registry) execArgv(ctx context.Context, argv []string, timeout int) (*docker.ExecResult, error) {
+	if r == nil {
+		return nil, fmt.Errorf("sandbox is not configured")
+	}
+	flowID := execution.FlowID(ctx)
+	if r.flows != nil && flowID != "" {
+		if err := r.prepareFlow(ctx, flowID); err != nil {
+			return nil, err
+		}
+		return r.flows.ExecuteArgvInFlow(ctx, flowID, argv, timeout)
+	}
+	if execution.Required(ctx) {
+		return nil, fmt.Errorf("per-flow sandbox is required")
+	}
+	if r.sandbox == nil {
+		return nil, fmt.Errorf("sandbox is not configured")
+	}
+	return r.sandbox.ExecuteArgv(ctx, argv, timeout)
+}
+
+func (r *Registry) execShell(ctx context.Context, command string, timeout int) (*docker.ExecResult, error) {
+	if r == nil {
+		return nil, fmt.Errorf("sandbox is not configured")
+	}
+	flowID := execution.FlowID(ctx)
+	if r.flows != nil && flowID != "" {
+		if err := r.prepareFlow(ctx, flowID); err != nil {
+			return nil, err
+		}
+		return r.flows.ExecuteInFlow(ctx, flowID, command, timeout)
+	}
+	if execution.Required(ctx) {
+		return nil, fmt.Errorf("per-flow sandbox is required")
+	}
+	if r.sandbox == nil {
+		return nil, fmt.Errorf("sandbox is not configured")
+	}
+	return r.sandbox.Execute(ctx, command, timeout)
+}
+
+func (r *Registry) prepareFlow(ctx context.Context, flowID string) error {
+	if err := r.flows.Ensure(ctx, flowID); err != nil {
+		return err
+	}
+	if !execution.HasGateway(ctx) && !execution.Required(ctx) {
+		return nil
+	}
+	var permits []docker.EgressPermit
+	if gw := execution.GatewayFrom(ctx); gw != nil && gw.Egress() != nil {
+		for _, permit := range gw.Egress().Permits(flowID) {
+			permits = append(permits, docker.EgressPermit{IP: permit.IP, Port: permit.Port})
+		}
+	}
+	return r.flows.EnforceEgress(ctx, flowID, permits)
 }
 
 func formatSandboxOutput(result *docker.ExecResult) string {
@@ -424,12 +485,12 @@ func (r *Registry) analyzeSourceCode(ctx context.Context, args json.RawMessage) 
 	log.Printf("[ANALYZE] CodeMapper: Analyzing %s (focus: %s)", cleanURL, params.Focus)
 
 	// Step 1: wipe previous clone via argv (no shell interpolation).
-	if _, err := r.sandbox.ExecuteArgv(ctx, []string{"rm", "-rf", "/tmp/codemapper_repo"}, 30); err != nil {
+	if _, err := r.execArgv(ctx, []string{"rm", "-rf", "/tmp/codemapper_repo"}, 30); err != nil {
 		return "", fmt.Errorf("codemapper cleanup failed: %w", err)
 	}
 
 	// Step 2: clone via argv — the URL is never seen by a shell.
-	cloneRes, err := r.sandbox.ExecuteArgv(ctx, []string{
+	cloneRes, err := r.execArgv(ctx, []string{
 		"git", "clone", "--depth=1", "--", cleanURL, "/tmp/codemapper_repo",
 	}, 120)
 	if err != nil {
@@ -474,7 +535,7 @@ func (r *Registry) analyzeSourceCode(ctx context.Context, args json.RawMessage) 
 
 	fullCmd := fmt.Sprintf("%s && echo '=== Security Analysis ===' && %s", statsCmd, grepPatterns)
 
-	result, err := r.sandbox.Execute(ctx, fullCmd, 120)
+	result, err := r.execShell(ctx, fullCmd, 120)
 	if err != nil {
 		return "", fmt.Errorf("codemapper execution failed: %w", err)
 	}

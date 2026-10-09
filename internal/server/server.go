@@ -1039,9 +1039,27 @@ func (s *Server) handleCreateFlow(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string, timeout int, agentTimeout int) {
-	// Create Docker sandbox
-	sandbox, err := docker.NewSandbox(s.cfg.DockerHost, s.cfg.SandboxImage)
-	if err != nil {
+	// v2 scans run in a per-flow container whose OUTPUT filter is the egress boundary.
+	// The shared mirage-sandbox remains only for engagements that have not enabled execution v2.
+	var sandbox *docker.Sandbox
+	var flows *docker.FlowSandbox
+	if s.cfg != nil && s.cfg.ExecutionV2 {
+		created, err := docker.NewFlowSandbox(s.cfg.DockerHost, s.cfg.SandboxImage)
+		if err != nil {
+			log.Printf("[ERROR] Failed to create flow sandbox: %v", err)
+			s.queries.UpdateFlowStatus(flowID, models.FlowStatusFailed)
+			s.broadcast(agent.Event{
+				Type:    agent.EventError,
+				FlowID:  flowID.String(),
+				Content: fmt.Sprintf("Failed to create per-flow sandbox: %v", err),
+			})
+			return
+		}
+		flows = created
+		defer flows.DestroyForFlow(context.Background(), flowID.String())
+	}
+	createdSandbox, err := docker.NewSandbox(s.cfg.DockerHost, s.cfg.SandboxImage)
+	if err != nil && flows == nil {
 		log.Printf("[ERROR] Failed to create sandbox: %v", err)
 		s.queries.UpdateFlowStatus(flowID, models.FlowStatusFailed)
 		s.broadcast(agent.Event{
@@ -1051,7 +1069,10 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 		})
 		return
 	}
-	defer sandbox.Close()
+	if createdSandbox != nil {
+		sandbox = createdSandbox
+		defer sandbox.Close()
+	}
 
 	// Use the user-selected model, or fall back to config default
 	model := selectedModel
@@ -1081,6 +1102,9 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 
 	// Create tool registry
 	registry := tools.NewRegistry(sandbox)
+	if flows != nil {
+		registry.UseFlowSandbox(flows)
+	}
 
 	// Load externalized prompts
 	prompts, err := config.LoadPrompts("prompts.yaml")

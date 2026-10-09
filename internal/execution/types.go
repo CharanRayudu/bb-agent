@@ -1,6 +1,8 @@
 package execution
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/url"
 	"regexp"
@@ -36,6 +38,7 @@ type Action struct {
 	FollowRedirects bool              `json:"follow_redirects"`
 	Digest          string            `json:"digest,omitempty"`
 	ExtraTargets    []string          `json:"extra_targets,omitempty"`
+	Endpoints       []policy.Target   `json:"endpoints,omitempty"`
 }
 
 // Decision is persisted for every authorization attempt.
@@ -152,23 +155,13 @@ func applyFirstURL(action *Action, raw string) {
 }
 
 func hashArgs(args json.RawMessage) string {
-	sum := uint32(2166136261)
-	for _, b := range args {
-		sum ^= uint32(b)
-		sum *= 16777619
-	}
-	const hexdigits = "0123456789abcdef"
-	buf := make([]byte, 8)
-	for i := 7; i >= 0; i-- {
-		buf[i] = hexdigits[sum&0xf]
-		sum >>= 4
-	}
-	return string(buf)
+	return Digest(string(args))
 }
 
-// Digest is a stable short hash for payloads and approval keys.
+// Digest is the SHA-256 hex of an approval fingerprint or payload.
 func Digest(value string) string {
-	return hashArgs([]byte(value))
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
 }
 
 // HTTPAction builds a passive or caller-specified HTTP action for a specialist.

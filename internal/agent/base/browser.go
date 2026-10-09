@@ -28,7 +28,15 @@ func PrepareBrowserEgress(ctx context.Context, targetURL string, opts *BrowserOp
 	if !execution.HasGateway(ctx) && !execution.Required(ctx) {
 		return noop, nil
 	}
-	if err := execution.CheckDestination(ctx, "browser.navigate", "browser.crawl", targetURL); err != nil {
+	if opts != nil && opts.Active {
+		method := opts.Method
+		if method == "" {
+			method = "GET"
+		}
+		if err := execution.CheckActiveRequest(ctx, "browser.probe", "browser.probe", method, targetURL); err != nil {
+			return nil, err
+		}
+	} else if err := execution.CheckDestination(ctx, "browser.navigate", "browser.crawl", targetURL); err != nil {
 		return nil, err
 	}
 	if existing := execution.ProxyFrom(ctx); existing != nil {
@@ -85,6 +93,10 @@ type BrowserOptions struct {
 	Proxy     string
 	UserAgent string
 	Headers   map[string]string
+	// Active marks a vulnerability probe. Ordinary crawl and screenshot
+	// navigation stays passive.
+	Active bool
+	Method string
 }
 
 // DefaultBrowserOptions returns standard settings for vulnerability validation.
@@ -307,6 +319,10 @@ func RunHeadlessPOST(ctx context.Context, actionURL string, data map[string]stri
 	formHTML += `</form></body></html>`
 
 	dataURL := fmt.Sprintf("data:text/html;base64,%s", base64.StdEncoding.EncodeToString([]byte(formHTML)))
+	opts.Active = true
+	if opts.Method == "" {
+		opts.Method = "POST"
+	}
 	closeProxy, err := PrepareBrowserEgress(ctx, actionURL, &opts)
 	if err != nil {
 		return nil, err

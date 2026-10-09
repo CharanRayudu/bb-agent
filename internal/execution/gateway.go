@@ -145,6 +145,14 @@ func (g *Gateway) authorizeOnce(ctx context.Context, action Action) (Decision, [
 		return Decision{}, nil, ErrGatewayRequired
 	}
 	action = g.prepare(action)
+	if action.Arguments != nil && action.Arguments["reject"] != "" {
+		d, err := g.persist(action, policy.Decision{Allowed: false, Code: policy.CodeInvalidTarget, Reason: action.Arguments["reject"]})
+		if err != nil {
+			return d, nil, err
+		}
+		g.remember(action.ID, "denied", d)
+		return d, nil, denial(d)
+	}
 	if g.isCancelled(action.ID) {
 		d, err := g.persist(action, policy.Decision{Allowed: false, Code: "cancelled", Reason: "action was cancelled"})
 		if err != nil {
@@ -217,7 +225,41 @@ func (g *Gateway) authorizeOnce(ctx context.Context, action Action) (Decision, [
 		}
 		g.permit(action.FlowID, extraIPs, extraAction.Port, extraAction.Scheme)
 	}
-	if !g.consume(action.FlowID) {
+	for i, endpoint := range action.Endpoints {
+		if i == 0 {
+			continue
+		}
+		extra := action
+		extra.Scheme = endpoint.Scheme
+		extra.Host = endpoint.Host
+		extra.Port = endpoint.Port
+		extra.Path = ""
+		extra.Endpoints = nil
+		extra.ExtraTargets = nil
+		verdict, endpointIPs, err := g.evaluate(ctx, extra)
+		if err != nil {
+			return Decision{}, nil, fmt.Errorf("%w: %v", ErrAudit, err)
+		}
+		if !verdict.Allowed {
+			d, perr := g.persist(action, verdict)
+			if perr != nil {
+				return d, nil, perr
+			}
+			g.remember(action.ID, decisionState(verdict), d)
+			return d, nil, denial(d)
+		}
+		g.permit(action.FlowID, endpointIPs, endpoint.Port, endpoint.Scheme)
+	}
+	allowed, consumeErr := g.consume(ctx, action.FlowID)
+	if consumeErr != nil {
+		d, err := g.persist(action, policy.Decision{Allowed: false, Code: policy.CodeAuditFailed, Reason: consumeErr.Error()})
+		if err != nil {
+			return d, nil, err
+		}
+		g.remember(action.ID, "audit_failed", d)
+		return d, nil, fmt.Errorf("%w: %v", ErrAudit, consumeErr)
+	}
+	if !allowed {
 		denied := policy.Decision{Allowed: false, Code: policy.CodeBudgetExhausted, Reason: "request budget for this authorization is exhausted"}
 		d, err := g.persist(action, denied)
 		if err != nil {
@@ -235,18 +277,34 @@ func (g *Gateway) authorizeOnce(ctx context.Context, action Action) (Decision, [
 	return d, parseIPs(secondIPs), nil
 }
 
-func (g *Gateway) consume(flowID string) bool {
-	if _, ok := g.book.Snapshot(flowID); ok {
-		return g.book.TryConsume(flowID)
+func (g *Gateway) consume(ctx context.Context, flowID string) (bool, error) {
+	if snap, ok := g.book.Snapshot(flowID); ok {
+		if store, ok := g.store.(budgetStore); ok {
+			key := snap.EngagementID
+			if key == "" {
+				key = snap.FlowID
+			}
+			used, allowed, err := store.TryConsumeBudget(ctx, key, snap.MaxRequests)
+			if err != nil {
+				return false, err
+			}
+			if allowed {
+				g.book.SetSpent(flowID, used)
+			} else if snap.MaxRequests > 0 {
+				g.book.SetSpent(flowID, snap.MaxRequests)
+			}
+			return allowed, nil
+		}
+		return g.book.TryConsume(flowID), nil
 	}
 	if g.auth != nil && (flowID == "" || g.auth.FlowID == flowID) {
 		if g.auth.MaxRequests > 0 && g.auth.RequestsUsed >= g.auth.MaxRequests {
-			return false
+			return false, nil
 		}
 		g.auth.RequestsUsed++
-		return true
+		return true, nil
 	}
-	return false
+	return false, nil
 }
 
 // Execute authorizes an action and only then calls run.
@@ -747,6 +805,16 @@ func parseIPs(values []string) []net.IP {
 // CheckDestination authorizes a URL already sitting on a context gateway.
 // Callers with no gateway keep their existing behavior.
 func CheckDestination(ctx context.Context, actionType, skillID, rawURL string) error {
+	return checkRequest(ctx, actionType, skillID, "GET", false, rawURL)
+}
+
+// CheckActiveRequest authorizes a vulnerability probe. A GET that carries a
+// payload is active even though ordinary browser navigation stays passive.
+func CheckActiveRequest(ctx context.Context, actionType, skillID, method, rawURL string) error {
+	return checkRequest(ctx, actionType, skillID, method, true, rawURL)
+}
+
+func checkRequest(ctx context.Context, actionType, skillID, method string, active bool, rawURL string) error {
 	if !Required(ctx) && !HasGateway(ctx) {
 		return nil
 	}
@@ -754,12 +822,18 @@ func CheckDestination(ctx context.Context, actionType, skillID, rawURL string) e
 	if gw == nil {
 		return ErrGatewayRequired
 	}
-	action, err := HTTPAction(FlowID(ctx), skillID, "GET", rawURL)
+	if method == "" {
+		method = "GET"
+	}
+	action, err := HTTPAction(FlowID(ctx), skillID, method, rawURL)
 	if err != nil {
 		return err
 	}
 	action.ActionType = actionType
 	action.SkillID = skillID
+	if active {
+		action = action.WithRisk(policy.RiskActive)
+	}
 	_, err = gw.Authorize(ctx, action)
 	return err
 }
