@@ -86,6 +86,54 @@ func VersionedMigrations() []Migration {
 			Description: "APTS AL: Add autonomy_level column to flows table",
 			SQL:         `ALTER TABLE flows ADD COLUMN IF NOT EXISTS autonomy_level TEXT NOT NULL DEFAULT 'L3';`,
 		},
+		{
+			Version:     6,
+			Description: "Engagement authorizations, action decisions, and approval requests",
+			SQL: `CREATE TABLE IF NOT EXISTS engagement_authorizations (
+				id TEXT PRIMARY KEY,
+				engagement_id TEXT NOT NULL DEFAULT '',
+				flow_id TEXT NOT NULL DEFAULT '',
+				owner TEXT NOT NULL DEFAULT '',
+				autonomy TEXT NOT NULL DEFAULT 'L3',
+				expires_at TIMESTAMPTZ,
+				created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+			);
+			CREATE INDEX IF NOT EXISTS idx_engagement_auth_flow ON engagement_authorizations(flow_id);
+			CREATE TABLE IF NOT EXISTS action_decisions (
+				id TEXT PRIMARY KEY,
+				action_id TEXT NOT NULL DEFAULT '',
+				flow_id TEXT NOT NULL DEFAULT '',
+				allowed BOOLEAN NOT NULL DEFAULT FALSE,
+				code TEXT NOT NULL DEFAULT '',
+				reason TEXT NOT NULL DEFAULT '',
+				idempotency_key TEXT NOT NULL DEFAULT '',
+				actor_id TEXT NOT NULL DEFAULT '',
+				created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+			);
+			CREATE INDEX IF NOT EXISTS idx_action_decisions_flow ON action_decisions(flow_id);
+			CREATE TABLE IF NOT EXISTS approval_requests (
+				id TEXT PRIMARY KEY,
+				action_key TEXT NOT NULL DEFAULT '',
+				flow_id TEXT NOT NULL DEFAULT '',
+				phase TEXT NOT NULL DEFAULT '',
+				status TEXT NOT NULL DEFAULT 'pending',
+				actor TEXT NOT NULL DEFAULT '',
+				reason TEXT NOT NULL DEFAULT '',
+				expires_at TIMESTAMPTZ,
+				created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+			);
+			CREATE INDEX IF NOT EXISTS idx_approval_requests_flow ON approval_requests(flow_id);`,
+		},
+		{
+			Version:     7,
+			Description: "Persist full authorization documents and approval action metadata",
+			SQL: `ALTER TABLE engagement_authorizations ADD COLUMN IF NOT EXISTS document JSONB NOT NULL DEFAULT '{}';
+			ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS method TEXT NOT NULL DEFAULT '';
+			ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS target TEXT NOT NULL DEFAULT '';
+			ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS digest TEXT NOT NULL DEFAULT '';
+			ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS risk TEXT NOT NULL DEFAULT '';
+			ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS capability TEXT NOT NULL DEFAULT '';`,
+		},
 	}
 }
 

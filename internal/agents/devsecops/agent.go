@@ -140,7 +140,7 @@ func normalizeTarget(target string) string {
 }
 
 func newDevSecOpsHTTPClient() *http.Client {
-	return &http.Client{
+	return base.WrapClient(&http.Client{
 		Timeout: 15 * time.Second,
 		Transport: &http.Transport{
 			TLSClientConfig:     &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
@@ -153,5 +153,5 @@ func newDevSecOpsHTTPClient() *http.Client {
 			}
 			return nil
 		},
-	}
+	})
 }

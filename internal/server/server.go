@@ -23,11 +23,13 @@ import (
 	"github.com/bb-agent/mirage/internal/copilot"
 	"github.com/bb-agent/mirage/internal/database"
 	"github.com/bb-agent/mirage/internal/docker"
+	"github.com/bb-agent/mirage/internal/execution"
 	"github.com/bb-agent/mirage/internal/knowledge"
 	"github.com/bb-agent/mirage/internal/llm"
 	"github.com/bb-agent/mirage/internal/models"
 	"github.com/bb-agent/mirage/internal/monitoring"
 	"github.com/bb-agent/mirage/internal/notify"
+	"github.com/bb-agent/mirage/internal/policy"
 	"github.com/bb-agent/mirage/internal/posture"
 	"github.com/bb-agent/mirage/internal/profiles"
 	"github.com/bb-agent/mirage/internal/remediation"
@@ -92,6 +94,11 @@ type Server struct {
 	// llmProvider is used for stateless LLM API requests (e.g. /api/mutate).
 	// May be nil when no auth is configured.
 	llmProvider llm.Provider
+
+	// v2 authorization. The book is what scheduled and CI scans consult.
+	engagements *policy.Book
+	execLog     *execution.MemoryStore
+	gateway     *execution.Gateway
 
 	// Shared knowledge graph — persists across scans within the same server process.
 	knowledgeGraph   knowledge.Graph
@@ -195,7 +202,15 @@ func New(cfg *config.Config, db *sql.DB) *Server {
 		remediationTracker:  remediationTracker,
 		surfaceStore:        surfaceStore,
 		llmProvider:         sharedProvider,
+		engagements:         policy.NewBook(),
+		execLog:             execution.NewMemoryStore(),
 	}
+	var execStore execution.Store = s.execLog
+	if db != nil {
+		execStore = execution.NewDurableStore(s.execLog, db)
+	}
+	s.gateway = execution.NewGateway(s.engagements, execStore, execution.NetResolver{})
+	s.gateway.EnableResume()
 
 	// Continuous monitoring subsystem
 	s.monitorStore = monitoring.NewStore()
@@ -212,6 +227,89 @@ func New(cfg *config.Config, db *sql.DB) *Server {
 
 	s.setupRoutes()
 	return s
+}
+
+func (s *Server) handleListApprovals(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	w.Header().Set("Content-Type", "application/json")
+	if s.gateway == nil || s.gateway.Store() == nil {
+		json.NewEncoder(w).Encode([]policy.Approval{})
+		return
+	}
+	json.NewEncoder(w).Encode(s.gateway.Store().ApprovalsForFlow(id.String()))
+}
+
+func (s *Server) handleApprovalDecision(w http.ResponseWriter, r *http.Request, id uuid.UUID, approvalID string) {
+	if s.gateway == nil {
+		http.Error(w, "approval gateway is not configured", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		Status string `json:"status"`
+		Reason string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	approval, err := s.gateway.ResolveApproval(approvalID, s.actorFromRequest(r), body.Status, body.Reason, 30*time.Minute)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(approval)
+}
+
+func (s *Server) inheritedAutonomy(target string) (string, *policy.Authorization) {
+	if s == nil || s.cfg == nil || !s.cfg.ExecutionV2 || s.engagements == nil {
+		return "L3", nil
+	}
+	parent, ok := s.engagements.Match(target, time.Now())
+	if !ok {
+		return "L3", nil
+	}
+	return string(parent.Autonomy), &parent
+}
+
+func (s *Server) bindInherited(flowID string, parent *policy.Authorization) error {
+	if parent == nil {
+		return nil
+	}
+	clone := parent.CloneForFlow(flowID)
+	s.engagements.Put(clone)
+	if s.gateway != nil && s.gateway.Store() != nil {
+		if err := s.gateway.Store().SaveAuthorization(clone); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// authorizeTriggeredScan is the shared gate for scheduled scans and CI triggers.
+// Interactive flow creation mints an authorization record later; these paths
+// may only start when a matching unexpired record already exists.
+func (s *Server) authorizeTriggeredScan(target, source string) error {
+	if s == nil || s.cfg == nil || !s.cfg.ExecutionV2 {
+		return nil
+	}
+	if s.engagements == nil {
+		s.engagements = policy.NewBook()
+	}
+	decision := s.engagements.AuthorizeStart(target, time.Now())
+	if decision.Allowed {
+		return nil
+	}
+	if s.execLog != nil {
+		_ = s.execLog.AppendDecision(execution.Decision{
+			ID:        uuid.NewString(),
+			Allowed:   false,
+			Code:      decision.Code,
+			Reason:    source + ": " + decision.Reason,
+			ActorID:   source,
+			CreatedAt: time.Now(),
+		})
+	}
+	return fmt.Errorf("%s", decision.Reason)
 }
 
 func buildLLMProvider(cfg *config.Config, selectedModel string) llm.Provider {
@@ -245,14 +343,23 @@ func (s *Server) currentLLMProvider(model string) llm.Provider {
 
 // firePlan is the FireFunc called by the schedplan Runner when a schedule fires.
 func (s *Server) firePlan(sc *schedplan.Schedule) {
+	if err := s.authorizeTriggeredScan(sc.Target, "schedule"); err != nil {
+		log.Printf("[SCHEDPLAN] Refusing %s: %v", sc.Target, err)
+		return
+	}
+	autonomy, parent := s.inheritedAutonomy(sc.Target)
 	flow, err := s.queries.CreateFlow(
 		"Scheduled: "+sc.Name,
 		"Automated scan — profile: "+sc.ProfileName,
 		sc.Target,
-		"L3",
+		autonomy,
 	)
 	if err != nil {
 		log.Printf("[SCHEDPLAN] Failed to create flow for %s: %v", sc.Target, err)
+		return
+	}
+	if err := s.bindInherited(flow.ID.String(), parent); err != nil {
+		log.Printf("[SCHEDPLAN] Refusing %s: %v", sc.Target, err)
 		return
 	}
 	s.auditLog.Record("scheduler", "scan_started", flow.ID.String(), map[string]interface{}{
@@ -273,9 +380,18 @@ func (s *Server) firePlan(sc *schedplan.Schedule) {
 
 // schedulerTrigger is the callback invoked by the Scheduler to start a new scan.
 func (s *Server) schedulerTrigger(target, profile string) {
-	flow, err := s.queries.CreateFlow("Scheduled: "+target, "Scheduled scan via profile "+profile, target, "L3")
+	if err := s.authorizeTriggeredScan(target, "schedule"); err != nil {
+		log.Printf("[SCHEDULER] Refusing %s: %v", target, err)
+		return
+	}
+	autonomy, parent := s.inheritedAutonomy(target)
+	flow, err := s.queries.CreateFlow("Scheduled: "+target, "Scheduled scan via profile "+profile, target, autonomy)
 	if err != nil {
 		log.Printf("[SCHEDULER] Failed to create flow for %s: %v", target, err)
+		return
+	}
+	if err := s.bindInherited(flow.ID.String(), parent); err != nil {
+		log.Printf("[SCHEDULER] Refusing %s: %v", target, err)
 		return
 	}
 	s.auditLog.Record("scheduler", "scan_started", flow.ID.String(), map[string]interface{}{
@@ -331,6 +447,11 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) Start(ctx context.Context, addr string) error {
+	if s.cfg != nil {
+		if err := s.cfg.ValidateProduction(); err != nil {
+			return err
+		}
+	}
 	srv := &http.Server{
 		Addr:    addr,
 		Handler: s.Handler(),
@@ -438,6 +559,12 @@ func (s *Server) handleFlow(w http.ResponseWriter, r *http.Request) {
 
 		if subRoute == "/events" && r.Method == http.MethodGet {
 			s.handleFlowEvents(w, r, id)
+			return
+		} else if subRoute == "/approvals" && r.Method == http.MethodGet {
+			s.handleListApprovals(w, r, id)
+			return
+		} else if strings.HasPrefix(subRoute, "/approvals/") && strings.HasSuffix(subRoute, "/decision") && r.Method == http.MethodPost {
+			s.handleApprovalDecision(w, r, id, strings.TrimSuffix(strings.TrimPrefix(subRoute, "/approvals/"), "/decision"))
 			return
 		} else if subRoute == "/ledger" && r.Method == http.MethodGet {
 			s.handleFlowLedger(w, r, id)
@@ -1015,6 +1142,58 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 	if err == nil && flow.AutonomyLevel != "" {
 		orchestrator.SetAutonomyLevel(agent.ParseAutonomyLevel(flow.AutonomyLevel))
 	}
+	if s.cfg != nil && s.cfg.ExecutionV2 {
+		if err != nil {
+			log.Printf("[policy] refusing flow %s: authorization requires the flow record: %v", flowID, err)
+			s.queries.UpdateFlowStatus(flowID, models.FlowStatusFailed)
+			return
+		}
+		var stored *policy.Authorization
+		if s.engagements != nil {
+			stored = s.engagements.Get(flow.ID.String())
+		}
+		if stored == nil {
+			auth, aerr := policy.AuthorizationForTarget(flow.ID.String(), flow.Target, policy.Autonomy(flow.AutonomyLevel), "flow", time.Now())
+			if aerr != nil {
+				log.Printf("[policy] refusing flow %s: %v", flowID, aerr)
+				s.queries.UpdateFlowStatus(flowID, models.FlowStatusFailed)
+				return
+			}
+			stored = s.engagements.Put(auth)
+			if s.gateway != nil && s.gateway.Store() != nil {
+				if saveErr := s.gateway.Store().SaveAuthorization(auth); saveErr != nil {
+					log.Printf("[policy] refusing flow %s: could not persist authorization: %v", flowID, saveErr)
+					s.queries.UpdateFlowStatus(flowID, models.FlowStatusFailed)
+					return
+				}
+			}
+		}
+
+		flowSB, fsErr := docker.NewFlowSandbox(s.cfg.DockerHost, s.cfg.SandboxImage)
+		if fsErr == nil {
+			defer flowSB.DestroyForFlow(context.Background(), flowID.String())
+			_, createErr := flowSB.CreateForFlow(context.Background(), flowID.String(), docker.ProfileDefault, docker.DefaultFlowConfig())
+			if createErr == nil {
+				registry.SetFlowSandbox(flowSB, flowID.String())
+				if cIP, ipErr := flowSB.GetContainerIP(context.Background(), flowID.String()); ipErr == nil && s.gateway != nil && s.gateway.Firewall() != nil {
+					s.gateway.Firewall().BindContainerIP(flowID.String(), cIP)
+				}
+				if s.gateway != nil && s.gateway.Firewall() != nil && stored != nil {
+					if fwErr := s.gateway.Firewall().ApplyFlowRules(context.Background(), flowID.String(), execution.BuildRulesFromAuth(*stored)); fwErr != nil {
+						log.Printf("[policy] refusing flow %s: firewall enforcement failed: %v", flowID, fwErr)
+						s.queries.UpdateFlowStatus(flowID, models.FlowStatusFailed)
+						return
+					}
+				}
+			}
+		}
+
+		if s.gateway != nil {
+			orchestrator.SetExecutionGateway(s.gateway.WithAuthorization(stored), true)
+		} else {
+			orchestrator.SetExecutionGateway(nil, true)
+		}
+	}
 
 	// Setup cancellable context and track it
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1379,11 +1558,20 @@ func (s *Server) handleCICDTrigger(w http.ResponseWriter, r *http.Request) {
 	if req.Profile == "" {
 		req.Profile = "quick"
 	}
+	if err := s.authorizeTriggeredScan(req.Target, "cicd"); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
 
+	autonomy, parent := s.inheritedAutonomy(req.Target)
 	name := fmt.Sprintf("CI/CD: %s [%s]", req.Repo, req.Ref)
-	flow, err := s.queries.CreateFlow(name, "Triggered by CI/CD pipeline", req.Target, "L3")
+	flow, err := s.queries.CreateFlow(name, "Triggered by CI/CD pipeline", req.Target, autonomy)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := s.bindInherited(flow.ID.String(), parent); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 

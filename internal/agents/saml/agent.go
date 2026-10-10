@@ -206,7 +206,7 @@ func newHTTPClient() *http.Client {
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
 	}
-	return &http.Client{
+	return base.WrapClient(&http.Client{
 		Timeout:   15 * time.Second,
 		Transport: transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -216,7 +216,7 @@ func newHTTPClient() *http.Client {
 			}
 			return nil
 		},
-	}
+	})
 }
 
 // xxeErrorPatterns are strings that indicate XXE processing in the response.

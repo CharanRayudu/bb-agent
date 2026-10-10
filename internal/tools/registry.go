@@ -61,8 +61,10 @@ type Tool struct {
 
 // Registry holds all available tools
 type Registry struct {
-	tools   map[string]*Tool
-	sandbox *docker.Sandbox
+	tools       map[string]*Tool
+	sandbox     *docker.Sandbox
+	flowSandbox *docker.FlowSandbox
+	flowID      string
 }
 
 // NewRegistry creates a tool registry with all built-in tools
@@ -73,6 +75,14 @@ func NewRegistry(sandbox *docker.Sandbox) *Registry {
 	}
 	r.registerBuiltins()
 	return r
+}
+
+// SetFlowSandbox attaches a flow-specific isolated sandbox to the registry.
+func (r *Registry) SetFlowSandbox(fs *docker.FlowSandbox, flowID string) {
+	if r != nil {
+		r.flowSandbox = fs
+		r.flowID = flowID
+	}
 }
 
 func (r *Registry) registerBuiltins() {
@@ -331,7 +341,14 @@ func (r *Registry) executeCommand(ctx context.Context, args json.RawMessage) (st
 
 	log.Printf("[TOOL] Executing: %s (timeout: %ds)", params.Command, params.Timeout)
 
-	result, err := r.sandbox.Execute(ctx, params.Command, params.Timeout)
+	var result *docker.ExecResult
+	var err error
+	if r.flowSandbox != nil && r.flowID != "" {
+		result, err = r.flowSandbox.ExecuteInFlow(ctx, r.flowID, params.Command, params.Timeout)
+	} else {
+		result, err = r.sandbox.Execute(ctx, params.Command, params.Timeout)
+	}
+
 	if err != nil {
 		return "", fmt.Errorf("sandbox execution failed: %w", err)
 	}

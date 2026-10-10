@@ -245,7 +245,7 @@ func newHTTPClient() *http.Client {
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
 	}
-	return &http.Client{Timeout: 10 * time.Second, Transport: transport}
+	return base.WrapClient(&http.Client{Timeout: 10 * time.Second, Transport: transport})
 }
 
 const defaultSystemPrompt = `You are a Log4Shell (CVE-2021-44228) and Spring4Shell (CVE-2022-22965) specialist.

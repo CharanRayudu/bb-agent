@@ -18,6 +18,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
+	if err := cfg.ValidateProduction(); err != nil {
+		log.Fatalf("Refusing to start: %v", err)
+	}
 
 	db, err := database.Connect(cfg.DatabaseURL)
 	if err != nil {
