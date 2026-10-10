@@ -47,6 +47,12 @@ func (s *Server) handleApproveExploitation(w http.ResponseWriter, r *http.Reques
 	}
 
 	actor := s.actorFromRequest(r)
+	if s.cfg != nil && s.cfg.ExecutionV2 && s.gateway != nil {
+		if _, err := s.gateway.GrantPhase(id.String(), "exploitation", actor, "approved", "operator approved exploitation", 30*time.Minute); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
 	s.auditLog.Record(actor, "exploitation_approved", id.String(), nil, r.RemoteAddr)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "approved", "apts_domain": "HO — Human Oversight"})
@@ -69,6 +75,12 @@ func (s *Server) handleDenyExploitation(w http.ResponseWriter, r *http.Request, 
 	}
 
 	actor := s.actorFromRequest(r)
+	if s.cfg != nil && s.cfg.ExecutionV2 && s.gateway != nil {
+		if _, err := s.gateway.GrantPhase(id.String(), "exploitation", actor, "denied", "operator denied exploitation", 0); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
 	s.auditLog.Record(actor, "exploitation_denied", id.String(), nil, r.RemoteAddr)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "denied", "apts_domain": "HO — Human Oversight"})

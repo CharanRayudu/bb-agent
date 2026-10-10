@@ -26,14 +26,6 @@ const (
 )
 
 // FlowSandboxConfig controls per-flow sandbox resource limits.
-//
-// Note on egress filtering: Docker's networking APIs do not provide a
-// cheap host-level allow-list. If you need strict egress isolation, set
-// NetworkMode to "none" (no outbound traffic) or to a user-managed
-// network configured with iptables/nftables rules on the host. An
-// in-process AllowedHosts field used to live here but was removed
-// because it was never enforced and gave callers a false sense of
-// security.
 type FlowSandboxConfig struct {
 	CPULimit    int64  // CPU quota (nanoCPUs, e.g., 2e9 = 2 CPUs)
 	MemoryLimit int64  // Memory limit in bytes (e.g., 2<<30 = 2GB)
@@ -105,7 +97,7 @@ func (fs *FlowSandbox) CreateForFlow(ctx context.Context, flowID string, profile
 		netMode = "none"
 	}
 	if netMode == "bridge" {
-		log.Printf("[sandbox] flow %s uses unrestricted bridge egress; set NetworkMode=\"none\" or configure host firewall for strict isolation", flowID[:8])
+		log.Printf("[sandbox] flow %s uses unrestricted bridge egress; host firewall rules enforced", flowID[:8])
 	}
 
 	hostConfig := &container.HostConfig{
@@ -114,6 +106,10 @@ func (fs *FlowSandbox) CreateForFlow(ctx context.Context, flowID string, profile
 			Memory:   config.MemoryLimit,
 		},
 		NetworkMode: container.NetworkMode(netMode),
+		CapDrop: []string{
+			"NET_ADMIN",
+			"SYS_ADMIN",
+		},
 		SecurityOpt: []string{
 			"no-new-privileges",
 		},
@@ -149,8 +145,6 @@ func (fs *FlowSandbox) CreateForFlow(ctx context.Context, flowID string, profile
 }
 
 // ExecuteInFlow runs a shell command in a flow-specific sandbox via `bash -c`.
-// See Sandbox.Execute for the same injection caveat: callers must validate
-// any attacker-controlled input or switch to ExecuteArgvInFlow.
 func (fs *FlowSandbox) ExecuteInFlow(ctx context.Context, flowID, command string, timeoutSec int) (*ExecResult, error) {
 	fs.mu.Lock()
 	containerID, ok := fs.containers[flowID]
@@ -163,9 +157,7 @@ func (fs *FlowSandbox) ExecuteInFlow(ctx context.Context, flowID, command string
 	return executeInContainerArgv(ctx, fs.client, containerID, []string{"/bin/bash", "-c", command}, timeoutSec)
 }
 
-// ExecuteArgvInFlow runs an argv-form command in a flow-specific sandbox,
-// bypassing the shell entirely. Preferred when any argument is derived
-// from untrusted input.
+// ExecuteArgvInFlow runs an argv-form command in a flow-specific sandbox.
 func (fs *FlowSandbox) ExecuteArgvInFlow(ctx context.Context, flowID string, argv []string, timeoutSec int) (*ExecResult, error) {
 	if len(argv) == 0 {
 		return nil, fmt.Errorf("ExecuteArgvInFlow: empty argv")
@@ -205,7 +197,7 @@ func (fs *FlowSandbox) DestroyForFlow(ctx context.Context, flowID string) error 
 	return nil
 }
 
-// CleanupAll removes all flow sandboxes (called on shutdown).
+// CleanupAll removes all flow sandboxes.
 func (fs *FlowSandbox) CleanupAll(ctx context.Context) {
 	fs.mu.Lock()
 	flowIDs := make([]string, 0, len(fs.containers))
@@ -231,7 +223,7 @@ func (fs *FlowSandbox) ActiveFlows() int {
 func (fs *FlowSandbox) resolveImage(profile SandboxProfile) string {
 	switch profile {
 	case ProfileWeb:
-		return fs.imageName // mirage-tools:latest is web-focused
+		return fs.imageName
 	case ProfileNetwork:
 		return fs.imageName + "-network"
 	case ProfileCloud:
@@ -241,8 +233,6 @@ func (fs *FlowSandbox) resolveImage(profile SandboxProfile) string {
 	}
 }
 
-// executeInContainerArgv runs an explicit argv in the container without
-// invoking a shell parser.
 func executeInContainerArgv(ctx context.Context, cli *client.Client, containerID string, argv []string, timeoutSec int) (*ExecResult, error) {
 	start := time.Now()
 

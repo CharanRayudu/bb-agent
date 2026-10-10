@@ -38,6 +38,14 @@ type Config struct {
 	// Search
 	TavilyAPIKey string
 	ShodanAPIKey string
+
+	// Mirage v2 migration flags. Default off so existing deployments keep
+	// their current behavior. Production startup rejects that legacy path.
+	Environment      string
+	ExecutionV2      bool
+	DurableWorkflows bool
+	VerificationV2   bool
+	SkillsV2         bool
 }
 
 func Load() (*Config, error) {
@@ -60,6 +68,11 @@ func Load() (*Config, error) {
 		AllowedOrigins:    splitList(getEnv("ALLOWED_ORIGINS", "")),
 		TavilyAPIKey:      getEnv("TAVILY_API_KEY", ""),
 		ShodanAPIKey:      getEnv("SHODAN_API_KEY", ""),
+		Environment:       getEnv("MIRAGE_ENV", "development"),
+		ExecutionV2:       envBool("MIRAGE_EXECUTION_V2"),
+		DurableWorkflows:  envBool("MIRAGE_DURABLE_WORKFLOWS"),
+		VerificationV2:    envBool("MIRAGE_VERIFICATION_V2"),
+		SkillsV2:          envBool("MIRAGE_SKILLS_V2"),
 	}
 
 	// No hard requirement on API key anymore -- Codex OAuth is checked at runtime
@@ -77,6 +90,15 @@ func getEnv(key, fallback string) string {
 		return val
 	}
 	return fallback
+}
+
+func envBool(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 func splitList(raw string) []string {

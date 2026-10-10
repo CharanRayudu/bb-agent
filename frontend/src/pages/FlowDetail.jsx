@@ -1451,6 +1451,7 @@ function FlowDetail() {
                                 )}
                                 {activeTab === 'ledger' && (
                                     <ErrorBoundary>
+                                        <ApprovalQueue flowId={flow.id} />
                                         <FlowLedgerPanel ledger={ledger} formatTime={formatTime} />
                                     </ErrorBoundary>
                                 )}
@@ -1508,6 +1509,66 @@ function FlowDetail() {
 
             </div>
         </motion.div>
+    )
+}
+
+function ApprovalQueue({ flowId }) {
+    const [items, setItems] = useState([])
+    const [error, setError] = useState('')
+
+    const load = useCallback(async () => {
+        try {
+            const response = await fetch(`${API_BASE}/flows/${flowId}/approvals`)
+            if (!response.ok) {
+                return
+            }
+            const data = await response.json()
+            setItems(Array.isArray(data) ? data.filter((item) => item.status === 'pending' || item.status === 'denied') : [])
+            setError('')
+        } catch (err) {
+            setError(err.message)
+        }
+    }, [flowId])
+
+    useEffect(() => {
+        load()
+        const timer = setInterval(load, 4000)
+        return () => clearInterval(timer)
+    }, [load])
+
+    async function decide(id, status) {
+        await fetch(`${API_BASE}/flows/${flowId}/approvals/${id}/decision`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status, reason: status === 'approved' ? 'operator approved' : 'operator denied' }),
+        })
+        load()
+    }
+
+    if (!items.length) {
+        return null
+    }
+
+    return (
+        <div className="mb-4 rounded-xl border border-accent-yellow/30 bg-accent-yellow/5 p-3 space-y-2">
+            <div className="text-[11px] font-mono uppercase tracking-widest text-accent-yellow">Pending approvals</div>
+            {error && <div className="text-xs text-accent-red">{error}</div>}
+            {items.map((item) => (
+                <div key={item.ID || item.id} className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <div className="min-w-0">
+                        <div className="font-medium text-text-primary">{item.Capability || item.capability || item.Phase || item.phase}</div>
+                        <div className="font-mono text-text-muted truncate">{item.Method || item.method} {item.Target || item.target}</div>
+                        <div className="text-text-muted">risk {item.Risk || item.risk || 'unspecified'} · {item.Status || item.status}</div>
+                    </div>
+                    {(item.Status || item.status) === 'pending' && (
+                        <div className="flex gap-2">
+                            <button type="button" onClick={() => decide(item.ID || item.id, 'approved')} className="px-3 py-1 rounded-full border border-accent-green/40 text-accent-green">Approve</button>
+                            <button type="button" onClick={() => decide(item.ID || item.id, 'denied')} className="px-3 py-1 rounded-full border border-accent-red/40 text-accent-red">Deny</button>
+                        </div>
+                    )}
+                </div>
+            ))}
+        </div>
     )
 }
 

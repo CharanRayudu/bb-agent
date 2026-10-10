@@ -71,6 +71,7 @@ import (
 	"github.com/bb-agent/mirage/internal/agents/xxe"
 	"github.com/bb-agent/mirage/internal/config"
 	"github.com/bb-agent/mirage/internal/database"
+	"github.com/bb-agent/mirage/internal/execution"
 	"github.com/bb-agent/mirage/internal/llm"
 	"github.com/bb-agent/mirage/internal/models"
 	"github.com/bb-agent/mirage/internal/pipeline"
@@ -209,6 +210,11 @@ type Orchestrator struct {
 
 	// Webhook notifier for critical/high finding alerts
 	webhookNotifier *WebhookNotifier
+
+	// execGateway is the v2 authorization boundary. When requireExecutionV2
+	// is set, tool calls with a nil gateway are denied.
+	execGateway        *execution.Gateway
+	requireExecutionV2 bool
 }
 
 func buildSpecialists(provider llm.Provider) map[string]Specialist {
@@ -606,6 +612,70 @@ func (o *Orchestrator) GetEventBus() *EventBus {
 	return o.bus
 }
 
+// SetExecutionGateway installs the v2 action gateway.
+// required makes a missing gateway fail closed for tool calls.
+func (o *Orchestrator) SetExecutionGateway(g *execution.Gateway, required bool) {
+	o.execGateway = g
+	o.requireExecutionV2 = required
+}
+
+func (o *Orchestrator) executeToolCall(ctx context.Context, name string, args json.RawMessage, tool *tools.Tool, flowID, taskID uuid.UUID) (string, error) {
+	return ExecuteWithHealing(ctx, name, func(callArgs json.RawMessage) (string, error) {
+		finalArgs := callArgs
+		if name == "execute_command" && o.rateLimiter != nil {
+			var params map[string]interface{}
+			if err := json.Unmarshal(callArgs, &params); err == nil {
+				if cmd, ok := params["command"].(string); ok {
+					params["command"] = o.rateLimiter.InjectRateFlags(cmd)
+					if encoded, err := json.Marshal(params); err == nil {
+						finalArgs = encoded
+					}
+				}
+			}
+		}
+		run := func(runCtx context.Context) (string, error) {
+			output, err := tool.Execute(runCtx, finalArgs)
+			if o.isWAFBlocked(output) {
+				o.emit(flowID.String(), Event{
+					Type:    EventMessage,
+					FlowID:  flowID.String(),
+					TaskID:  taskID.String(),
+					Content: "[ALERT] [WAF BLOCK] Evasion strategy triggered.",
+				})
+				if o.strategist != nil {
+					strategy := o.strategist.SuggestedEncoding(name, output)
+					o.emit(flowID.String(), Event{
+						Type:    EventMessage,
+						FlowID:  flowID.String(),
+						TaskID:  taskID.String(),
+						Content: fmt.Sprintf("[STRATEGY] Strategist suggesting shift to: %s", strategy),
+					})
+				}
+				if o.rateLimiter != nil {
+					o.rateLimiter.SlowDown()
+				}
+			} else if o.rateLimiter != nil && o.rateLimiter.IsWAFDetected() {
+				o.rateLimiter.SpeedUp()
+			}
+			return output, err
+		}
+		if o.requireExecutionV2 && o.execGateway == nil {
+			return "", execution.ErrGatewayRequired
+		}
+		if o.execGateway != nil {
+			return o.execGateway.ExecuteTool(ctx, flowID.String(), name, "orchestrator", finalArgs, run)
+		}
+		return run(ctx)
+	}, args, func(msg string) {
+		o.emit(flowID.String(), Event{
+			Type:    EventMessage,
+			FlowID:  flowID.String(),
+			TaskID:  taskID.String(),
+			Content: msg,
+		})
+	})
+}
+
 // SetKnowledgeGraph replaces the orchestrator's knowledge graph with a shared instance.
 func (o *Orchestrator) SetKnowledgeGraph(g knowledge.Graph) {
 	o.knowledgeGraph = g
@@ -782,7 +852,14 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 
 	// ── Mythos: WAF fingerprint at scan start (shared across all agents) ──
 	{
-		wafCtx, cancelWAF := context.WithTimeout(ctx, 10*time.Second)
+		wafBase := ctx
+		if o.execGateway != nil {
+			wafBase = execution.WithGateway(wafBase, o.execGateway)
+		}
+		if o.requireExecutionV2 {
+			wafBase = execution.WithRequired(wafBase)
+		}
+		wafCtx, cancelWAF := context.WithTimeout(wafBase, 10*time.Second)
 		wafRes := FingerprintWAF(wafCtx, flow.Target)
 		cancelWAF()
 		o.wafResultMu.Lock()
@@ -2152,69 +2229,35 @@ func (o *Orchestrator) runAgentLoop(ctx context.Context, flowID uuid.UUID, taskI
 
 				tool, ok := o.toolRegistry.Get(tc.Name)
 				var res string
+				var callErr error
 				if !ok {
 					res = "Tool not found: " + tc.Name
+					callErr = fmt.Errorf("tool not found")
+				} else if o.execGateway != nil || o.requireExecutionV2 {
+					res, callErr = o.executeToolCall(ctx, tc.Name, json.RawMessage(tc.Arguments), tool, flowID, taskID)
+					if callErr != nil && res == "" {
+						res = callErr.Error()
+					}
 				} else {
-					// 1. Scope Check
 					inScope := true
 					reason := ""
 					if o.scope != nil {
 						inScope, reason = o.scope.ValidateToolArgs(tc.Name, json.RawMessage(tc.Arguments))
 					}
-
 					if !inScope {
 						res = reason
+						callErr = fmt.Errorf("%s", reason)
 					} else {
-						// 2. Execute with Self-Healing Resilience
-						res, _ = ExecuteWithHealing(ctx, tc.Name, func(args json.RawMessage) (string, error) {
-							// 3. Adaptive Rate Flag Injection
-							finalArgs := args
-							if tc.Name == "execute_command" {
-								var params map[string]interface{}
-								json.Unmarshal(args, &params)
-								if cmd, ok := params["command"].(string); ok {
-									params["command"] = o.rateLimiter.InjectRateFlags(cmd)
-									finalArgs, _ = json.Marshal(params)
-								}
-							}
-
-							output, err := tool.Execute(ctx, finalArgs)
-
-							// 4. WAF/Throttle Detection & Strategy Shift (Phase 14)
-							if o.isWAFBlocked(output) {
-								o.emit(flowID.String(), Event{
-									Type:    EventMessage,
-									FlowID:  flowID.String(),
-									TaskID:  taskID.String(),
-									Content: "[ALERT] [WAF BLOCK] Evasion strategy triggered.",
-								})
-								strategy := o.strategist.SuggestedEncoding(tc.Name, output)
-								o.emit(flowID.String(), Event{
-									Type:    EventMessage,
-									FlowID:  flowID.String(),
-									TaskID:  taskID.String(),
-									Content: fmt.Sprintf("[STRATEGY] Strategist suggesting shift to: %s", strategy),
-								})
-								o.rateLimiter.SlowDown()
-							} else if o.rateLimiter.IsWAFDetected() {
-								o.rateLimiter.SpeedUp()
-							}
-
-							return output, err
-						}, json.RawMessage(tc.Arguments), func(msg string) {
-							o.emit(flowID.String(), Event{
-								Type:    EventMessage,
-								FlowID:  flowID.String(),
-								TaskID:  taskID.String(),
-								Content: msg,
-							})
-						})
+						res, callErr = o.executeToolCall(ctx, tc.Name, json.RawMessage(tc.Arguments), tool, flowID, taskID)
 					}
 				}
 
-				// Restore Action Persistence
 				if o.queries != nil {
-					o.queries.CreateAction(subtaskID, models.ActionTypeCommand, tc.Arguments, res, "success")
+					status := "success"
+					if callErr != nil {
+						status = "denied"
+					}
+					o.queries.CreateAction(subtaskID, models.ActionTypeCommand, tc.Arguments, res, status)
 				}
 
 				o.emit(flowID.String(), Event{

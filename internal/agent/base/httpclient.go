@@ -10,6 +10,9 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/bb-agent/mirage/internal/execution"
+	"github.com/bb-agent/mirage/internal/policy"
 )
 
 // ErrOutOfScope is returned by FuzzClient probe methods when the target URL
@@ -70,6 +73,9 @@ func readBody(resp *http.Response) string {
 // If paramName is empty, appends as ?inject=payload.
 func (fc *FuzzClient) ProbeGET(ctx context.Context, targetURL, paramName, payload string) ProbeResult {
 	probeURL := injectParam(targetURL, paramName, payload)
+	if result, handled := fc.gatewayDo(ctx, http.MethodGet, probeURL, "", true); handled {
+		return result
+	}
 
 	if !scopeAllows(ctx, probeURL) {
 		return ProbeResult{Error: ErrOutOfScope}
@@ -108,6 +114,9 @@ func (fc *FuzzClient) ProbePOST(ctx context.Context, targetURL, paramName, paylo
 	formData := url.Values{}
 	formData.Set(paramName, payload)
 
+	if result, handled := fc.gatewayDo(ctx, http.MethodPost, targetURL, formData.Encode(), true); handled {
+		return result
+	}
 	if !scopeAllows(ctx, targetURL) {
 		return ProbeResult{Error: ErrOutOfScope}
 	}
@@ -146,6 +155,12 @@ func (fc *FuzzClient) ProbeURL(ctx context.Context, targetURL, paramName, payloa
 
 // Baseline measures a clean response for timing comparison.
 func (fc *FuzzClient) Baseline(ctx context.Context, targetURL string) time.Duration {
+	if result, handled := fc.gatewayDo(ctx, http.MethodGet, targetURL, "", false); handled {
+		if result.Error != nil {
+			return 0
+		}
+		return result.Duration
+	}
 	if !scopeAllows(ctx, targetURL) {
 		return 0
 	}
@@ -166,6 +181,50 @@ func (fc *FuzzClient) Baseline(ctx context.Context, targetURL string) time.Durat
 	}
 	fc.baseDelay = dur
 	return dur
+}
+
+func (fc *FuzzClient) gatewayDo(ctx context.Context, method, targetURL, body string, active bool) (ProbeResult, bool) {
+	if !execution.Required(ctx) && !execution.HasGateway(ctx) {
+		return ProbeResult{}, false
+	}
+	start := time.Now()
+	gw := execution.GatewayFrom(ctx)
+	if gw == nil {
+		return ProbeResult{Error: execution.ErrGatewayRequired, Duration: time.Since(start)}, true
+	}
+	action, err := execution.HTTPAction(execution.FlowID(ctx), "http.probe", method, targetURL)
+	if err != nil {
+		return ProbeResult{Error: err, Duration: time.Since(start)}, true
+	}
+	if active {
+		action = action.WithRisk(policy.RiskActive)
+	} else {
+		action = action.WithRisk(policy.RiskPassive)
+	}
+	action.Digest = execution.Digest(method + "\n" + targetURL + "\n" + body)
+	action.IdempotencyKey += ":" + action.Digest
+	action.FollowRedirects = false
+	resp, err := gw.Do(ctx, action, func(req *http.Request) {
+		if body != "" {
+			req.Body = io.NopCloser(strings.NewReader(body))
+			req.ContentLength = int64(len(body))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		}
+		req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; SecurityScanner/1.0)")
+		injectAuth(req, fc.auth)
+	})
+	dur := time.Since(start)
+	if err != nil {
+		return ProbeResult{Error: err, Duration: dur}, true
+	}
+	result := ProbeResult{
+		StatusCode: resp.StatusCode,
+		Body:       readBody(resp),
+		Headers:    resp.Header,
+		Duration:   dur,
+	}
+	result.TimingAnomaly = fc.baseDelay > 0 && dur > fc.baseDelay+4*time.Second
+	return result, true
 }
 
 // scopeAllows returns true when no Scope is attached to ctx or the attached

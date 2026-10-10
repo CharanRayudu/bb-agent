@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/bb-agent/mirage/internal/agent/base"
+	"github.com/bb-agent/mirage/internal/execution"
 	"github.com/bb-agent/mirage/internal/models"
 	"github.com/bb-agent/mirage/internal/queue"
 	"github.com/google/uuid"
@@ -122,6 +123,12 @@ func (w *Worker) Start(ctx context.Context) {
 	if w.orchestrator != nil && w.orchestrator.scope != nil {
 		ctx = base.WithScope(ctx, w.orchestrator.scope)
 	}
+	if w.orchestrator != nil && w.orchestrator.execGateway != nil {
+		ctx = execution.WithGateway(ctx, w.orchestrator.execGateway)
+	}
+	if w.orchestrator != nil && w.orchestrator.requireExecutionV2 {
+		ctx = execution.WithRequired(ctx)
+	}
 	sem := make(chan struct{}, w.concurrency)
 
 	log.Printf("[worker:%s] Started with concurrency=%d", w.specialist.Name(), w.concurrency)
@@ -145,13 +152,17 @@ func (w *Worker) Start(ctx context.Context) {
 			flowID := payloadUUID(item.Payload, "_flow_id")
 			taskID := payloadUUID(item.Payload, "_task_id")
 			subtaskID := payloadUUID(item.Payload, "_subtask_id")
+			itemCtx := ctx
+			if raw, ok := item.Payload["_flow_id"].(string); ok && raw != "" {
+				itemCtx = execution.WithFlowID(itemCtx, raw)
+			}
 			if subtaskID != nil && w.orchestrator != nil {
 				w.orchestrator.updateLedgerSubTask(*subtaskID, models.SubTaskStatusRunning, "", models.SubTaskOutcomeRunning, map[string]any{
 					"agent": w.specialist.Name(),
 				})
 			}
 
-			findings, err := w.specialist.ProcessItem(ctx, item)
+			findings, err := w.specialist.ProcessItem(itemCtx, item)
 			if err != nil {
 				log.Printf("[worker:%s] Error processing item: %v", w.specialist.Name(), err)
 				if subtaskID != nil && w.orchestrator != nil {
