@@ -24,6 +24,9 @@ const (
 // that the tool will actually contact. Output files, wordlists, and other
 // non-targets are ignored. Target-list files are read and authorized.
 func parseScanEndpoints(tool string, args []string) ([]policy.Target, error) {
+	if err := rejectDangerousFlags(tool, args); err != nil {
+		return nil, err
+	}
 	flags := flagTable(tool)
 	var ports []int
 	var targets []string
@@ -93,6 +96,25 @@ func parseScanEndpoints(tool string, args []string) ([]policy.Target, error) {
 		return nil, fmt.Errorf("port list has %d ports; name at most 64 authorized ports", len(ports))
 	}
 	return materializeEndpoints(tool, targets, ports, udp)
+}
+
+func rejectDangerousFlags(tool string, args []string) error {
+	for _, arg := range args {
+		lower := strings.ToLower(strings.TrimSpace(arg))
+		switch tool {
+		case "sqlmap":
+			switch lower {
+			case "--os-shell", "--os-cmd", "--os-pwn", "--os-smbrelay", "--file-read", "--file-write":
+				return fmt.Errorf("%s flag %s is unrestricted shell and is not part of run_security_tool", tool, arg)
+			}
+		case "curl":
+			// -k remains available for TLS targets. -K/--config and file:// do not.
+			if arg == "-K" || lower == "--config" || strings.HasPrefix(lower, "--config=") || strings.HasPrefix(lower, "file://") {
+				return fmt.Errorf("curl argument %s is not accepted by run_security_tool", arg)
+			}
+		}
+	}
+	return nil
 }
 
 func flagTable(tool string) map[string]string {

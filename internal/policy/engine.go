@@ -70,7 +70,7 @@ func checkDestination(auth Authorization, subject Subject) Decision {
 	if scheme == "" {
 		scheme = "http"
 	}
-	if !transportScheme(scheme) && !schemeAllowed(auth, scheme) {
+	if !transportAllowed(auth, scheme) {
 		return deny(CodeSchemeNotAllowed, "protocol "+scheme+" is not allowed")
 	}
 	host := normalizeHost(subject.Host)
@@ -173,6 +173,22 @@ func authorizedHost(auth Authorization, host string) bool {
 		}
 	}
 	return false
+}
+
+func transportAllowed(auth Authorization, scheme string) bool {
+	scheme = strings.ToLower(scheme)
+	switch scheme {
+	case "udp":
+		// UDP is not implied by an HTTP authorization. It must be listed.
+		return containsFold(auth.AllowedProtocols, "udp")
+	case "tcp":
+		if len(auth.AllowedProtocols) == 0 {
+			return true
+		}
+		return containsFold(auth.AllowedProtocols, "tcp") || containsFold(auth.AllowedProtocols, "http") || containsFold(auth.AllowedProtocols, "https")
+	default:
+		return schemeAllowed(auth, scheme)
+	}
 }
 
 func transportScheme(scheme string) bool {

@@ -69,14 +69,41 @@ func TestScannerPortsFilesAndOutputNames(t *testing.T) {
 		`{"tool":"nuclei","args":["-u","http://example.com","-o","scan.txt"]}`,
 		`{"tool":"ffuf","args":["-u","http://example.com/FUZZ","-w","/usr/share/dirb/wordlists/common.txt","-o","scan.txt"]}`,
 		`{"tool":"sqlmap","args":["-u","http://example.com/item?id=1","--batch","--output-dir","/tmp/scan.txt"]}`,
-		`{"tool":"curl","args":["-o","scan.txt","-H","Authorization: Bearer scoped","http://example.com/api"]}`,
-		`{"tool":"nmap","args":["-sU","-p","80","example.com"]}`,
+		`{"tool":"curl","args":["-k","-o","scan.txt","-H","Authorization: Bearer scoped","http://example.com/api"]}`,
 	}
 	for _, payload := range payloads {
 		got, err := httpGW.ExecuteTool(context.Background(), "flow-1", "run_security_tool", "orchestrator", []byte(payload), run)
 		if err != nil || got != "ran" {
 			t.Fatalf("%s out=%q err=%v", payload, got, err)
 		}
+	}
+}
+
+func TestUDPRequiresAnExplicitProtocolGrant(t *testing.T) {
+	gw, _ := newGW(t, testAuth(policy.AutonomyL3, "http://example.com"), "93.184.216.34")
+	calls := 0
+	_, err := gw.ExecuteTool(context.Background(), "flow-1", "run_security_tool", "orchestrator", []byte(`{"tool":"nmap","args":["-sU","-p","80","example.com"]}`), func(context.Context) (string, error) {
+		calls++
+		return "ran", nil
+	})
+	if !errors.Is(err, ErrDenied) || calls != 0 {
+		t.Fatalf("udp scan ran without a udp grant, calls=%d err=%v", calls, err)
+	}
+	auth := testAuth(policy.AutonomyL3, "http://example.com")
+	auth.AllowedProtocols = []string{"http", "udp"}
+	udpGW, _ := newGW(t, auth, "93.184.216.34")
+	out, err := udpGW.ExecuteTool(context.Background(), "flow-1", "run_security_tool", "orchestrator", []byte(`{"tool":"nmap","args":["-sU","-p","80","example.com"]}`), func(context.Context) (string, error) {
+		return "ran", nil
+	})
+	if err != nil || out != "ran" {
+		t.Fatalf("granted udp scan did not run, out=%q err=%v", out, err)
+	}
+	_, err = gw.ExecuteTool(context.Background(), "flow-1", "run_security_tool", "orchestrator", []byte(`{"tool":"sqlmap","args":["-u","http://example.com","--os-shell"]}`), func(context.Context) (string, error) {
+		calls++
+		return "ran", nil
+	})
+	if !errors.Is(err, ErrDenied) || calls != 0 {
+		t.Fatalf("sqlmap os-shell ran, calls=%d err=%v", calls, err)
 	}
 }
 
@@ -101,6 +128,22 @@ func TestTargetListIsAuthorizedAndMissingFileIsDenied(t *testing.T) {
 	})
 	if !errors.Is(err, ErrDenied) || calls != 0 {
 		t.Fatalf("missing target list ran, calls=%d err=%v", calls, err)
+	}
+}
+
+func TestRawRequestFileSuppliesTheHost(t *testing.T) {
+	dir := t.TempDir()
+	req := filepath.Join(dir, "request.req")
+	body := "GET /api/v1/user HTTP/1.1\r\nHost: example.com\r\n\r\n"
+	if err := os.WriteFile(req, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gw, _ := newGW(t, testAuth(policy.AutonomyL3, "http://example.com"), "93.184.216.34")
+	out, err := gw.ExecuteTool(context.Background(), "flow-1", "run_security_tool", "orchestrator", []byte(`{"tool":"sqlmap","args":["-r","`+escapeJSON(req)+`","--batch"]}`), func(context.Context) (string, error) {
+		return "ran", nil
+	})
+	if err != nil || out != "ran" {
+		t.Fatalf("sqlmap request file out=%q err=%v", out, err)
 	}
 }
 

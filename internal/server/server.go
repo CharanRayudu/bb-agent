@@ -99,6 +99,7 @@ type Server struct {
 	engagements *policy.Book
 	execLog     *execution.MemoryStore
 	gateway     *execution.Gateway
+	firewall    *execution.FirewallController
 	restoreErr  error
 
 	// Shared knowledge graph — persists across scans within the same server process.
@@ -216,6 +217,11 @@ func New(cfg *config.Config, db *sql.DB) *Server {
 	}
 	s.gateway = execution.NewGateway(s.engagements, execStore, execution.NetResolver{})
 	s.gateway.EnableResume()
+	helperImage := ""
+	if cfg != nil {
+		helperImage = cfg.SandboxImage
+	}
+	s.firewall = execution.NewFirewallController(helperImage)
 
 	// Continuous monitoring subsystem
 	s.monitorStore = monitoring.NewStore()
@@ -1056,7 +1062,12 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 			return
 		}
 		flows = created
-		defer flows.DestroyForFlow(context.Background(), flowID.String())
+		defer func() {
+			if s.firewall != nil {
+				_ = s.firewall.RevokeFlowRules(context.Background(), flowID.String())
+			}
+			_ = flows.DestroyForFlow(context.Background(), flowID.String())
+		}()
 	}
 	createdSandbox, err := docker.NewSandbox(s.cfg.DockerHost, s.cfg.SandboxImage)
 	if err != nil && flows == nil {
@@ -1104,6 +1115,7 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 	registry := tools.NewRegistry(sandbox)
 	if flows != nil {
 		registry.UseFlowSandbox(flows)
+		registry.UseFirewall(s.firewall)
 	}
 
 	// Load externalized prompts

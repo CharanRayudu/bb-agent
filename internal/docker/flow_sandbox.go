@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -133,7 +134,7 @@ func (fs *FlowSandbox) CreateForFlow(ctx context.Context, flowID string, profile
 			Memory:   config.MemoryLimit,
 		},
 		NetworkMode: container.NetworkMode(netName),
-		CapAdd:      []string{"NET_ADMIN"},
+		CapDrop:     []string{"NET_ADMIN", "SYS_ADMIN"},
 		SecurityOpt: []string{
 			"no-new-privileges",
 		},
@@ -192,6 +193,36 @@ func shortID(id string) string {
 		return id[:12]
 	}
 	return id
+}
+
+// GetContainerIP returns the address the host firewall uses as the packet source.
+func (fs *FlowSandbox) GetContainerIP(ctx context.Context, flowID string) (net.IP, error) {
+	if fs == nil {
+		return nil, fmt.Errorf("flow sandbox is not configured")
+	}
+	fs.mu.Lock()
+	containerID, ok := fs.containers[flowID]
+	fs.mu.Unlock()
+	if !ok {
+		return nil, fmt.Errorf("no container for flow %s", flowID)
+	}
+	inspect, err := fs.client.ContainerInspect(ctx, containerID)
+	if err != nil {
+		return nil, fmt.Errorf("inspect flow container: %w", err)
+	}
+	if inspect.NetworkSettings != nil {
+		if ip := net.ParseIP(inspect.NetworkSettings.IPAddress); ip != nil {
+			return ip, nil
+		}
+		for _, settings := range inspect.NetworkSettings.Networks {
+			if settings != nil {
+				if ip := net.ParseIP(settings.IPAddress); ip != nil {
+					return ip, nil
+				}
+			}
+		}
+	}
+	return nil, fmt.Errorf("container %s has no IP address", shortID(containerID))
 }
 
 // Ensure creates the per-flow container if it does not already exist.

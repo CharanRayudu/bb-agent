@@ -25,10 +25,12 @@ func NewFlowEgress() *FlowEgress {
 }
 
 // Permit records addresses the gateway has already authorized for one flow.
-func (e *FlowEgress) Permit(flowID string, ips []net.IP, port int) {
+// protocol is "tcp" or "udp". An empty protocol is stored as tcp.
+func (e *FlowEgress) Permit(flowID string, ips []net.IP, port int, protocol string) {
 	if e == nil || port <= 0 {
 		return
 	}
+	protocol = normalizeProto(protocol)
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.allowed == nil {
@@ -43,25 +45,27 @@ func (e *FlowEgress) Permit(flowID string, ips []net.IP, port int) {
 		if ip == nil {
 			continue
 		}
-		set[ip.String()+"|"+strconv.Itoa(port)] = struct{}{}
+		set[ip.String()+"|"+strconv.Itoa(port)+"|"+protocol] = struct{}{}
 	}
 }
 
-// Allows reports whether flowID may open this socket.
-func (e *FlowEgress) Allows(flowID string, ip net.IP, port int) bool {
+// Allows reports whether flowID may open this socket with this protocol.
+func (e *FlowEgress) Allows(flowID string, ip net.IP, port int, protocol string) bool {
 	if e == nil || ip == nil || port <= 0 {
 		return false
 	}
+	protocol = normalizeProto(protocol)
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	_, ok := e.allowed[flowID][ip.String()+"|"+strconv.Itoa(port)]
+	_, ok := e.allowed[flowID][ip.String()+"|"+strconv.Itoa(port)+"|"+protocol]
 	return ok
 }
 
-// SocketPermit is one IP and port the flow may open.
+// SocketPermit is one IP, port, and protocol the flow may open.
 type SocketPermit struct {
-	IP   net.IP
-	Port int
+	IP       net.IP
+	Port     int
+	Protocol string
 }
 
 // Permits returns the sockets currently allowed for a flow.
@@ -73,7 +77,11 @@ func (e *FlowEgress) Permits(flowID string) []SocketPermit {
 	defer e.mu.Unlock()
 	var out []SocketPermit
 	for key := range e.allowed[flowID] {
-		ipText, portText, ok := strings.Cut(key, "|")
+		ipText, rest, ok := strings.Cut(key, "|")
+		if !ok {
+			continue
+		}
+		portText, protocol, ok := strings.Cut(rest, "|")
 		if !ok {
 			continue
 		}
@@ -82,7 +90,7 @@ func (e *FlowEgress) Permits(flowID string) []SocketPermit {
 		if err != nil || ip == nil || port <= 0 {
 			continue
 		}
-		out = append(out, SocketPermit{IP: ip, Port: port})
+		out = append(out, SocketPermit{IP: ip, Port: port, Protocol: normalizeProto(protocol)})
 	}
 	return out
 }
@@ -114,7 +122,7 @@ func (e *FlowEgress) DialContext(ctx context.Context, network, address string) (
 	if ip == nil {
 		return nil, ErrEgressDenied
 	}
-	if !e.Allows(FlowID(ctx), ip, port) {
+	if !e.Allows(FlowID(ctx), ip, port, network) {
 		return nil, ErrEgressDenied
 	}
 	return (&net.Dialer{Timeout: 2 * time.Second}).DialContext(ctx, network, address)
@@ -131,7 +139,16 @@ func (g *Gateway) permit(flowID string, ips []string, port int, scheme string) {
 	if g == nil || g.egress == nil {
 		return
 	}
-	g.egress.Permit(flowID, parseIPs(ips), effectiveDialPort(port, scheme))
+	g.egress.Permit(flowID, parseIPs(ips), effectiveDialPort(port, scheme), scheme)
+}
+
+func normalizeProto(protocol string) string {
+	switch strings.ToLower(protocol) {
+	case "udp":
+		return "udp"
+	default:
+		return "tcp"
+	}
 }
 
 func effectiveDialPort(port int, scheme string) int {

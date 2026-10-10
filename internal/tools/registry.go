@@ -62,15 +62,23 @@ type Tool struct {
 
 // Registry holds all available tools
 type Registry struct {
-	tools   map[string]*Tool
-	sandbox *docker.Sandbox
-	flows   *docker.FlowSandbox
+	tools    map[string]*Tool
+	sandbox  *docker.Sandbox
+	flows    *docker.FlowSandbox
+	firewall *execution.FirewallController
 }
 
 // UseFlowSandbox routes tool execution into the per-flow container.
 func (r *Registry) UseFlowSandbox(fs *docker.FlowSandbox) {
 	if r != nil {
 		r.flows = fs
+	}
+}
+
+// UseFirewall attaches the host egress filter for per-flow containers.
+func (r *Registry) UseFirewall(fc *execution.FirewallController) {
+	if r != nil {
+		r.firewall = fc
 	}
 }
 
@@ -437,13 +445,39 @@ func (r *Registry) prepareFlow(ctx context.Context, flowID string) error {
 	if !execution.HasGateway(ctx) && !execution.Required(ctx) {
 		return nil
 	}
-	var permits []docker.EgressPermit
+	containerIP, err := r.flows.GetContainerIP(ctx, flowID)
+	if err != nil {
+		return err
+	}
+	if r.firewall == nil {
+		if execution.Required(ctx) {
+			return fmt.Errorf("host firewall is required")
+		}
+		var permits []docker.EgressPermit
+		if gw := execution.GatewayFrom(ctx); gw != nil && gw.Egress() != nil {
+			for _, permit := range gw.Egress().Permits(flowID) {
+				permits = append(permits, docker.EgressPermit{IP: permit.IP, Port: permit.Port, Protocol: permit.Protocol})
+			}
+		}
+		return r.flows.EnforceEgress(ctx, flowID, permits)
+	}
+	var rules []execution.NetworkRule
 	if gw := execution.GatewayFrom(ctx); gw != nil && gw.Egress() != nil {
 		for _, permit := range gw.Egress().Permits(flowID) {
-			permits = append(permits, docker.EgressPermit{IP: permit.IP, Port: permit.Port})
+			if permit.IP == nil || permit.Port <= 0 {
+				continue
+			}
+			rules = append(rules, execution.NetworkRule{
+				FlowID:      flowID,
+				ContainerIP: containerIP,
+				Protocol:    permit.Protocol,
+				IP:          permit.IP,
+				Port:        permit.Port,
+			})
 		}
 	}
-	return r.flows.EnforceEgress(ctx, flowID, permits)
+	r.firewall.BindContainerIP(flowID, containerIP)
+	return r.firewall.ApplyFlowRules(ctx, flowID, rules)
 }
 
 func formatSandboxOutput(result *docker.ExecResult) string {
