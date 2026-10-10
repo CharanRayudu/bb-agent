@@ -1,6 +1,7 @@
 package execution
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -26,6 +27,40 @@ func TestWorkspaceBindSourceUsesHostRoot(t *testing.T) {
 	}
 	if got != filepath.Join(host, "flowabc") {
 		t.Fatalf("bind source=%s", got)
+	}
+}
+
+func TestStageWorkspaceInputsRewritesTargetListAndRequest(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("MIRAGE_WORKSPACE_ROOT", root)
+	t.Setenv("MIRAGE_WORKSPACE_HOST_ROOT", "")
+	dir, err := EnsureWorkspace("flow-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "hosts.txt"), []byte("example.com\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "login.req")
+	if err := os.WriteFile(outside, []byte("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	staged, err := StageWorkspaceInputs("flow-1", []string{"nuclei", "-l", "hosts.txt", "-o", "out.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if staged[2] != "/workspace/hosts.txt" || staged[4] != "/workspace/out.txt" {
+		t.Fatalf("staged=%v", staged)
+	}
+	request, err := StageWorkspaceInputs("flow-1", []string{"sqlmap", "-r", outside, "--batch"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request[2] != "/workspace/login.req" {
+		t.Fatalf("request argv=%v", request)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "login.req")); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -22,6 +22,7 @@ import (
 	"github.com/bb-agent/mirage/internal/config"
 	"github.com/bb-agent/mirage/internal/copilot"
 	"github.com/bb-agent/mirage/internal/database"
+	"github.com/bb-agent/mirage/internal/decision"
 	"github.com/bb-agent/mirage/internal/docker"
 	"github.com/bb-agent/mirage/internal/execution"
 	"github.com/bb-agent/mirage/internal/knowledge"
@@ -1164,6 +1165,13 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 		conductor.SetAgentTimeout(time.Duration(agentTimeout) * time.Minute)
 	}
 	orchestrator.SetConductor(conductor)
+	if s.cfg != nil && s.cfg.FoundryEndpoint != "" && s.cfg.FoundryAPIKey != "" && s.cfg.FoundryDeployment != "" {
+		foundry := decision.NewFoundryClient(s.cfg.FoundryEndpoint, s.cfg.FoundryDeployment, s.cfg.FoundryAPIKey, s.cfg.FoundryTimeout)
+		planner := agent.NewPlanner(provider, orchestrator.GetEventBus(), nil)
+		planner.SetDecisionProvider(foundry, s.cfg.FoundryMinConfidence)
+		orchestrator.SetDecisionPlanner(planner)
+		log.Printf("[planner] Decision-1 specialist routing enabled for deployment %s", s.cfg.FoundryDeployment)
+	}
 
 	// Subscribe to internal Conductor metrics and broadcast them
 	orchestrator.GetEventBus().SubscribeDurable("queue_metrics", func(data interface{}) {

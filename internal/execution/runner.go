@@ -1,6 +1,9 @@
 package execution
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // ToolRequest is one argv execution inside a flow workspace.
 type ToolRequest struct {
@@ -14,7 +17,9 @@ type ToolOutput struct {
 	Stdout    string
 	Stderr    string
 	ExitCode  int
+	Duration  time.Duration
 	Workspace string
+	Artifacts []string
 }
 
 // ToolRunner is the process boundary used by the API and by smoke tests.

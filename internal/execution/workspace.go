@@ -1,6 +1,8 @@
 package execution
 
 import (
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -107,6 +109,115 @@ func relocateOutput(path string) string {
 		return path
 	}
 	return WorkspaceMount + "/" + strings.TrimPrefix(filepath.ToSlash(path), "./")
+}
+
+// StageWorkspaceInputs copies target-list and raw-request files into the flow
+// workspace and rewrites those arguments to /workspace paths. Output flags are
+// rewritten the same way. Other arguments are left unchanged.
+func StageWorkspaceInputs(flowID string, argv []string) ([]string, error) {
+	if len(argv) == 0 {
+		return argv, nil
+	}
+	out := append([]string{}, argv...)
+	tool, err := canonicalTool(out[0])
+	if err != nil {
+		return RewriteWorkspaceOutputs(out), nil
+	}
+	workspace, err := EnsureWorkspace(flowID)
+	if err != nil {
+		return nil, err
+	}
+	flags := flagTable(tool)
+	for i := 0; i < len(out); i++ {
+		arg := out[i]
+		if arg == "--" || !strings.HasPrefix(arg, "-") || arg == "-" {
+			continue
+		}
+		name, inline := splitFlag(arg, flags)
+		kind := flags[name]
+		if kind != flagFile && kind != flagRequest {
+			continue
+		}
+		if inline != "" {
+			container, err := stageOneFile(workspace, inline)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = name + container
+			continue
+		}
+		if i+1 >= len(out) {
+			return nil, fmt.Errorf("%s requires a file path", name)
+		}
+		container, err := stageOneFile(workspace, out[i+1])
+		if err != nil {
+			return nil, err
+		}
+		out[i+1] = container
+		i++
+	}
+	return RewriteWorkspaceOutputs(out), nil
+}
+
+func stageOneFile(workspace, raw string) (string, error) {
+	host, err := locateToolFile(workspace, raw)
+	if err != nil {
+		return "", err
+	}
+	rel, relErr := filepath.Rel(workspace, host)
+	if relErr == nil && rel != "." && !strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel) {
+		return WorkspaceMount + "/" + filepath.ToSlash(rel), nil
+	}
+	base := filepath.Base(host)
+	if base == "." || base == string(filepath.Separator) || strings.Contains(base, "..") {
+		return "", fmt.Errorf("tool file %s has no usable name", raw)
+	}
+	dest := filepath.Join(workspace, base)
+	if filepath.Clean(host) != filepath.Clean(dest) {
+		if err := copyToolFile(host, dest); err != nil {
+			return "", err
+		}
+	}
+	return WorkspaceMount + "/" + base, nil
+}
+
+func locateToolFile(workspace, raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	var candidates []string
+	if strings.HasPrefix(raw, WorkspaceMount+"/") {
+		candidates = append(candidates, filepath.Join(workspace, strings.TrimPrefix(raw, WorkspaceMount+"/")))
+	}
+	candidates = append(candidates, raw)
+	if !filepath.IsAbs(raw) && !strings.HasPrefix(raw, "/") && !strings.HasPrefix(raw, `\`) {
+		candidates = append(candidates, filepath.Join(workspace, filepath.FromSlash(raw)))
+	}
+	for _, candidate := range candidates {
+		info, err := os.Stat(candidate)
+		if err == nil && !info.IsDir() {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("cannot read tool file %s", raw)
+}
+
+func copyToolFile(src, dest string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return err
+	}
+	out, err := os.OpenFile(dest, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	if _, err := io.Copy(out, io.LimitReader(in, 1<<20+1)); err != nil {
+		return err
+	}
+	return nil
 }
 
 func safeWorkspaceID(flowID string) string {

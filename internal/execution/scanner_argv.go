@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -23,7 +24,7 @@ const (
 // parseScanEndpoints reads a scanner argv and returns the hosts and ports
 // that the tool will actually contact. Output files, wordlists, and other
 // non-targets are ignored. Target-list files are read and authorized.
-func parseScanEndpoints(tool string, args []string) ([]policy.Target, error) {
+func parseScanEndpoints(flowID, tool string, args []string) ([]policy.Target, error) {
 	if err := rejectDangerousFlags(tool, args); err != nil {
 		return nil, err
 	}
@@ -79,14 +80,14 @@ func parseScanEndpoints(tool string, args []string) ([]policy.Target, error) {
 		}
 	}
 	for _, file := range listFiles {
-		lines, err := readTargetLines(file)
+		lines, err := readTargetLines(flowID, file)
 		if err != nil {
 			return nil, err
 		}
 		targets = append(targets, lines...)
 	}
 	for _, file := range requestFiles {
-		lines, err := readRequestTargets(file)
+		lines, err := readRequestTargets(flowID, file)
 		if err != nil {
 			return nil, err
 		}
@@ -353,8 +354,8 @@ func parsePortSpec(spec string) ([]int, error) {
 	return out, nil
 }
 
-func readRequestTargets(path string) ([]string, error) {
-	body, err := os.ReadFile(path)
+func readRequestTargets(flowID, path string) ([]string, error) {
+	body, err := readToolFile(flowID, path)
 	if err != nil {
 		return nil, fmt.Errorf("cannot read request file %s: %w", path, err)
 	}
@@ -378,11 +379,11 @@ func readRequestTargets(path string) ([]string, error) {
 	return targets, nil
 }
 
-func readTargetLines(path string) ([]string, error) {
+func readTargetLines(flowID, path string) ([]string, error) {
 	if strings.TrimSpace(path) == "" || strings.ContainsRune(path, 0) {
 		return nil, fmt.Errorf("target list path is missing")
 	}
-	body, err := os.ReadFile(path)
+	body, err := readToolFile(flowID, path)
 	if err != nil {
 		return nil, fmt.Errorf("cannot read target list %s: %w", path, err)
 	}
@@ -401,6 +402,57 @@ func readTargetLines(path string) ([]string, error) {
 		return nil, fmt.Errorf("target list %s is empty", path)
 	}
 	return lines, nil
+}
+
+func readToolFile(flowID, rawPath string) ([]byte, error) {
+	var last error
+	for _, candidate := range toolFileCandidates(flowID, rawPath) {
+		body, err := os.ReadFile(candidate)
+		if err != nil {
+			last = err
+			continue
+		}
+		if len(body) > 1<<20 {
+			return nil, fmt.Errorf("tool file %s is larger than 1MB", rawPath)
+		}
+		return body, nil
+	}
+	if last == nil {
+		last = fmt.Errorf("file is missing")
+	}
+	return nil, last
+}
+
+func toolFileCandidates(flowID, rawPath string) []string {
+	rawPath = strings.TrimSpace(rawPath)
+	var out []string
+	add := func(path string) {
+		if path == "" {
+			return
+		}
+		for _, existing := range out {
+			if existing == path {
+				return
+			}
+		}
+		out = append(out, path)
+	}
+	workspace, err := workspaceForFlow(flowID)
+	if err == nil && strings.HasPrefix(rawPath, WorkspaceMount+"/") {
+		add(filepath.Join(workspace, strings.TrimPrefix(rawPath, WorkspaceMount+"/")))
+	}
+	add(rawPath)
+	if err == nil && !filepath.IsAbs(rawPath) && !strings.HasPrefix(rawPath, "/") && !strings.HasPrefix(rawPath, `\`) {
+		add(filepath.Join(workspace, filepath.FromSlash(rawPath)))
+	}
+	return out
+}
+
+func workspaceForFlow(flowID string) (string, error) {
+	if strings.TrimSpace(flowID) == "" {
+		return "", fmt.Errorf("flow id is empty")
+	}
+	return EnsureWorkspace(flowID)
 }
 
 func dedupeTargets(in []policy.Target) []policy.Target {

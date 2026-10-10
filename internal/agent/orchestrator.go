@@ -215,6 +215,7 @@ type Orchestrator struct {
 	// is set, tool calls with a nil gateway are denied.
 	execGateway        *execution.Gateway
 	requireExecutionV2 bool
+	decisionPlanner    *Planner
 }
 
 func buildSpecialists(provider llm.Provider) map[string]Specialist {
@@ -618,6 +619,13 @@ func (o *Orchestrator) GetEventBus() *EventBus {
 func (o *Orchestrator) SetExecutionGateway(g *execution.Gateway, required bool) {
 	o.execGateway = g
 	o.requireExecutionV2 = required
+}
+
+// SetDecisionPlanner routes specialist labels through Decision-1 when it is confident.
+func (o *Orchestrator) SetDecisionPlanner(p *Planner) {
+	if o != nil {
+		o.decisionPlanner = p
+	}
 }
 
 // bindExecutionContext attaches the flow gateway so direct browser calls,
@@ -1565,6 +1573,9 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		}
 
 		agentSpecs = filterDispatchSpecs(agentSpecs, dispatchedSpecs, flow.Target, base.BrowserAvailable())
+		if o.decisionPlanner != nil {
+			agentSpecs = o.decisionPlanner.RouteSpecs(plannerCtx, agentSpecs)
+		}
 
 		o.emit(flowID.String(), Event{
 			Type:     EventMessage,
@@ -2988,27 +2999,12 @@ func buildFallbackAgentSpecs(baseTarget string, brain *Brain) []SwarmAgentSpec {
 			continue
 		}
 
-		switch {
-		case strings.Contains(note, "login"), strings.Contains(note, "auth"), strings.Contains(note, "credential"):
-			addSpec(SwarmAgentSpec{Type: "Auth Discovery", Target: extractTargetHint(raw), Context: raw, Priority: "high"})
-		case strings.Contains(note, "/api"), strings.Contains(note, "json"), strings.Contains(note, "graphql"):
-			addSpec(SwarmAgentSpec{Type: "API Security", Target: extractTargetHint(raw), Context: raw, Priority: "high"})
-		case strings.Contains(note, "upload"):
-			addSpec(SwarmAgentSpec{Type: "File Upload", Target: extractTargetHint(raw), Context: raw, Priority: "high"})
-		case strings.Contains(note, "xss"), strings.Contains(note, "script"), strings.Contains(note, "dom"):
-			addSpec(SwarmAgentSpec{Type: "XSS", Target: extractTargetHint(raw), Context: raw, Priority: "high"})
-		case strings.Contains(note, "sqli"), strings.Contains(note, "sql"), strings.Contains(note, "database"):
-			addSpec(SwarmAgentSpec{Type: "SQLi", Target: extractTargetHint(raw), Context: raw, Priority: "high"})
-		case strings.Contains(note, "ssrf"), strings.Contains(note, "metadata"), strings.Contains(note, "callback"):
-			addSpec(SwarmAgentSpec{Type: "SSRF", Target: extractTargetHint(raw), Context: raw, Priority: "high"})
-		case strings.Contains(note, "include"), strings.Contains(note, "passwd"), strings.Contains(note, "traversal"), strings.Contains(note, "lfi"):
-			addSpec(SwarmAgentSpec{Type: "LFI", Target: extractTargetHint(raw), Context: raw, Priority: "high"})
-		case strings.Contains(note, "exec"), strings.Contains(note, "command"), strings.Contains(note, "shell"), strings.Contains(note, "rce"):
-			addSpec(SwarmAgentSpec{Type: "RCE", Target: extractTargetHint(raw), Context: raw, Priority: "high"})
-		case strings.Contains(note, "idor"), strings.Contains(note, "object id"), strings.Contains(note, "profile"), strings.Contains(note, "account"):
-			addSpec(SwarmAgentSpec{Type: "IDOR", Target: extractTargetHint(raw), Context: raw, Priority: "medium"})
-		case strings.Contains(note, "spa"), strings.Contains(note, "react"), strings.Contains(note, "vue"), strings.Contains(note, "angular"):
-			addSpec(SwarmAgentSpec{Type: "Visual Crawler", Target: extractTargetHint(raw), Context: raw, Priority: "medium"})
+		if kind := RuleSpecialist(raw); kind != "" {
+			priority := "high"
+			if kind == "IDOR" || kind == "Visual Crawler" {
+				priority = "medium"
+			}
+			addSpec(SwarmAgentSpec{Type: kind, Target: extractTargetHint(raw), Context: raw, Priority: priority})
 		}
 	}
 

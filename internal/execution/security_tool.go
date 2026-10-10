@@ -45,7 +45,7 @@ var knownSecurityTools = map[string]policy.Risk{
 func SecurityToolAction(flowID, actor string, raw json.RawMessage) Action {
 	action := shellAction(flowID, actor, raw)
 	action.ToolID = "run_security_tool"
-	tool, argv, timeout, endpoints, err := parseSecurityArgv(raw)
+	tool, argv, timeout, endpoints, err := parseSecurityArgv(flowID, raw)
 	if err != nil {
 		action.Shell = false
 		action.Arguments["reject"] = err.Error()
@@ -72,7 +72,7 @@ func SecurityToolAction(flowID, actor string, raw json.RawMessage) Action {
 // ParseSecurityArgv validates a run_security_tool payload and returns the
 // argv array that must be executed without a shell.
 func ParseSecurityArgv(raw json.RawMessage) ([]string, int, error) {
-	tool, extra, timeout, _, err := parseSecurityArgv(raw)
+	tool, extra, timeout, _, err := parseSecurityArgv("", raw)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -82,7 +82,7 @@ func ParseSecurityArgv(raw json.RawMessage) ([]string, int, error) {
 	return argv, timeout, nil
 }
 
-func parseSecurityArgv(raw json.RawMessage) (string, []string, int, []policy.Target, error) {
+func parseSecurityArgv(flowID string, raw json.RawMessage) (string, []string, int, []policy.Target, error) {
 	var params struct {
 		Tool    string   `json:"tool"`
 		Args    []string `json:"args"`
@@ -110,7 +110,7 @@ func parseSecurityArgv(raw json.RawMessage) (string, []string, int, []policy.Tar
 			return "", nil, 0, nil, fmt.Errorf("security tool arguments cannot contain NUL")
 		}
 	}
-	endpoints, err := parseScanEndpoints(tool, params.Args)
+	endpoints, err := parseScanEndpoints(flowID, tool, params.Args)
 	if err != nil {
 		return "", nil, 0, nil, err
 	}

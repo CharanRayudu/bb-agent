@@ -131,6 +131,25 @@ func TestTargetListIsAuthorizedAndMissingFileIsDenied(t *testing.T) {
 	}
 }
 
+func TestRelativeTargetListInTheFlowWorkspaceIsAuthorized(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("MIRAGE_WORKSPACE_ROOT", root)
+	dir, err := EnsureWorkspace("flow-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "hosts.txt"), []byte("example.com\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gw, _ := newGW(t, testAuth(policy.AutonomyL3, "http://example.com"), "93.184.216.34")
+	out, err := gw.ExecuteTool(context.Background(), "flow-1", "run_security_tool", "orchestrator", []byte(`{"tool":"nuclei","args":["-l","hosts.txt"]}`), func(context.Context) (string, error) {
+		return "ran", nil
+	})
+	if err != nil || out != "ran" {
+		t.Fatalf("workspace target list out=%q err=%v", out, err)
+	}
+}
+
 func TestRawRequestFileSuppliesTheHost(t *testing.T) {
 	dir := t.TempDir()
 	req := filepath.Join(dir, "request.req")

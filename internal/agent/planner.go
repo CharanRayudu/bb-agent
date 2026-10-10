@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bb-agent/mirage/internal/decision"
 	"github.com/bb-agent/mirage/internal/llm"
 	"github.com/bb-agent/mirage/internal/models"
 	"github.com/google/uuid"
@@ -49,8 +50,10 @@ type Planner struct {
 	memory      *Memory
 	mu          sync.RWMutex
 
-	activePlans map[uuid.UUID]*CognitivePlan
-	confidence  *ConfidenceEngine
+	activePlans   map[uuid.UUID]*CognitivePlan
+	confidence    *ConfidenceEngine
+	decider       decision.Provider
+	minConfidence float64
 }
 
 // NewPlanner creates a new cognitive Planner.

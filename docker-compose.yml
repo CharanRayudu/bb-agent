@@ -30,8 +30,11 @@ services:
     environment:
       DATABASE_URL: postgres://mirage:mirage@postgres:5432/miragedb?sslmode=disable
       DOCKER_HOST: unix:///var/run/docker.sock
-      SANDBOX_IMAGE: mirage-firewall:local
+      # Scanners run in the full tool image. The firewall helper is a separate
+      # minimal image and is never used as the scan sandbox.
+      SANDBOX_IMAGE: mirage-tools:latest
       FIREWALL_HELPER_IMAGE: mirage-firewall:local
+      MIRAGE_EXECUTION_V2: ${MIRAGE_EXECUTION_V2:-true}
       # The API writes here. The host path Docker can bind is discovered from
       # this container's own /workspaces mount, so a Windows ${PWD} is not
       # passed back through the socket.
@@ -81,11 +84,13 @@ services:
       - mirage-net
 
   # ============ Persistent Sandbox ============
-  # The default image is the small firewall/curl image so the stack can start
-  # without the full Kali toolset. Set SANDBOX_IMAGE=mirage-tools:latest and
-  # build build/tools/Dockerfile when nuclei, nmap, and sqlmap are required.
+  # Full scanner image (nmap, nuclei, sqlmap, ffuf, curl). Flow containers
+  # are created from SANDBOX_IMAGE. This service keeps that image present.
   sandbox:
-    image: mirage-firewall:local
+    image: mirage-tools:latest
+    build:
+      context: ./build/tools
+      dockerfile: Dockerfile
     container_name: mirage-sandbox
     command: ["tail", "-f", "/dev/null"]
     depends_on:

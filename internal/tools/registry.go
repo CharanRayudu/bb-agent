@@ -413,9 +413,9 @@ func (r *Registry) execArgv(ctx context.Context, argv []string, timeout int) (*d
 			TimeoutSeconds: timeout,
 		})
 		if err != nil {
-			return nil, err
+			return &docker.ExecResult{Stdout: out.Stdout, Stderr: out.Stderr, ExitCode: out.ExitCode, Duration: out.Duration, Artifacts: out.Artifacts}, err
 		}
-		return &docker.ExecResult{Stdout: out.Stdout, Stderr: out.Stderr, ExitCode: out.ExitCode}, nil
+		return &docker.ExecResult{Stdout: out.Stdout, Stderr: out.Stderr, ExitCode: out.ExitCode, Duration: out.Duration, Artifacts: out.Artifacts}, nil
 	}
 	if execution.Required(ctx) {
 		return nil, fmt.Errorf("per-flow sandbox is required")
@@ -497,6 +497,9 @@ func formatSandboxOutput(result *docker.ExecResult) string {
 		output += "\n" + result.Stderr
 	}
 	output += fmt.Sprintf("\n\n[Exit Code: %d | Duration: %s]", result.ExitCode, result.Duration.Round(time.Millisecond))
+	if len(result.Artifacts) > 0 {
+		output += "\nArtifacts:\n" + strings.Join(result.Artifacts, "\n")
+	}
 	const maxOutput = 15000
 	if len(output) > maxOutput {
 		output = output[:maxOutput] + "\n\n... [output truncated, showing first 15000 characters]"

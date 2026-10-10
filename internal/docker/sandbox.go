@@ -56,10 +56,11 @@ func NewSandbox(dockerHost, imageName string) (*Sandbox, error) {
 
 // ExecResult holds the output from a command execution
 type ExecResult struct {
-	Stdout   string
-	Stderr   string
-	ExitCode int
-	Duration time.Duration
+	Stdout    string
+	Stderr    string
+	ExitCode  int
+	Duration  time.Duration
+	Artifacts []string
 }
 
 // Execute runs a shell command string inside the sandbox via `bash -c`.

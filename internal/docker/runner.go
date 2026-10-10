@@ -3,6 +3,8 @@ package docker
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/bb-agent/mirage/internal/execution"
 )
@@ -30,19 +32,41 @@ func (r FlowRunner) Execute(ctx context.Context, req execution.ToolRequest) (exe
 	if r.Sandbox == nil {
 		return execution.ToolOutput{}, errNoSandbox
 	}
-	argv := execution.RewriteWorkspaceOutputs(req.Argv)
-	result, err := r.Sandbox.ExecuteArgvInFlow(ctx, req.FlowID, argv, req.TimeoutSeconds)
-	workspace, _ := execution.EnsureWorkspace(req.FlowID)
+	argv, err := execution.StageWorkspaceInputs(req.FlowID, req.Argv)
 	if err != nil {
+		workspace, _ := execution.EnsureWorkspace(req.FlowID)
 		return execution.ToolOutput{Workspace: workspace}, err
 	}
+	result, err := r.Sandbox.ExecuteArgvInFlow(ctx, req.FlowID, argv, req.TimeoutSeconds)
+	workspace, _ := execution.EnsureWorkspace(req.FlowID)
+	artifacts := workspaceFiles(workspace)
+	if err != nil {
+		return execution.ToolOutput{Workspace: workspace, Artifacts: artifacts}, err
+	}
 	if result == nil {
-		return execution.ToolOutput{Workspace: workspace}, nil
+		return execution.ToolOutput{Workspace: workspace, Artifacts: artifacts}, nil
 	}
 	return execution.ToolOutput{
 		Stdout:    result.Stdout,
 		Stderr:    result.Stderr,
 		ExitCode:  result.ExitCode,
+		Duration:  result.Duration,
 		Workspace: workspace,
+		Artifacts: artifacts,
 	}, nil
+}
+
+func workspaceFiles(dir string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		out = append(out, filepath.Join(dir, entry.Name()))
+	}
+	return out
 }
