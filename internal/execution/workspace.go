@@ -16,8 +16,7 @@ func WorkspaceRoot() string {
 	return filepath.Join("data", "workspaces")
 }
 
-// EnsureWorkspace creates the host directory whose files are mounted into
-// the flow container at /workspace.
+// EnsureWorkspace creates the directory the API process writes into.
 func EnsureWorkspace(flowID string) (string, error) {
 	dir := filepath.Join(WorkspaceRoot(), safeWorkspaceID(flowID))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -28,6 +27,31 @@ func EnsureWorkspace(flowID string) (string, error) {
 		return dir, nil
 	}
 	return abs, nil
+}
+
+// WorkspaceBindSource is the path the Docker daemon mounts into a flow container.
+// When the API itself runs in a container, MIRAGE_WORKSPACE_HOST_ROOT is the
+// same directory as seen from the host. Otherwise it matches EnsureWorkspace.
+func WorkspaceBindSource(flowID string) (string, error) {
+	if _, err := EnsureWorkspace(flowID); err != nil {
+		return "", err
+	}
+	hostRoot := strings.TrimSpace(os.Getenv("MIRAGE_WORKSPACE_HOST_ROOT"))
+	if hostRoot == "" {
+		return EnsureWorkspace(flowID)
+	}
+	return filepath.Join(hostRoot, safeWorkspaceID(flowID)), nil
+}
+
+// FlowWorkspaceName is the per-flow directory name under the workspace root.
+func FlowWorkspaceName(flowID string) string {
+	return safeWorkspaceID(flowID)
+}
+
+// WorkspaceBindFromMount joins a Docker-daemon mount source with the flow directory.
+// mountSource must be the path the daemon already uses for the API workspace volume.
+func WorkspaceBindFromMount(mountSource, flowID string) string {
+	return filepath.Join(mountSource, safeWorkspaceID(flowID))
 }
 
 // RewriteWorkspaceOutputs moves relative scanner output paths into the

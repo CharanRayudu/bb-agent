@@ -85,16 +85,56 @@ func (q *Queries) ListFlows() ([]models.Flow, error) {
 }
 
 // FailInterruptedFlows marks scans left active by a dead process as failed.
-// A paused flow is an operator choice and is left alone.
+// Running tasks and subtasks on those scans are failed in the same transaction
+// so the UI does not keep showing a live job under a dead flow. A paused flow
+// is an operator choice and is left alone.
 func (q *Queries) FailInterruptedFlows() (int64, error) {
 	if q == nil || q.db == nil {
 		return 0, fmt.Errorf("database is not configured")
 	}
-	res, err := q.db.Exec(`UPDATE flows SET status = 'failed', updated_at = NOW() WHERE status = 'active'`)
+	tx, err := q.db.Begin()
 	if err != nil {
 		return 0, err
 	}
-	return res.RowsAffected()
+	defer tx.Rollback()
+
+	rows, err := tx.Query(`UPDATE flows SET status = 'failed', updated_at = NOW() WHERE status = 'active' RETURNING id`)
+	if err != nil {
+		return 0, err
+	}
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	for _, id := range ids {
+		if _, err := tx.Exec(
+			`UPDATE tasks SET status = 'failed', result = CASE WHEN result = '' THEN 'interrupted by process restart' ELSE result END, updated_at = NOW() WHERE flow_id = $1 AND status IN ('pending', 'running')`,
+			id,
+		); err != nil {
+			return 0, err
+		}
+		if _, err := tx.Exec(
+			`UPDATE subtasks SET status = 'failed', updated_at = NOW() WHERE status IN ('queued', 'running') AND task_id IN (SELECT id FROM tasks WHERE flow_id = $1)`,
+			id,
+		); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return int64(len(ids)), nil
 }
 
 func (q *Queries) UpdateFlowStatus(id uuid.UUID, status models.FlowStatus) error {

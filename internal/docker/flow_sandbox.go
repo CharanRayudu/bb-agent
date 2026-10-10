@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/bb-agent/mirage/internal/execution"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
@@ -233,12 +236,60 @@ func (fs *FlowSandbox) GetContainerIP(ctx context.Context, flowID string) (net.I
 	return nil, fmt.Errorf("container %s has no IP address", shortID(containerID))
 }
 
+// ResolveWorkspaceBind returns the path the Docker daemon can mount.
+// An explicit MIRAGE_WORKSPACE_HOST_ROOT wins. Inside a container, the path is
+// taken from this process's own mount of MIRAGE_WORKSPACE_ROOT, because the
+// daemon cannot see the path as it appears inside the API container.
+func (fs *FlowSandbox) ResolveWorkspaceBind(ctx context.Context, flowID string) (string, error) {
+	created, err := execution.EnsureWorkspace(flowID)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(os.Getenv("MIRAGE_WORKSPACE_HOST_ROOT")) != "" {
+		return execution.WorkspaceBindSource(flowID)
+	}
+	if _, statErr := os.Stat("/.dockerenv"); statErr == nil && fs != nil && fs.client != nil {
+		if source, mountErr := fs.selfMountSource(ctx, execution.WorkspaceRoot()); mountErr == nil && source != "" {
+			return execution.WorkspaceBindFromMount(source, flowID), nil
+		}
+		log.Printf("[sandbox] API is containerized but %s is not a Docker mount the daemon can bind", execution.WorkspaceRoot())
+	}
+	return created, nil
+}
+
+func (fs *FlowSandbox) selfMountSource(ctx context.Context, dest string) (string, error) {
+	if fs == nil || fs.client == nil {
+		return "", fmt.Errorf("docker client is not configured")
+	}
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		return "", fmt.Errorf("container hostname is unknown")
+	}
+	info, err := fs.client.ContainerInspect(ctx, host)
+	if err != nil {
+		return "", err
+	}
+	want := filepath.Clean(dest)
+	for _, mount := range info.Mounts {
+		if filepath.Clean(mount.Destination) == want && mount.Source != "" {
+			return mount.Source, nil
+		}
+	}
+	return "", fmt.Errorf("mount %s not found on container %s", dest, host)
+}
+
 // Ensure creates the per-flow container if it does not already exist.
 func (fs *FlowSandbox) Ensure(ctx context.Context, flowID string) error {
 	if fs == nil {
 		return fmt.Errorf("flow sandbox is not configured")
 	}
-	_, err := fs.CreateForFlow(ctx, flowID, ProfileDefault, DefaultFlowConfig())
+	bind, err := fs.ResolveWorkspaceBind(ctx, flowID)
+	if err != nil {
+		return err
+	}
+	cfg := DefaultFlowConfig()
+	cfg.WorkspaceHost = bind
+	_, err = fs.CreateForFlow(ctx, flowID, ProfileDefault, cfg)
 	return err
 }
 

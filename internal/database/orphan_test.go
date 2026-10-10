@@ -49,12 +49,48 @@ func TestFailInterruptedFlowsMarksActiveRows(t *testing.T) {
 	)`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS tasks (
+		id UUID PRIMARY KEY,
+		flow_id UUID NOT NULL,
+		name TEXT NOT NULL DEFAULT '',
+		description TEXT NOT NULL DEFAULT '',
+		status TEXT NOT NULL DEFAULT 'pending',
+		result TEXT NOT NULL DEFAULT '',
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS subtasks (
+		id UUID PRIMARY KEY,
+		task_id UUID NOT NULL,
+		name TEXT NOT NULL DEFAULT '',
+		description TEXT NOT NULL DEFAULT '',
+		status TEXT NOT NULL DEFAULT 'queued',
+		agent_type TEXT NOT NULL DEFAULT 'orchestrator',
+		context TEXT NOT NULL DEFAULT '',
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`); err != nil {
+		t.Fatal(err)
+	}
 	id := uuid.New()
-	if _, err := db.ExecContext(ctx, `INSERT INTO flows (id, name, status) VALUES ($1, 'orphan', 'active')`, id); err != nil {
+	taskID := uuid.New()
+	subID := uuid.New()
+	pausedID := uuid.New()
+	if _, err := db.ExecContext(ctx, `INSERT INTO flows (id, name, status) VALUES ($1, 'orphan', 'active'), ($2, 'paused', 'paused')`, id, pausedID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO tasks (id, flow_id, name, status) VALUES ($1, $2, 'recon', 'running')`, taskID, id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO subtasks (id, task_id, name, status) VALUES ($1, $2, 'crawl', 'running')`, subID, taskID); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_, _ = db.Exec(`DELETE FROM flows WHERE id = $1`, id)
+		_, _ = db.Exec(`DELETE FROM subtasks WHERE id = $1`, subID)
+		_, _ = db.Exec(`DELETE FROM tasks WHERE id = $1`, taskID)
+		_, _ = db.Exec(`DELETE FROM flows WHERE id IN ($1, $2)`, id, pausedID)
 	})
 	n, err := NewQueries(db).FailInterruptedFlows()
 	if err != nil {
@@ -63,12 +99,30 @@ func TestFailInterruptedFlowsMarksActiveRows(t *testing.T) {
 	if n < 1 {
 		t.Fatalf("reconciled=%d", n)
 	}
-	var status string
+	var status, taskStatus, subStatus, paused string
 	if err := db.QueryRowContext(ctx, `SELECT status FROM flows WHERE id = $1`, id).Scan(&status); err != nil {
 		t.Fatal(err)
 	}
 	if status != "failed" {
 		t.Fatalf("status=%s", status)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT status FROM tasks WHERE id = $1`, taskID).Scan(&taskStatus); err != nil {
+		t.Fatal(err)
+	}
+	if taskStatus != "failed" {
+		t.Fatalf("task status=%s", taskStatus)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT status FROM subtasks WHERE id = $1`, subID).Scan(&subStatus); err != nil {
+		t.Fatal(err)
+	}
+	if subStatus != "failed" {
+		t.Fatalf("subtask status=%s", subStatus)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT status FROM flows WHERE id = $1`, pausedID).Scan(&paused); err != nil {
+		t.Fatal(err)
+	}
+	if paused != "paused" {
+		t.Fatalf("paused flow changed to %s", paused)
 	}
 }
 

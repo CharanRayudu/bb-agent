@@ -123,6 +123,18 @@ func (fixedResolver) LookupIP(context.Context, string) ([]net.IP, error) {
 	return []net.IP{net.ParseIP("93.184.216.34")}, nil
 }
 
+func TestCrawlAllocatorKeepsTheFlowProxy(t *testing.T) {
+	without := browserAllocatorOptions(nil, BrowserOptions{})
+	with := browserAllocatorOptions(nil, BrowserOptions{Proxy: "http://127.0.0.1:9"})
+	if len(with) != len(without)+1 {
+		t.Fatalf("crawl launch dropped the proxy: %d options vs %d", len(with), len(without))
+	}
+	kept := preserveBrowserLaunch(BrowserOptions{Proxy: "http://127.0.0.1:9", Timeout: 0}, DefaultBrowserOptions())
+	if kept.Proxy != "http://127.0.0.1:9" || kept.Timeout == 0 {
+		t.Fatalf("default timeout reset dropped the proxy: %+v", kept)
+	}
+}
+
 func TestRunCrawlDeniedBeforeBrowserLaunch(t *testing.T) {
 	ctx := execution.WithGateway(context.Background(), denyGateway(t))
 	_, err := RunCrawl(ctx, "http://127.0.0.1:9/", DefaultBrowserOptions())

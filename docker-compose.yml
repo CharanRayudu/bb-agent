@@ -30,8 +30,12 @@ services:
     environment:
       DATABASE_URL: postgres://mirage:mirage@postgres:5432/miragedb?sslmode=disable
       DOCKER_HOST: unix:///var/run/docker.sock
-      SANDBOX_IMAGE: mirage-tools:latest
+      SANDBOX_IMAGE: mirage-firewall:local
       FIREWALL_HELPER_IMAGE: mirage-firewall:local
+      # The API writes here. The host path Docker can bind is discovered from
+      # this container's own /workspaces mount, so a Windows ${PWD} is not
+      # passed back through the socket.
+      MIRAGE_WORKSPACE_ROOT: /workspaces
       CODEX_HOME: /root/.codex
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.3-codex}
       # Optional API key fallback (not needed if using codex login)
@@ -40,6 +44,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${HOME:-${USERPROFILE}}/.codex:/root/.codex:ro
       - ./logs:/app/logs
+      - ./data/workspaces:/workspaces
     depends_on:
       postgres:
         condition: service_healthy
@@ -76,13 +81,16 @@ services:
       - mirage-net
 
   # ============ Persistent Sandbox ============
-  # This container stays alive permanently. The backend will 
-  # explicitly `docker exec` into it, meaning installed tools
-  # and downloaded payloads will strictly persist across flows.
+  # The default image is the small firewall/curl image so the stack can start
+  # without the full Kali toolset. Set SANDBOX_IMAGE=mirage-tools:latest and
+  # build build/tools/Dockerfile when nuclei, nmap, and sqlmap are required.
   sandbox:
-    image: mirage-tools:latest
+    image: mirage-firewall:local
     container_name: mirage-sandbox
-    command: tail -f /dev/null
+    command: ["tail", "-f", "/dev/null"]
+    depends_on:
+      firewall-helper:
+        condition: service_completed_successfully
     networks:
       - mirage-net
 

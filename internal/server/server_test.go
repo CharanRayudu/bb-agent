@@ -3,6 +3,7 @@ package server_test
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/bb-agent/mirage/internal/config"
 	"github.com/bb-agent/mirage/internal/server"
+	"github.com/gorilla/websocket"
 )
 
 // newTestHandler creates a Server with nil DB — safe for in-memory-only endpoints.
@@ -162,6 +164,32 @@ func TestRemediationList(t *testing.T) {
 }
 
 // ── CICD Trigger ─────────────────────────────────────────────────────────────
+
+func TestHealthAndWebSocketAcceptABrowserClient(t *testing.T) {
+	srv := httptest.NewServer(newTestHandler(t))
+	defer srv.Close()
+
+	health, err := http.Get(srv.URL + "/api/health")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer health.Body.Close()
+	if health.StatusCode != http.StatusOK {
+		t.Fatalf("health status=%d", health.StatusCode)
+	}
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws"
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		body := ""
+		if resp != nil {
+			raw, _ := io.ReadAll(resp.Body)
+			body = string(raw)
+		}
+		t.Fatalf("websocket dial: %v body=%s", err, body)
+	}
+	defer conn.Close()
+}
 
 func TestCICDTrigger_NoDBSkip(t *testing.T) {
 	// CICD trigger creates a flow which requires DB — skip without a real DB.

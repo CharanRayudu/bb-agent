@@ -19,11 +19,11 @@ func (r FlowRunner) Prepare(ctx context.Context, flowID string) (string, error) 
 	if r.Sandbox == nil {
 		return "", errNoSandbox
 	}
-	dir, err := execution.EnsureWorkspace(flowID)
+	bind, err := r.Sandbox.ResolveWorkspaceBind(ctx, flowID)
 	if err != nil {
 		return "", err
 	}
-	return r.Sandbox.EnsureWorkspace(ctx, flowID, dir, r.Image)
+	return r.Sandbox.EnsureWorkspace(ctx, flowID, bind, r.Image)
 }
 
 func (r FlowRunner) Execute(ctx context.Context, req execution.ToolRequest) (execution.ToolOutput, error) {
