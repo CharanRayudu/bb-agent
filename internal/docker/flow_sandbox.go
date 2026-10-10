@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -142,6 +143,39 @@ func (fs *FlowSandbox) CreateForFlow(ctx context.Context, flowID string, profile
 	fs.containers[flowID] = resp.ID
 	log.Printf("[sandbox] Created flow sandbox %s (%s) with profile %s", containerName, resp.ID[:12], profile)
 	return resp.ID, nil
+}
+
+// GetContainerIP inspects and returns the internal network IP for a flow's container.
+func (fs *FlowSandbox) GetContainerIP(ctx context.Context, flowID string) (net.IP, error) {
+	fs.mu.Lock()
+	containerID, ok := fs.containers[flowID]
+	fs.mu.Unlock()
+
+	if !ok {
+		return nil, fmt.Errorf("no container for flow %s", flowID)
+	}
+
+	inspect, err := fs.client.ContainerInspect(ctx, containerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to inspect container %s: %w", containerID, err)
+	}
+
+	if inspect.NetworkSettings != nil {
+		if inspect.NetworkSettings.IPAddress != "" {
+			if ip := net.ParseIP(inspect.NetworkSettings.IPAddress); ip != nil {
+				return ip, nil
+			}
+		}
+		for _, netSettings := range inspect.NetworkSettings.Networks {
+			if netSettings != nil && netSettings.IPAddress != "" {
+				if ip := net.ParseIP(netSettings.IPAddress); ip != nil {
+					return ip, nil
+				}
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("container %s has no assigned IP address", containerID)
 }
 
 // ExecuteInFlow runs a shell command in a flow-specific sandbox via `bash -c`.

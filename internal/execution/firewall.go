@@ -81,6 +81,13 @@ func (fc *FirewallController) ApplyFlowRules(ctx context.Context, flowID string,
 		return fmt.Errorf("flowID cannot be empty")
 	}
 
+	// Verify every rule has a non-empty destination
+	for _, r := range rules {
+		if r.IP == nil && r.Host == "" {
+			return fmt.Errorf("invalid network rule: missing target host or IP for flow %s", flowID)
+		}
+	}
+
 	// Make a copy of rules
 	cp := make([]NetworkRule, len(rules))
 	copy(cp, rules)
@@ -174,6 +181,10 @@ func (fc *FirewallController) generateIptablesRestorePayloadLocked() string {
 			ipStr := ""
 			if r.IP != nil {
 				ipStr = fmt.Sprintf("-d %s ", r.IP.String())
+			} else if r.Host != "" {
+				if parsedIP := net.ParseIP(r.Host); parsedIP != nil {
+					ipStr = fmt.Sprintf("-d %s ", parsedIP.String())
+				}
 			}
 			portStr := ""
 			if r.Port > 0 && (proto == "tcp" || proto == "udp") {

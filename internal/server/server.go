@@ -1173,11 +1173,17 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 		if fsErr == nil {
 			defer flowSB.DestroyForFlow(context.Background(), flowID.String())
 			_, createErr := flowSB.CreateForFlow(context.Background(), flowID.String(), docker.ProfileDefault, docker.DefaultFlowConfig())
-			if createErr == nil && s.gateway != nil && s.gateway.Firewall() != nil && stored != nil {
-				if fwErr := s.gateway.Firewall().ApplyFlowRules(context.Background(), flowID.String(), execution.BuildRulesFromAuth(*stored)); fwErr != nil {
-					log.Printf("[policy] refusing flow %s: firewall enforcement failed: %v", flowID, fwErr)
-					s.queries.UpdateFlowStatus(flowID, models.FlowStatusFailed)
-					return
+			if createErr == nil {
+				registry.SetFlowSandbox(flowSB, flowID.String())
+				if cIP, ipErr := flowSB.GetContainerIP(context.Background(), flowID.String()); ipErr == nil && s.gateway != nil && s.gateway.Firewall() != nil {
+					s.gateway.Firewall().BindContainerIP(flowID.String(), cIP)
+				}
+				if s.gateway != nil && s.gateway.Firewall() != nil && stored != nil {
+					if fwErr := s.gateway.Firewall().ApplyFlowRules(context.Background(), flowID.String(), execution.BuildRulesFromAuth(*stored)); fwErr != nil {
+						log.Printf("[policy] refusing flow %s: firewall enforcement failed: %v", flowID, fwErr)
+						s.queries.UpdateFlowStatus(flowID, models.FlowStatusFailed)
+						return
+					}
 				}
 			}
 		}
