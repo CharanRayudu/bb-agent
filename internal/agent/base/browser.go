@@ -23,6 +23,14 @@ var (
 	browserDisabled       atomic.Bool
 )
 
+// WithChromePath adds the container Chromium binary when CHROME_PATH is set.
+func WithChromePath(opts []chromedp.ExecAllocatorOption) []chromedp.ExecAllocatorOption {
+	if p := strings.TrimSpace(os.Getenv("CHROME_PATH")); p != "" {
+		return append(opts, chromedp.ExecPath(p))
+	}
+	return opts
+}
+
 func PrepareBrowserEgress(ctx context.Context, targetURL string, opts *BrowserOptions) (func(), error) {
 	noop := func() {}
 	if !execution.HasGateway(ctx) && !execution.Required(ctx) {
@@ -183,12 +191,12 @@ func runHeadlessNavigation(ctx context.Context, targetURL string, opts BrowserOp
 		opts = DefaultBrowserOptions()
 	}
 
-	allocOpts := append(chromedp.DefaultExecAllocatorOptions[:],
+	allocOpts := WithChromePath(append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.NoSandbox,
 		chromedp.Flag("disable-setuid-sandbox", true),
 		chromedp.Flag("disable-web-security", true),
 		chromedp.WindowSize(opts.Width, opts.Height),
-	)
+	))
 
 	if opts.Proxy != "" {
 		allocOpts = append(allocOpts, chromedp.ProxyServer(opts.Proxy))
@@ -268,11 +276,11 @@ func RunCrawl(ctx context.Context, targetURL string, opts BrowserOptions) (*Craw
 		opts.Timeout = 30 * time.Second
 	}
 
-	allocOpts := append(chromedp.DefaultExecAllocatorOptions[:],
+	allocOpts := WithChromePath(append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.NoSandbox,
 		chromedp.Flag("disable-setuid-sandbox", true),
 		chromedp.WindowSize(opts.Width, opts.Height),
-	)
+	))
 
 	allocCtx, cancelAlloc := chromedp.NewExecAllocator(ctx, allocOpts...)
 	defer cancelAlloc()

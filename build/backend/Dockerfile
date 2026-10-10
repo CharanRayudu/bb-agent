@@ -17,6 +17,7 @@ RUN apk add --no-cache \
     harfbuzz \
     ttf-freefont \
     libstdc++
+ENV CHROME_PATH=/usr/bin/chromium-browser
 COPY --from=builder /mirage /app/mirage
 COPY prompts.yaml /app/prompts.yaml
 EXPOSE 8443

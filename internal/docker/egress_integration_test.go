@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -19,7 +20,7 @@ func TestFlowNetworkDropsUnapprovedTCPAndUDP(t *testing.T) {
 	if _, err := exec.Command("docker", "version").CombinedOutput(); err != nil {
 		t.Fatalf("docker is required to prove network egress isolation: %v", err)
 	}
-	build := exec.Command("docker", "build", "-t", "mirage-egress-fixture:local", filepath.Join("..", "..", "build", "egress-fixture"))
+	build := exec.Command("docker", "build", "-t", "mirage-egress-fixture:local", "-t", "mirage-firewall:local", filepath.Join("..", "..", "build", "egress-fixture"))
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build egress fixture: %v\n%s", err, out)
 	}
@@ -31,10 +32,15 @@ func TestFlowNetworkDropsUnapprovedTCPAndUDP(t *testing.T) {
 		t.Fatal(err)
 	}
 	flowID := uuid.NewString()
+	workspace, err := execution.EnsureWorkspace(flowID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	cfg := DefaultFlowConfig()
 	cfg.Image = "mirage-egress-fixture:local"
 	cfg.MemoryLimit = 128 << 20
 	cfg.CPULimit = 5e8
+	cfg.WorkspaceHost = workspace
 	if _, err := fs.CreateForFlow(ctx, flowID, ProfileDefault, cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -97,6 +103,22 @@ func TestFlowNetworkDropsUnapprovedTCPAndUDP(t *testing.T) {
 	}
 	if code, err := curlCode(ctx, fs, flowID, allowedIP, 9); err != nil || code == 0 {
 		t.Fatalf("unapproved port was reachable, exit=%d err=%v", code, err)
+	}
+	runner := FlowRunner{Sandbox: fs, Image: cfg.Image}
+	wrote, err := runner.Execute(ctx, execution.ToolRequest{
+		FlowID:         flowID,
+		Argv:           []string{"sh", "-c", "printf smoke > /workspace/evidence.txt"},
+		TimeoutSeconds: 15,
+	})
+	if err != nil || wrote.ExitCode != 0 {
+		t.Fatalf("workspace write failed: %+v err=%v", wrote, err)
+	}
+	evidence, err := os.ReadFile(filepath.Join(workspace, "evidence.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(evidence) != "smoke" {
+		t.Fatalf("host workspace=%q", evidence)
 	}
 }
 

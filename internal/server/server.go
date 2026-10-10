@@ -219,7 +219,7 @@ func New(cfg *config.Config, db *sql.DB) *Server {
 	s.gateway.EnableResume()
 	helperImage := ""
 	if cfg != nil {
-		helperImage = cfg.SandboxImage
+		helperImage = cfg.FirewallHelperImage
 	}
 	s.firewall = execution.NewFirewallController(helperImage)
 
@@ -1166,7 +1166,7 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 	orchestrator.SetConductor(conductor)
 
 	// Subscribe to internal Conductor metrics and broadcast them
-	orchestrator.GetEventBus().Subscribe("queue_metrics", func(data interface{}) {
+	orchestrator.GetEventBus().SubscribeDurable("queue_metrics", func(data interface{}) {
 		metrics, ok := data.(map[string]interface{})
 		if !ok {
 			return

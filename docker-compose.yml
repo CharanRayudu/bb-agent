@@ -31,6 +31,7 @@ services:
       DATABASE_URL: postgres://mirage:mirage@postgres:5432/miragedb?sslmode=disable
       DOCKER_HOST: unix:///var/run/docker.sock
       SANDBOX_IMAGE: mirage-tools:latest
+      FIREWALL_HELPER_IMAGE: mirage-firewall:local
       CODEX_HOME: /root/.codex
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.3-codex}
       # Optional API key fallback (not needed if using codex login)
@@ -42,6 +43,35 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      firewall-helper:
+        condition: service_completed_successfully
+    networks:
+      - mirage-net
+
+  # ============ Frontend ============
+  # The API process only serves frontend/dist when that directory exists.
+  # This container is the deployment path for the React UI.
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: mirage-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - mirage-net
+
+  # ============ Firewall helper image ============
+  # Exits after creation. Its image is what the API uses to run iptables
+  # on the Docker host. It is not the scanner sandbox.
+  firewall-helper:
+    image: mirage-firewall:local
+    build:
+      context: ./build/egress-fixture
+    command: ["true"]
+    restart: "no"
     networks:
       - mirage-net
 

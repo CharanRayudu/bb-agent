@@ -84,6 +84,19 @@ func (q *Queries) ListFlows() ([]models.Flow, error) {
 	return flows, nil
 }
 
+// FailInterruptedFlows marks scans left active by a dead process as failed.
+// A paused flow is an operator choice and is left alone.
+func (q *Queries) FailInterruptedFlows() (int64, error) {
+	if q == nil || q.db == nil {
+		return 0, fmt.Errorf("database is not configured")
+	}
+	res, err := q.db.Exec(`UPDATE flows SET status = 'failed', updated_at = NOW() WHERE status = 'active'`)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 func (q *Queries) UpdateFlowStatus(id uuid.UUID, status models.FlowStatus) error {
 	_, err := q.db.Exec(
 		`UPDATE flows SET status = $1, updated_at = NOW() WHERE id = $2`,

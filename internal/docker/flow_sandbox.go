@@ -36,11 +36,12 @@ const (
 // because it was never enforced and gave callers a false sense of
 // security.
 type FlowSandboxConfig struct {
-	CPULimit    int64  // CPU quota (nanoCPUs, e.g., 2e9 = 2 CPUs)
-	MemoryLimit int64  // Memory limit in bytes (e.g., 2<<30 = 2GB)
-	DiskLimit   string // Disk limit (e.g., "5g")
-	NetworkMode string // retained for callers; flow sandboxes use a dedicated bridge plus an in-container filter
-	Image       string // optional image override
+	CPULimit      int64  // CPU quota (nanoCPUs, e.g., 2e9 = 2 CPUs)
+	MemoryLimit   int64  // Memory limit in bytes (e.g., 2<<30 = 2GB)
+	DiskLimit     string // Disk limit (e.g., "5g")
+	NetworkMode   string // retained for callers; flow sandboxes use a dedicated bridge plus an in-container filter
+	Image         string // optional image override
+	WorkspaceHost string // host directory mounted at /workspace
 }
 
 // DefaultFlowConfig returns a sensible default sandbox configuration.
@@ -139,17 +140,24 @@ func (fs *FlowSandbox) CreateForFlow(ctx context.Context, flowID string, profile
 			"no-new-privileges",
 		},
 	}
+	if config.WorkspaceHost != "" {
+		hostConfig.Binds = []string{config.WorkspaceHost + ":/workspace"}
+	}
 
-	resp, err := fs.client.ContainerCreate(ctx,
-		&container.Config{
-			Image: image,
-			Cmd:   []string{"tail", "-f", "/dev/null"},
-			Labels: map[string]string{
-				"mirage.flow_id": flowID,
-				"mirage.type":    "flow-sandbox",
-				"mirage.profile": string(profile),
-			},
+	containerCfg := &container.Config{
+		Image: image,
+		Cmd:   []string{"tail", "-f", "/dev/null"},
+		Labels: map[string]string{
+			"mirage.flow_id": flowID,
+			"mirage.type":    "flow-sandbox",
+			"mirage.profile": string(profile),
 		},
+	}
+	if config.WorkspaceHost != "" {
+		containerCfg.WorkingDir = "/workspace"
+	}
+	resp, err := fs.client.ContainerCreate(ctx,
+		containerCfg,
 		hostConfig,
 		&network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{
 			netName: {},
@@ -232,6 +240,22 @@ func (fs *FlowSandbox) Ensure(ctx context.Context, flowID string) error {
 	}
 	_, err := fs.CreateForFlow(ctx, flowID, ProfileDefault, DefaultFlowConfig())
 	return err
+}
+
+// EnsureWorkspace creates the host workspace and the flow container that mounts it.
+func (fs *FlowSandbox) EnsureWorkspace(ctx context.Context, flowID, hostDir, image string) (string, error) {
+	if fs == nil {
+		return "", fmt.Errorf("flow sandbox is not configured")
+	}
+	cfg := DefaultFlowConfig()
+	cfg.WorkspaceHost = hostDir
+	if image != "" {
+		cfg.Image = image
+	}
+	if _, err := fs.CreateForFlow(ctx, flowID, ProfileDefault, cfg); err != nil {
+		return "", err
+	}
+	return hostDir, nil
 }
 
 // ExecuteInFlow runs a shell command in a flow-specific sandbox via `bash -c`.

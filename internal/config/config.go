@@ -16,8 +16,9 @@ type Config struct {
 	DatabaseURL string
 
 	// Docker
-	DockerHost   string
-	SandboxImage string
+	DockerHost          string
+	SandboxImage        string
+	FirewallHelperImage string
 
 	// LLM -- Codex OAuth (preferred) or API key (fallback)
 	CodexHome         string // Path to Codex CLI config dir (default: ~/.codex)
@@ -53,26 +54,27 @@ func Load() (*Config, error) {
 	temp, _ := strconv.ParseFloat(getEnv("OPENAI_TEMPERATURE", "0.1"), 64)
 
 	cfg := &Config{
-		ServerPort:        port,
-		ServerHost:        getEnv("SERVER_HOST", "0.0.0.0"),
-		DatabaseURL:       getEnv("DATABASE_URL", "postgres://mirage:mirage@localhost:5432/miragedb?sslmode=disable"),
-		DockerHost:        getEnv("DOCKER_HOST", ""),
-		SandboxImage:      getEnv("SANDBOX_IMAGE", "mirage-tools:latest"),
-		CodexHome:         getEnv("CODEX_HOME", ""),
-		OpenAIAPIKey:      getEnv("OPENAI_API_KEY", ""),
-		OpenAIModel:       getEnv("OPENAI_MODEL", "gpt-4o"),
-		OpenAITemperature: temp,
-		JWTSecret:         getEnv("JWT_SECRET", ""),
-		AuthRequired:      strings.EqualFold(getEnv("AUTH_REQUIRED", "false"), "true"),
-		WebhookSecret:     getEnv("WEBHOOK_SECRET", ""),
-		AllowedOrigins:    splitList(getEnv("ALLOWED_ORIGINS", "")),
-		TavilyAPIKey:      getEnv("TAVILY_API_KEY", ""),
-		ShodanAPIKey:      getEnv("SHODAN_API_KEY", ""),
-		Environment:       getEnv("MIRAGE_ENV", "development"),
-		ExecutionV2:       envBool("MIRAGE_EXECUTION_V2"),
-		DurableWorkflows:  envBool("MIRAGE_DURABLE_WORKFLOWS"),
-		VerificationV2:    envBool("MIRAGE_VERIFICATION_V2"),
-		SkillsV2:          envBool("MIRAGE_SKILLS_V2"),
+		ServerPort:          port,
+		ServerHost:          getEnv("SERVER_HOST", "0.0.0.0"),
+		DatabaseURL:         getEnv("DATABASE_URL", "postgres://mirage:mirage@localhost:5432/miragedb?sslmode=disable"),
+		DockerHost:          getEnv("DOCKER_HOST", ""),
+		SandboxImage:        getEnv("SANDBOX_IMAGE", "mirage-tools:latest"),
+		FirewallHelperImage: getEnv("FIREWALL_HELPER_IMAGE", "mirage-firewall:local"),
+		CodexHome:           getEnv("CODEX_HOME", ""),
+		OpenAIAPIKey:        getEnv("OPENAI_API_KEY", ""),
+		OpenAIModel:         getEnv("OPENAI_MODEL", "gpt-4o"),
+		OpenAITemperature:   temp,
+		JWTSecret:           getEnv("JWT_SECRET", ""),
+		AuthRequired:        strings.EqualFold(getEnv("AUTH_REQUIRED", "false"), "true"),
+		WebhookSecret:       getEnv("WEBHOOK_SECRET", ""),
+		AllowedOrigins:      splitList(getEnv("ALLOWED_ORIGINS", "")),
+		TavilyAPIKey:        getEnv("TAVILY_API_KEY", ""),
+		ShodanAPIKey:        getEnv("SHODAN_API_KEY", ""),
+		Environment:         getEnv("MIRAGE_ENV", "development"),
+		ExecutionV2:         envBool("MIRAGE_EXECUTION_V2"),
+		DurableWorkflows:    envBool("MIRAGE_DURABLE_WORKFLOWS"),
+		VerificationV2:      envBool("MIRAGE_VERIFICATION_V2"),
+		SkillsV2:            envBool("MIRAGE_SKILLS_V2"),
 	}
 
 	// No hard requirement on API key anymore -- Codex OAuth is checked at runtime

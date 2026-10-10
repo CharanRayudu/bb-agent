@@ -407,7 +407,15 @@ func (r *Registry) execArgv(ctx context.Context, argv []string, timeout int) (*d
 		if err := r.prepareFlow(ctx, flowID); err != nil {
 			return nil, err
 		}
-		return r.flows.ExecuteArgvInFlow(ctx, flowID, argv, timeout)
+		out, err := (docker.FlowRunner{Sandbox: r.flows}).Execute(ctx, execution.ToolRequest{
+			FlowID:         flowID,
+			Argv:           argv,
+			TimeoutSeconds: timeout,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return &docker.ExecResult{Stdout: out.Stdout, Stderr: out.Stderr, ExitCode: out.ExitCode}, nil
 	}
 	if execution.Required(ctx) {
 		return nil, fmt.Errorf("per-flow sandbox is required")

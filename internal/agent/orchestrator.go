@@ -822,7 +822,8 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		ctx = execution.WithFlowProxy(ctx, flowProxy)
 	}
 
-	// Reset internal event bus for this flow to clear old subscribers
+	// Drop scan-local subscribers from a previous run. Durable listeners,
+	// including the WebSocket queue-metrics bridge, stay attached.
 	o.bus.Reset()
 
 	// Initialize pipeline state machine for this scan
