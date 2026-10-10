@@ -2,8 +2,10 @@ package execution
 
 import (
 	"context"
+	"errors"
 	"net"
 	"os/exec"
+	"strings"
 	"sync"
 	"testing"
 
@@ -19,12 +21,11 @@ func TestDockerNetworkIsolationAndTamperingVerification(t *testing.T) {
 	appliedRules := map[string]string{}
 	var mu sync.Mutex
 
-	fc.SetCommandRunner(func(ctx context.Context, name string, args ...string) ([]byte, error) {
+	fc.SetCommandRunner(func(ctx context.Context, name string, args []string, stdin []byte) ([]byte, error) {
 		mu.Lock()
 		defer mu.Unlock()
 		if name == "iptables-restore" {
-			payload := fc.generateIptablesRestorePayloadLocked()
-			appliedRules["active"] = payload
+			appliedRules["active"] = string(stdin)
 		}
 		return []byte("ok"), nil
 	})
@@ -65,6 +66,9 @@ func TestDockerNetworkIsolationAndTamperingVerification(t *testing.T) {
 	if payload == "" {
 		t.Fatal("Firewall payload was not applied")
 	}
+	if !strings.Contains(payload, "-F MIRAGE-EGRESS") {
+		t.Fatalf("Payload missing chain flush: %s", payload)
+	}
 
 	// 5. Revocation test
 	if err := fc.RevokeFlowRules(context.Background(), "flow-isolated"); err != nil {
@@ -73,6 +77,65 @@ func TestDockerNetworkIsolationAndTamperingVerification(t *testing.T) {
 
 	if fc.IsAllowed("flow-isolated", net.ParseIP("203.0.113.10"), 443, "tcp") {
 		t.Fatal("Target must be blocked after revocation")
+	}
+}
+
+// TestContainerIPBindingInFirewallPayload verifies that binding a container IP includes -s <containerIP> in the rules payload.
+func TestContainerIPBindingInFirewallPayload(t *testing.T) {
+	fc := NewFirewallController()
+
+	appliedPayloads := []string{}
+	fc.SetCommandRunner(func(ctx context.Context, name string, args []string, stdin []byte) ([]byte, error) {
+		if name == "iptables-restore" {
+			appliedPayloads = append(appliedPayloads, string(stdin))
+		}
+		return []byte("ok"), nil
+	})
+
+	fc.BindContainerIP("flow-ip", net.ParseIP("172.18.0.5"))
+
+	auth := policy.Authorization{
+		FlowID:           "flow-ip",
+		AllowedProtocols: []string{"tcp"},
+		Targets: []policy.Target{
+			{Host: "198.51.100.1", Port: 80},
+		},
+	}
+
+	if err := fc.ApplyFlowRules(context.Background(), "flow-ip", BuildRulesFromAuth(auth)); err != nil {
+		t.Fatalf("ApplyFlowRules failed: %v", err)
+	}
+
+	if len(appliedPayloads) == 0 {
+		t.Fatal("no iptables-restore payload applied")
+	}
+
+	lastPayload := appliedPayloads[len(appliedPayloads)-1]
+	if !strings.Contains(lastPayload, "-s 172.18.0.5") {
+		t.Fatalf("Expected container source IP -s 172.18.0.5 in payload, got:\n%s", lastPayload)
+	}
+}
+
+// TestFailClosedOnFirewallInstallationFailure confirms that non-zero exit from iptables-restore causes failure
+func TestFailClosedOnFirewallInstallationFailure(t *testing.T) {
+	fc := NewFirewallController()
+
+	fc.SetCommandRunner(func(ctx context.Context, name string, args []string, stdin []byte) ([]byte, error) {
+		return []byte("permission denied"), errors.New("exit code 1")
+	})
+
+	auth := policy.Authorization{
+		FlowID:           "flow-failclosed",
+		AllowedProtocols: []string{"tcp"},
+		Targets: []policy.Target{
+			{Host: "203.0.113.10", Port: 443},
+		},
+	}
+
+	rules := BuildRulesFromAuth(auth)
+	err := fc.ApplyFlowRules(context.Background(), "flow-failclosed", rules)
+	if err == nil {
+		t.Fatal("ApplyFlowRules must fail when iptables-restore returns an error")
 	}
 }
 
@@ -98,7 +161,7 @@ func TestRealLocalUDPAndTCPConnectionChecks(t *testing.T) {
 	udpPort := udpConn.LocalAddr().(*net.UDPAddr).Port
 
 	fc := NewFirewallController()
-	fc.SetCommandRunner(func(ctx context.Context, name string, args ...string) ([]byte, error) {
+	fc.SetCommandRunner(func(ctx context.Context, name string, args []string, stdin []byte) ([]byte, error) {
 		return []byte("ok"), nil
 	})
 
@@ -131,7 +194,6 @@ func TestRealLocalUDPAndTCPConnectionChecks(t *testing.T) {
 
 // TestDockerTamperingPrevention verifies docker host exec behavior
 func TestDockerTamperingPrevention(t *testing.T) {
-	// Verify system iptables or iptables-restore availability if present
 	path, err := exec.LookPath("iptables-restore")
 	if err != nil {
 		t.Skip("iptables-restore not installed on host, skipping raw binary test")

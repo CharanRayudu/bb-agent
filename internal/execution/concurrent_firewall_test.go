@@ -14,7 +14,7 @@ import (
 func TestConcurrentFirewallUpdatesAtomicNoPermissiveWindow(t *testing.T) {
 	fc := NewFirewallController()
 
-	fc.SetCommandRunner(func(ctx context.Context, name string, args ...string) ([]byte, error) {
+	fc.SetCommandRunner(func(ctx context.Context, name string, args []string, stdin []byte) ([]byte, error) {
 		return []byte("ok"), nil
 	})
 

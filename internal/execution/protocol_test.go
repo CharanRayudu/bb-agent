@@ -62,7 +62,7 @@ func TestTCPAndUDPSeparationInPermissions(t *testing.T) {
 
 	// Test real UDP connection dialer check
 	fc := NewFirewallController()
-	fc.SetCommandRunner(func(ctx context.Context, name string, args ...string) ([]byte, error) {
+	fc.SetCommandRunner(func(ctx context.Context, name string, args []string, stdin []byte) ([]byte, error) {
 		return []byte("ok"), nil
 	})
 	_ = fc.ApplyFlowRules(context.Background(), "flow-udp", BuildRulesFromAuth(*udpAuth))

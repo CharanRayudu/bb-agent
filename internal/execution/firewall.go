@@ -14,28 +14,34 @@ import (
 
 // NetworkRule represents a permitted egress rule for a flow.
 type NetworkRule struct {
-	FlowID   string
-	Protocol string // "tcp", "udp", or "all"
-	Host     string
-	IP       net.IP
-	Port     int
+	FlowID      string
+	ContainerIP net.IP
+	Protocol    string // "tcp", "udp", or "all"
+	Host        string
+	IP          net.IP
+	Port        int
 }
 
 // FirewallController manages atomic network egress rules on the host
 // for flow containers to ensure containers cannot alter their network policies.
 type FirewallController struct {
-	mu        sync.RWMutex
-	rules     map[string][]NetworkRule // flowID -> rules
-	cmdRunner func(ctx context.Context, name string, args ...string) ([]byte, error)
-	enabled   bool
+	mu          sync.RWMutex
+	rules       map[string][]NetworkRule // flowID -> rules
+	containerIP map[string]net.IP        // flowID -> container IP
+	cmdRunner   func(ctx context.Context, name string, args []string, stdin []byte) ([]byte, error)
+	enabled     bool
 }
 
 // NewFirewallController creates a host-side firewall manager.
 func NewFirewallController() *FirewallController {
 	return &FirewallController{
-		rules: make(map[string][]NetworkRule),
-		cmdRunner: func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		rules:       make(map[string][]NetworkRule),
+		containerIP: make(map[string]net.IP),
+		cmdRunner: func(ctx context.Context, name string, args []string, stdin []byte) ([]byte, error) {
 			cmd := exec.CommandContext(ctx, name, args...)
+			if len(stdin) > 0 {
+				cmd.Stdin = bytes.NewReader(stdin)
+			}
 			return cmd.CombinedOutput()
 		},
 		enabled: true,
@@ -43,7 +49,7 @@ func NewFirewallController() *FirewallController {
 }
 
 // SetCommandRunner overrides the command execution function for testing.
-func (fc *FirewallController) SetCommandRunner(fn func(ctx context.Context, name string, args ...string) ([]byte, error)) {
+func (fc *FirewallController) SetCommandRunner(fn func(ctx context.Context, name string, args []string, stdin []byte) ([]byte, error)) {
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
 	fc.cmdRunner = fn
@@ -56,8 +62,17 @@ func (fc *FirewallController) SetEnabled(enabled bool) {
 	fc.enabled = enabled
 }
 
+// BindContainerIP associates a container's internal IP with a flow ID.
+func (fc *FirewallController) BindContainerIP(flowID string, ip net.IP) {
+	fc.mu.Lock()
+	defer fc.mu.Unlock()
+	if flowID != "" && ip != nil {
+		fc.containerIP[flowID] = ip
+	}
+}
+
 // ApplyFlowRules atomically updates the ruleset for a specific flow.
-// It generates an atomic iptables-restore / nftables payload so no permissive gap exists.
+// It generates an atomic iptables-restore payload and passes it via stdin to iptables-restore.
 func (fc *FirewallController) ApplyFlowRules(ctx context.Context, flowID string, rules []NetworkRule) error {
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
@@ -76,12 +91,11 @@ func (fc *FirewallController) ApplyFlowRules(ctx context.Context, flowID string,
 	}
 
 	// Generate atomic iptables payload
-	_ = fc.generateIptablesRestorePayloadLocked()
+	payload := fc.generateIptablesRestorePayloadLocked()
 	if fc.cmdRunner != nil {
-		out, err := fc.cmdRunner(ctx, "iptables-restore", "--noflush")
+		out, err := fc.cmdRunner(ctx, "iptables-restore", []string{"--noflush"}, []byte(payload))
 		if err != nil {
-			_ = out
-			return fmt.Errorf("failed to apply atomic firewall rules: %w", err)
+			return fmt.Errorf("failed to apply atomic firewall rules (out: %s): %w", string(out), err)
 		}
 	}
 
@@ -94,16 +108,17 @@ func (fc *FirewallController) RevokeFlowRules(ctx context.Context, flowID string
 	defer fc.mu.Unlock()
 
 	delete(fc.rules, flowID)
+	delete(fc.containerIP, flowID)
 
 	if !fc.enabled {
 		return nil
 	}
 
-	_ = fc.generateIptablesRestorePayloadLocked()
+	payload := fc.generateIptablesRestorePayloadLocked()
 	if fc.cmdRunner != nil {
-		_, err := fc.cmdRunner(ctx, "iptables-restore", "--noflush")
+		out, err := fc.cmdRunner(ctx, "iptables-restore", []string{"--noflush"}, []byte(payload))
 		if err != nil {
-			return fmt.Errorf("failed to revoke firewall rules for flow %s: %w", flowID, err)
+			return fmt.Errorf("failed to revoke firewall rules for flow %s (out: %s): %w", flowID, string(out), err)
 		}
 	}
 	return nil
@@ -141,8 +156,16 @@ func (fc *FirewallController) generateIptablesRestorePayloadLocked() string {
 	buf.WriteString("*filter\n")
 	buf.WriteString(":MIRAGE-EGRESS - [0:0]\n")
 
-	// For each flow, add exact drop/accept rules
+	// Flush existing rules in MIRAGE-EGRESS chain for clean update
+	buf.WriteString("-F MIRAGE-EGRESS\n")
+
+	// For each flow, add exact drop/accept rules matching container source IP and destination IP/port
 	for flowID, rules := range fc.rules {
+		containerIP := fc.containerIP[flowID]
+		srcStr := ""
+		if containerIP != nil {
+			srcStr = fmt.Sprintf("-s %s ", containerIP.String())
+		}
 		for _, r := range rules {
 			proto := strings.ToLower(r.Protocol)
 			if proto == "" || proto == "all" {
@@ -156,10 +179,10 @@ func (fc *FirewallController) generateIptablesRestorePayloadLocked() string {
 			if r.Port > 0 && (proto == "tcp" || proto == "udp") {
 				portStr = fmt.Sprintf("--dport %d ", r.Port)
 			}
-			buf.WriteString(fmt.Sprintf("-A MIRAGE-EGRESS -m comment --comment \"flow:%s\" -p %s %s%s-j ACCEPT\n", flowID, proto, ipStr, portStr))
+			buf.WriteString(fmt.Sprintf("-A MIRAGE-EGRESS %s-m comment --comment \"flow:%s\" -p %s %s%s-j ACCEPT\n", srcStr, flowID, proto, ipStr, portStr))
 		}
 	}
-	// Default drop at the end of chain
+	// Default drop for MIRAGE-EGRESS chain
 	buf.WriteString("-A MIRAGE-EGRESS -j DROP\n")
 	buf.WriteString("COMMIT\n")
 	return buf.String()

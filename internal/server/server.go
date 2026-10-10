@@ -1148,16 +1148,18 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 			s.queries.UpdateFlowStatus(flowID, models.FlowStatusFailed)
 			return
 		}
-		if stored := s.engagements.Get(flow.ID.String()); stored != nil {
-			orchestrator.SetExecutionGateway(s.gateway.WithAuthorization(stored), true)
-		} else {
+		var stored *policy.Authorization
+		if s.engagements != nil {
+			stored = s.engagements.Get(flow.ID.String())
+		}
+		if stored == nil {
 			auth, aerr := policy.AuthorizationForTarget(flow.ID.String(), flow.Target, policy.Autonomy(flow.AutonomyLevel), "flow", time.Now())
 			if aerr != nil {
 				log.Printf("[policy] refusing flow %s: %v", flowID, aerr)
 				s.queries.UpdateFlowStatus(flowID, models.FlowStatusFailed)
 				return
 			}
-			stored := s.engagements.Put(auth)
+			stored = s.engagements.Put(auth)
 			if s.gateway != nil && s.gateway.Store() != nil {
 				if saveErr := s.gateway.Store().SaveAuthorization(auth); saveErr != nil {
 					log.Printf("[policy] refusing flow %s: could not persist authorization: %v", flowID, saveErr)
@@ -1165,11 +1167,25 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 					return
 				}
 			}
-			if s.gateway != nil {
-				orchestrator.SetExecutionGateway(s.gateway.WithAuthorization(stored), true)
-			} else {
-				orchestrator.SetExecutionGateway(nil, true)
+		}
+
+		flowSB, fsErr := docker.NewFlowSandbox(s.cfg.DockerHost, s.cfg.SandboxImage)
+		if fsErr == nil {
+			defer flowSB.DestroyForFlow(context.Background(), flowID.String())
+			_, createErr := flowSB.CreateForFlow(context.Background(), flowID.String(), docker.ProfileDefault, docker.DefaultFlowConfig())
+			if createErr == nil && s.gateway != nil && s.gateway.Firewall() != nil && stored != nil {
+				if fwErr := s.gateway.Firewall().ApplyFlowRules(context.Background(), flowID.String(), execution.BuildRulesFromAuth(*stored)); fwErr != nil {
+					log.Printf("[policy] refusing flow %s: firewall enforcement failed: %v", flowID, fwErr)
+					s.queries.UpdateFlowStatus(flowID, models.FlowStatusFailed)
+					return
+				}
 			}
+		}
+
+		if s.gateway != nil {
+			orchestrator.SetExecutionGateway(s.gateway.WithAuthorization(stored), true)
+		} else {
+			orchestrator.SetExecutionGateway(nil, true)
 		}
 	}
 

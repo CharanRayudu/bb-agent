@@ -25,6 +25,32 @@ var knownSecurityTools = map[string]policy.Risk{
 	"waybackurls": policy.RiskPassive,
 }
 
+func hasShellMetacharacters(cmd string) bool {
+	operators := []string{";", "&&", "||", "|", ">", "<", "`", "$("}
+	for _, op := range operators {
+		if strings.Contains(cmd, op) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasDangerousFlags(tool string, argv []string) bool {
+	for _, arg := range argv[1:] {
+		argLower := strings.ToLower(arg)
+		if tool == "sqlmap" && (argLower == "--os-shell" || argLower == "--os-cmd" || argLower == "--os-pwn" || argLower == "--file-read" || argLower == "--file-write") {
+			return true
+		}
+		if tool == "curl" && (strings.HasPrefix(argLower, "file://") || argLower == "-o" || argLower == "--output" || argLower == "-K" || argLower == "--config") {
+			return true
+		}
+		if tool == "nmap" && (strings.HasPrefix(argLower, "--script") || argLower == "--interactive") {
+			return true
+		}
+	}
+	return false
+}
+
 func classifyCommand(flowID, raw string) Action {
 	command := extractCommand(raw)
 	action := Action{
@@ -39,12 +65,22 @@ func classifyCommand(flowID, raw string) Action {
 		IdempotencyKey: flowID + ":shell:" + hashArgs([]byte(command)),
 		Arguments:      map[string]string{"command": command},
 	}
+
 	argv := splitArgs(command)
 	if len(argv) == 0 {
 		return action
 	}
+
 	tool := strings.ToLower(strings.TrimSuffix(path.Base(strings.Trim(argv[0], `"'`)), ".exe"))
 	risk, known := knownSecurityTools[tool]
+
+	// Shell metacharacters or dangerous tool flags force action.Shell = true
+	if hasShellMetacharacters(command) || hasDangerousFlags(tool, argv) {
+		targets := commandDestinations(command, argv)
+		applyDestinationList(&action, targets)
+		return action
+	}
+
 	targets := commandDestinations(command, argv)
 	if !known {
 		applyDestinationList(&action, targets)

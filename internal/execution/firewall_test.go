@@ -3,6 +3,7 @@ package execution
 import (
 	"context"
 	"net"
+	"strings"
 	"testing"
 
 	"github.com/bb-agent/mirage/internal/policy"
@@ -12,10 +13,9 @@ func TestFirewallControllerAtomicRulesAndRevocation(t *testing.T) {
 	fc := NewFirewallController()
 
 	appliedPayloads := []string{}
-	fc.SetCommandRunner(func(ctx context.Context, name string, args ...string) ([]byte, error) {
+	fc.SetCommandRunner(func(ctx context.Context, name string, args []string, stdin []byte) ([]byte, error) {
 		if name == "iptables-restore" {
-			payload := fc.generateIptablesRestorePayloadLocked()
-			appliedPayloads = append(appliedPayloads, payload)
+			appliedPayloads = append(appliedPayloads, string(stdin))
 		}
 		return []byte("ok"), nil
 	})
@@ -51,6 +51,10 @@ func TestFirewallControllerAtomicRulesAndRevocation(t *testing.T) {
 
 	if len(appliedPayloads) == 0 {
 		t.Fatal("no iptables-restore payload applied")
+	}
+
+	if !strings.Contains(appliedPayloads[0], "-F MIRAGE-EGRESS") {
+		t.Fatalf("Payload missing chain flush: %s", appliedPayloads[0])
 	}
 
 	if err := fc.RevokeFlowRules(context.Background(), "flow-1"); err != nil {
