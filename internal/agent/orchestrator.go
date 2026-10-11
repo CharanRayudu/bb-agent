@@ -227,6 +227,9 @@ type Orchestrator struct {
 	// must not mark the engagement completed or emit a successful report.
 	fatalLLM   error
 	fatalLLMMu sync.Mutex
+
+	// observer watches stalls, redundant failures, and empty assessments.
+	observer *ExecutionObserver
 }
 
 func buildSpecialists(provider llm.Provider) map[string]Specialist {
@@ -512,6 +515,7 @@ func NewOrchestrator(provider llm.Provider, registry *tools.Registry, db *sql.DB
 		hypothesisEngine: NewHypothesisEngine(provider, ""),
 		knowledgeGraph:   knowledge.NewInMemoryGraph(),
 		payloadEngine:    NewPayloadEngine(provider),
+		observer:         NewExecutionObserver(),
 	}
 
 	if db != nil {
@@ -1329,6 +1333,16 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 	const maxStableLoops = 2 // Stop after 2 loops with no new high-confidence findings
 
 	for loopCount := 1; loopCount <= maxLoops; loopCount++ {
+		if o.observer != nil {
+			if need, reason := o.observer.ConsumeReplanRequest(); need {
+				o.emit(flowID.String(), Event{
+					Type:    EventMessage,
+					FlowID:  flowID.String(),
+					TaskID:  "",
+					Content: "[OBSERVER] Replan requested: " + reason,
+				})
+			}
+		}
 		// Reset trigger for each loop iteration until it's set again
 		resetMu.Lock()
 		loopTriggered = false
@@ -2079,17 +2093,6 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		if err := o.abortIfFatalLLM(flowID, task.ID, "reporting"); err != nil {
 			return err
 		}
-		if err := o.pipeline.Advance("Validation complete", nil); err != nil {
-			log.Printf("[pipeline] Advance to REPORTING failed: %v", err)
-		}
-		o.emitPipelineEvent(flowID.String(), task.ID.String())
-
-		o.emit(flowID.String(), Event{
-			Type:    EventThinking,
-			FlowID:  flowID.String(),
-			TaskID:  task.ID.String(),
-			Content: "Generating Final Report...",
-		})
 
 		// Advanced Deduplication: Remove redundant findings that share a common root cause
 		brainMu.Lock()
@@ -2108,6 +2111,59 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 			})
 		}
 
+		workspaceArts := 0
+		evidencePacks := 0
+		var artifactTrail []ReportEvidenceRef
+		var packTrail []ReportEvidenceRef
+		if o.queries != nil {
+			if arts, artErr := o.queries.ListWorkspaceArtifacts(flowID); artErr == nil {
+				workspaceArts = len(arts)
+				for _, art := range arts {
+					artifactTrail = append(artifactTrail, ReportEvidenceRef{
+						Kind: "workspace", Name: art.Name, Path: art.Path, Tool: art.Tool, Status: art.Status,
+					})
+				}
+			}
+			if packs, packErr := o.queries.GetEvidencePacksByFlow(flowID); packErr == nil {
+				evidencePacks = len(packs)
+				for _, pack := range packs {
+					name := pack.Type
+					if name == "" {
+						name = pack.Fingerprint
+					}
+					packTrail = append(packTrail, ReportEvidenceRef{
+						Kind: "evidence_pack", Name: name, Path: pack.ID.String(), Tool: pack.SourceAgent, Status: string(pack.Status),
+					})
+				}
+			}
+		}
+		if o.observer != nil {
+			health := o.observer.Health()
+			o.emit(flowID.String(), Event{
+				Type:     EventMessage,
+				FlowID:   flowID.String(),
+				TaskID:   task.ID.String(),
+				Content:  fmt.Sprintf("[OBSERVER] security_tools=%d failures=%d llm_errors=%d verdict=%s", health.SecurityToolRuns, health.ToolFailures, health.LLMErrors, health.Verdict),
+				Metadata: map[string]interface{}{"execution_health": health},
+			})
+			if err := o.observer.IncompleteAssessment(len(brain.Findings), workspaceArts, evidencePacks); err != nil {
+				o.setFatalLLM(err)
+				return o.abortIfFatalLLM(flowID, task.ID, "observer")
+			}
+		}
+
+		if err := o.pipeline.Advance("Validation complete", nil); err != nil {
+			log.Printf("[pipeline] Advance to REPORTING failed: %v", err)
+		}
+		o.emitPipelineEvent(flowID.String(), task.ID.String())
+
+		o.emit(flowID.String(), Event{
+			Type:    EventThinking,
+			FlowID:  flowID.String(),
+			TaskID:  task.ID.String(),
+			Content: "Generating Final Report...",
+		})
+
 		// Save this flow's findings to cross-flow memory for future scans
 		o.memory.SaveBrainFindings(flow.Target, flowID, brain.Leads, brain.Findings, brain.Exclusions)
 		persistBrainState("flow_complete")
@@ -2117,16 +2173,18 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 			swarmRes += fmt.Sprintf("- %s: %s (param: %s)\n", f.Type, f.URL, f.Parameter)
 		}
 
-		if o.queries != nil {
-			if arts, artErr := o.queries.ListWorkspaceArtifacts(flowID); artErr == nil && len(arts) > 0 {
-				swarmRes += "\nEvidence files:\n"
-				for _, art := range arts {
-					swarmRes += fmt.Sprintf("- %s (%s)\n", art.Name, art.Path)
-				}
+		if len(artifactTrail) > 0 {
+			swarmRes += "\nEvidence files:\n"
+			for _, art := range artifactTrail {
+				swarmRes += fmt.Sprintf("- %s (%s)\n", art.Name, art.Path)
 			}
 		}
 
-		finalReport := o.reporter.GenerateReport(
+		health := ExecutionHealth{Verdict: ObserverContinue}
+		if o.observer != nil {
+			health = o.observer.Health()
+		}
+		finalReport := o.reporter.GenerateReportWithEvidence(
 			flow.Target,
 			flowID,
 			time.Since(task.CreatedAt),
@@ -2136,6 +2194,9 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 			brain.Exclusions,
 			swarmRes,
 			pocResult,
+			artifactTrail,
+			packTrail,
+			health,
 		)
 
 		if err := o.queries.SaveFinalReport(flowID, finalReport); err != nil {
@@ -2277,6 +2338,9 @@ func (o *Orchestrator) runAgentLoop(ctx context.Context, flowID uuid.UUID, taskI
 			o.updateLedgerSubTask(subtaskID, models.SubTaskStatusFailed, err.Error(), models.SubTaskOutcomeBlockedByRuntime, map[string]any{
 				"reason": "llm completion failed",
 			})
+			if o.observer != nil {
+				o.observer.NoteLLMError()
+			}
 			if llm.IsPermanentModelError(err) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				o.setFatalLLM(err)
 			} else if isUnrecoverableLLMError(err) {
@@ -2332,6 +2396,9 @@ func (o *Orchestrator) runAgentLoop(ctx context.Context, flowID uuid.UUID, taskI
 					}
 				}
 
+				if o.observer != nil {
+					o.observer.NoteTool(tc.Name, callErr != nil || isToolOutputFailure(res))
+				}
 				if o.queries != nil {
 					fields := mirageResultFields(res)
 					status := "success"

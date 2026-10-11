@@ -28,6 +28,15 @@ type FindingReport struct {
 	Remediation string
 }
 
+// ReportEvidenceRef is a durable pointer from the report to stored evidence.
+type ReportEvidenceRef struct {
+	Kind   string
+	Name   string
+	Path   string
+	Tool   string
+	Status string
+}
+
 // GenerateReport creates a comprehensive markdown pentest report
 func (rg *ReportGenerator) GenerateReport(
 	target string,
@@ -39,6 +48,24 @@ func (rg *ReportGenerator) GenerateReport(
 	exclusions []string,
 	swarmResults string,
 	pocResults string,
+) string {
+	return rg.GenerateReportWithEvidence(target, flowID, duration, reconSummary, findings, leads, exclusions, swarmResults, pocResults, nil, nil, ExecutionHealth{Verdict: ObserverContinue})
+}
+
+// GenerateReportWithEvidence adds workspace artifacts, evidence packs, and observer health.
+func (rg *ReportGenerator) GenerateReportWithEvidence(
+	target string,
+	flowID uuid.UUID,
+	duration time.Duration,
+	reconSummary string,
+	findings []*Finding,
+	leads []string,
+	exclusions []string,
+	swarmResults string,
+	pocResults string,
+	artifacts []ReportEvidenceRef,
+	packs []ReportEvidenceRef,
+	health ExecutionHealth,
 ) string {
 	var sb strings.Builder
 
@@ -231,6 +258,46 @@ func (rg *ReportGenerator) GenerateReport(
 		}
 		sb.WriteString("\n")
 	}
+
+	if len(artifacts) > 0 || len(packs) > 0 {
+		sb.WriteString("---\n\n## Evidence Trail\n\n")
+		sb.WriteString("Observation → action → durable evidence references used by this report:\n\n")
+		for _, art := range artifacts {
+			sb.WriteString(fmt.Sprintf("- workspace `%s`", art.Name))
+			if art.Path != "" && art.Path != art.Name {
+				sb.WriteString(fmt.Sprintf(" path=`%s`", art.Path))
+			}
+			if art.Tool != "" {
+				sb.WriteString(fmt.Sprintf(" tool=`%s`", art.Tool))
+			}
+			if art.Status != "" {
+				sb.WriteString(fmt.Sprintf(" status=`%s`", art.Status))
+			}
+			sb.WriteString("\n")
+		}
+		for _, pack := range packs {
+			sb.WriteString(fmt.Sprintf("- evidence_pack `%s` id=`%s`", pack.Name, pack.Path))
+			if pack.Tool != "" {
+				sb.WriteString(fmt.Sprintf(" agent=`%s`", pack.Tool))
+			}
+			if pack.Status != "" {
+				sb.WriteString(fmt.Sprintf(" status=`%s`", pack.Status))
+			}
+			sb.WriteString("\n")
+		}
+		sb.WriteString("\n")
+	}
+
+	sb.WriteString("---\n\n## Execution Health\n\n")
+	sb.WriteString(fmt.Sprintf("- Security tool runs: %d\n", health.SecurityToolRuns))
+	sb.WriteString(fmt.Sprintf("- Tool calls: %d\n", health.ToolCalls))
+	sb.WriteString(fmt.Sprintf("- Tool failures: %d\n", health.ToolFailures))
+	sb.WriteString(fmt.Sprintf("- LLM errors: %d\n", health.LLMErrors))
+	sb.WriteString(fmt.Sprintf("- Observer verdict: `%s`\n", health.Verdict))
+	if health.Reason != "" {
+		sb.WriteString(fmt.Sprintf("- Observer reason: %s\n", health.Reason))
+	}
+	sb.WriteString("\n")
 
 	// Footer
 	sb.WriteString("---\n\n")
