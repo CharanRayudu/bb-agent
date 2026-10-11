@@ -298,6 +298,73 @@ func (q *Queries) UpdateSubTaskStatus(id uuid.UUID, status models.SubTaskStatus)
 
 // ============ Actions ============
 
+// WorkspaceArtifact is a file produced by a scanner and stored for the flow.
+type WorkspaceArtifact struct {
+	ID     uuid.UUID `json:"id"`
+	FlowID uuid.UUID `json:"flow_id"`
+	Name   string    `json:"name"`
+	Path   string    `json:"path"`
+	Tool   string    `json:"tool,omitempty"`
+	Status string    `json:"status,omitempty"`
+}
+
+func (q *Queries) SaveWorkspaceArtifact(flowID uuid.UUID, actionID *uuid.UUID, name, path, tool, status string) error {
+	if q == nil || q.db == nil {
+		return fmt.Errorf("database is not configured")
+	}
+	body, err := json.Marshal(map[string]string{"path": path, "tool": tool, "status": status})
+	if err != nil {
+		return err
+	}
+	_, err = q.db.Exec(
+		`INSERT INTO artifacts (id, action_id, flow_id, type, name, content) VALUES ($1, $2, $3, 'workspace', $4, $5)`,
+		uuid.New(), actionID, flowID, name, string(body),
+	)
+	return err
+}
+
+func (q *Queries) ListWorkspaceArtifacts(flowID uuid.UUID) ([]WorkspaceArtifact, error) {
+	if q == nil || q.db == nil {
+		return nil, fmt.Errorf("database is not configured")
+	}
+	rows, err := q.db.Query(
+		`SELECT id, flow_id, name, content FROM artifacts WHERE flow_id = $1 AND type = 'workspace' ORDER BY created_at ASC`,
+		flowID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []WorkspaceArtifact
+	for rows.Next() {
+		var item WorkspaceArtifact
+		var content string
+		if err := rows.Scan(&item.ID, &item.FlowID, &item.Name, &content); err != nil {
+			return nil, err
+		}
+		var meta map[string]string
+		_ = json.Unmarshal([]byte(content), &meta)
+		item.Path = meta["path"]
+		item.Tool = meta["tool"]
+		item.Status = meta["status"]
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (q *Queries) GetWorkspaceArtifact(flowID, artifactID uuid.UUID) (*WorkspaceArtifact, error) {
+	items, err := q.ListWorkspaceArtifacts(flowID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range items {
+		if items[i].ID == artifactID {
+			return &items[i], nil
+		}
+	}
+	return nil, sql.ErrNoRows
+}
+
 func (q *Queries) CreateAction(subtaskID uuid.UUID, actionType models.ActionType, input, output, status string) (*models.Action, error) {
 	action := &models.Action{
 		ID:        uuid.New(),

@@ -2105,6 +2105,15 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 			swarmRes += fmt.Sprintf("- %s: %s (param: %s)\n", f.Type, f.URL, f.Parameter)
 		}
 
+		if o.queries != nil {
+			if arts, artErr := o.queries.ListWorkspaceArtifacts(flowID); artErr == nil && len(arts) > 0 {
+				swarmRes += "\nEvidence files:\n"
+				for _, art := range arts {
+					swarmRes += fmt.Sprintf("- %s (%s)\n", art.Name, art.Path)
+				}
+			}
+		}
+
 		finalReport := o.reporter.GenerateReport(
 			flow.Target,
 			flowID,
@@ -2304,11 +2313,34 @@ func (o *Orchestrator) runAgentLoop(ctx context.Context, flowID uuid.UUID, taskI
 				}
 
 				if o.queries != nil {
+					fields := mirageResultFields(res)
 					status := "success"
 					if callErr != nil {
 						status = "denied"
+					} else if fields["status"] == "failed" {
+						status = "failed"
 					}
-					o.queries.CreateAction(subtaskID, models.ActionTypeCommand, tc.Arguments, res, status)
+					action, actionErr := o.queries.CreateAction(subtaskID, models.ActionTypeCommand, tc.Arguments, res, status)
+					if actionErr != nil {
+						log.Printf("[artifact] could not store tool action: %v", actionErr)
+					}
+					for _, path := range strings.Split(fields["artifacts"], ",") {
+						path = strings.TrimSpace(path)
+						if path == "" {
+							continue
+						}
+						name := path
+						if i := strings.LastIndexAny(path, `/\`); i >= 0 && i+1 < len(path) {
+							name = path[i+1:]
+						}
+						var actionID *uuid.UUID
+						if action != nil {
+							actionID = &action.ID
+						}
+						if err := o.queries.SaveWorkspaceArtifact(flowID, actionID, name, path, tc.Name, fields["status"]); err != nil {
+							log.Printf("[artifact] could not store %s: %v", name, err)
+						}
+					}
 				}
 
 				toolMeta := map[string]interface{}{

@@ -623,6 +623,7 @@ function FlowDetail() {
     const [deleting, setDeleting] = useState(false)
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
     const [eventsError, setEventsError] = useState(null)
+    const [artifacts, setArtifacts] = useState([])
     const [ledger, setLedger] = useState(null)
     const [ledgerError, setLedgerError] = useState(null)
     const [activeTab, setActiveTab] = useState('timeline') // 'timeline' | 'ledger' | 'findings' | 'graph' | 'raw'
@@ -691,6 +692,22 @@ function FlowDetail() {
             setLoading(false)
         }
     }, [id])
+
+    const fetchArtifacts = useCallback(async function fetchArtifacts() {
+        try {
+            const res = await fetch(`${API_BASE}/flows/${id}/artifacts`)
+            if (res.ok) {
+                const data = await res.json()
+                setArtifacts(Array.isArray(data) ? data : [])
+            }
+        } catch (err) {
+            console.error('Failed to fetch artifacts:', err)
+        }
+    }, [id])
+
+    useEffect(() => {
+        fetchArtifacts()
+    }, [fetchArtifacts, flow?.status])
 
     const fetchEvents = useCallback(async function fetchEvents() {
         try {
@@ -1099,6 +1116,20 @@ function FlowDetail() {
                         <span className={`w-2 h-2 rounded-full ${connected ? 'bg-accent-green animate-ping' : 'bg-text-muted'}`}></span>
                         {connected ? 'Uplink Live' : 'Offline'}
                     </span>
+                    {artifacts.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                            {artifacts.map((artifact) => (
+                                <a
+                                    key={artifact.id}
+                                    href={`${API_BASE}/flows/${id}/artifacts/${artifact.id}`}
+                                    className={`${CHIP_BASE} bg-accent-green/10 text-accent-green border-accent-green/30`}
+                                >
+                                    <Download className="w-3 h-3" />
+                                    {artifact.name || 'evidence'}
+                                </a>
+                            ))}
+                        </div>
+                    )}
 
                     {isActive && (
                         <>

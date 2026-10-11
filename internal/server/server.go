@@ -13,6 +13,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -623,6 +624,15 @@ func (s *Server) handleFlow(w http.ResponseWriter, r *http.Request) {
 			return
 		} else if subRoute == "/surface-diff" && r.Method == http.MethodGet {
 			s.handleSurfaceDiff(w, r, id)
+			return
+		} else if subRoute == "/artifacts" && r.Method == http.MethodGet {
+			s.handleListArtifacts(w, r, id)
+			return
+		} else if strings.HasPrefix(subRoute, "/artifacts/") && r.Method == http.MethodGet {
+			s.handleDownloadArtifact(w, r, id, strings.TrimPrefix(subRoute, "/artifacts/"))
+			return
+		} else if subRoute == "/report" && r.Method == http.MethodGet {
+			s.handleStoredReport(w, r, id)
 			return
 		} else if subRoute == "/report/html" && r.Method == http.MethodGet {
 			s.handleHTMLReport(w, r, id)
@@ -1845,6 +1855,75 @@ func globalFindingsForFlow(allFindings []database.GlobalFinding, flowID uuid.UUI
 	return out
 }
 
+func (s *Server) handleListArtifacts(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	items, err := s.queries.ListWorkspaceArtifacts(id)
+	if err != nil {
+		http.Error(w, "failed to list artifacts", http.StatusInternalServerError)
+		return
+	}
+	if items == nil {
+		items = []database.WorkspaceArtifact{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(items)
+}
+
+func (s *Server) handleDownloadArtifact(w http.ResponseWriter, r *http.Request, flowID uuid.UUID, artifactID string) {
+	id, err := uuid.Parse(artifactID)
+	if err != nil {
+		http.Error(w, "invalid artifact id", http.StatusBadRequest)
+		return
+	}
+	item, err := s.queries.GetWorkspaceArtifact(flowID, id)
+	if err != nil {
+		http.Error(w, "artifact not found", http.StatusNotFound)
+		return
+	}
+	path, ok := workspaceFileAllowed(item.Path)
+	if !ok {
+		http.Error(w, "artifact path is outside the flow workspace", http.StatusForbidden)
+		return
+	}
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", item.Name))
+	http.ServeFile(w, r, path)
+}
+
+func (s *Server) handleStoredReport(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	tasks, err := s.queries.GetTasksByFlow(id)
+	if err != nil {
+		http.Error(w, "failed to load report", http.StatusInternalServerError)
+		return
+	}
+	report := ""
+	for _, task := range tasks {
+		if strings.TrimSpace(task.Result) != "" {
+			report = task.Result
+		}
+	}
+	if report == "" {
+		http.Error(w, "report is not ready", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	fmt.Fprint(w, report)
+}
+
+func workspaceFileAllowed(path string) (string, bool) {
+	root, err := filepath.Abs(execution.WorkspaceRoot())
+	if err != nil {
+		return "", false
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", false
+	}
+	rel, err := filepath.Rel(root, abs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return abs, true
+}
+
 func (s *Server) handleHTMLReport(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	flow, err := s.queries.GetFlow(id)
 	if err != nil {
@@ -1855,6 +1934,19 @@ func (s *Server) handleHTMLReport(w http.ResponseWriter, r *http.Request, id uui
 	agentFindings := globalFindingsForFlow(all, id)
 	duration := time.Since(flow.CreatedAt).Round(time.Second).String()
 	html := agent.GenerateHTMLReport(flow.Target, id.String(), duration, agentFindings)
+	if arts, err := s.queries.ListWorkspaceArtifacts(id); err == nil && len(arts) > 0 {
+		var section strings.Builder
+		section.WriteString("<section><h2>Evidence files</h2><ul>")
+		for _, art := range arts {
+			section.WriteString("<li>" + art.Name)
+			if art.Tool != "" {
+				section.WriteString(" (" + art.Tool + ")")
+			}
+			section.WriteString("</li>")
+		}
+		section.WriteString("</ul></section>")
+		html = strings.Replace(html, "</body>", section.String()+"</body>", 1)
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"mirage-report-%s.html\"", id.String()[:8]))
 	fmt.Fprint(w, html)

@@ -26,9 +26,10 @@ import (
 )
 
 type scanStub struct {
-	target string
-	mu     sync.Mutex
-	curled bool
+	target   string
+	toolCall string
+	mu       sync.Mutex
+	curled   bool
 }
 
 func (s *scanStub) Name() string { return "stub" }
@@ -57,10 +58,14 @@ func (s *scanStub) Complete(ctx context.Context, req llm.CompletionRequest) (*ll
 	}
 	s.mu.Unlock()
 	if needCurl {
+		args := s.toolCall
+		if args == "" {
+			args = fmt.Sprintf(`{"tool":"curl","args":["-fsS","-o","evidence.txt","%s"],"timeout":20}`, s.target)
+		}
 		return &llm.CompletionResponse{ToolCalls: []models.ToolCall{{
-			ID:        "call-curl",
+			ID:        "call-scan",
 			Name:      "run_security_tool",
-			Arguments: fmt.Sprintf(`{"tool":"curl","args":["-fsS","-o","evidence.txt","%s"],"timeout":20}`, s.target),
+			Arguments: args,
 		}}}, nil
 	}
 	return &llm.CompletionResponse{ToolCalls: []models.ToolCall{{
@@ -165,6 +170,29 @@ func TestOrchestratedScanCompletesThroughTheAPI(t *testing.T) {
 	if !strings.Contains(output, "[mirage-result]") || !strings.Contains(output, "status=ok") || !strings.Contains(output, "evidence.txt") {
 		t.Fatalf("persisted tool output missing structured result:\n%s", output)
 	}
+	artifactBody := getBody(t, fmt.Sprintf("%s/api/flows/%s/artifacts", api.URL, flow.ID))
+	var artifacts []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal([]byte(artifactBody), &artifacts); err != nil || len(artifacts) == 0 {
+		t.Fatalf("artifacts=%s err=%v", artifactBody, err)
+	}
+	fileRes, err := http.Get(fmt.Sprintf("%s/api/flows/%s/artifacts/%s", api.URL, flow.ID, artifacts[0].ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fileBytes, _ := io.ReadAll(fileRes.Body)
+	fileRes.Body.Close()
+	if fileRes.StatusCode != http.StatusOK || string(fileBytes) != "ok" {
+		t.Fatalf("artifact download status=%d body=%q", fileRes.StatusCode, fileBytes)
+	}
+	reportBody := getBody(t, fmt.Sprintf("%s/api/flows/%s/report", api.URL, flow.ID))
+	if !strings.Contains(reportBody, "Evidence files") && !strings.Contains(reportBody, "evidence.txt") {
+		t.Fatalf("report missing evidence:\n%s", reportBody)
+	}
+
 	evidence := findFile(t, root, "evidence.txt")
 	body, err := os.ReadFile(evidence)
 	if err != nil || string(body) != "ok" {
@@ -174,6 +202,94 @@ func TestOrchestratedScanCompletesThroughTheAPI(t *testing.T) {
 	eventBody := getBody(t, fmt.Sprintf("%s/api/flows/%s/events", api.URL, flow.ID))
 	if !strings.Contains(eventBody, "Vulnerability Assessment Complete") && !strings.Contains(eventBody, "complete") && !sawEvent(events, "complete") {
 		t.Fatalf("progress events were not visible: %s", eventBody)
+	}
+}
+
+func TestProductionScannersRunThroughTheOrchestrator(t *testing.T) {
+	if _, err := exec.Command("docker", "image", "inspect", "mirage-tools:latest").CombinedOutput(); err != nil {
+		t.Skip("mirage-tools:latest is not built")
+	}
+	checks := []struct {
+		tool string
+		args []string
+	}{
+		{"nmap", []string{"--version"}},
+		{"nuclei", []string{"-version"}},
+		{"ffuf", []string{"-V"}},
+		{"sqlmap", []string{"--version"}},
+		{"curl", []string{"--version"}},
+	}
+	for _, check := range checks {
+		cmd := exec.Command("docker", "run", "--rm", "--entrypoint", check.tool, "mirage-tools:latest")
+		cmd.Args = append(cmd.Args, check.args...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%s failed: %v\n%s", check.tool, err, out)
+		}
+		if len(strings.TrimSpace(string(out))) == 0 {
+			t.Fatalf("%s produced no output", check.tool)
+		}
+	}
+
+	hostIP := dockerHostGateway(t)
+	listener, err := net.Listen("tcp", "0.0.0.0:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	target := fmt.Sprintf("http://%s:%d/", hostIP, port)
+	httpSrv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "ok")
+	})}
+	go httpSrv.Serve(listener)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = httpSrv.Shutdown(ctx)
+	})
+	root := t.TempDir()
+	t.Setenv("MIRAGE_WORKSPACE_ROOT", root)
+	t.Setenv("MIRAGE_TARGET_ALLOWLIST", hostIP)
+	db := openSmokeDB(t)
+	prepareSmokeSchema(t, db)
+	prepareOrchestratorSchema(t, db)
+	stub := &scanStub{
+		target:   target,
+		toolCall: fmt.Sprintf(`{"tool":"nmap","args":["-sT","-p","%d","%s","-oN","scan.txt"],"timeout":90}`, port, hostIP),
+	}
+	cfg := &config.Config{
+		OpenAIModel: "stub", ExecutionV2: true,
+		SandboxImage: "mirage-tools:latest", FirewallHelperImage: "mirage-firewall:local",
+	}
+	app := server.New(cfg, db)
+	app.UseLLMProvider(stub)
+	planner := agent.NewPlanner(stub, nil, nil)
+	planner.SetDecisionProvider(fixedDecision{}, 0.55)
+	app.UseDecisionPlanner(planner)
+	api := httptest.NewServer(app.Handler())
+	t.Cleanup(api.Close)
+	created := postJSON(t, api.URL+"/api/flows/create", map[string]string{
+		"name": "tools", "description": "nmap", "target": target,
+	})
+	var flow models.Flow
+	if err := json.Unmarshal(created, &flow); err != nil {
+		t.Fatal(err)
+	}
+	status := waitForFlowStatus(t, api.URL, flow.ID, models.FlowStatusCompleted, 4*time.Minute)
+	if status != models.FlowStatusCompleted {
+		t.Fatalf("status=%s", status)
+	}
+	body := getBody(t, fmt.Sprintf("%s/api/flows/%s/artifacts", api.URL, flow.ID))
+	if !strings.Contains(body, "scan.txt") {
+		t.Fatalf("nmap artifact was not recorded: %s", body)
+	}
+	report := getBody(t, fmt.Sprintf("%s/api/flows/%s/report", api.URL, flow.ID))
+	if !strings.Contains(report, "scan.txt") {
+		t.Fatalf("report missing nmap evidence:\n%s", report)
+	}
+	nmapOut, err := os.ReadFile(findFile(t, root, "scan.txt"))
+	if err != nil || !strings.Contains(string(nmapOut), "Nmap") {
+		t.Fatalf("nmap output=%q err=%v", nmapOut, err)
 	}
 }
 
@@ -393,6 +509,15 @@ func prepareOrchestratorSchema(t *testing.T, db *sql.DB) {
 			summary JSONB NOT NULL DEFAULT '{}',
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE TABLE IF NOT EXISTS artifacts (
+			id UUID PRIMARY KEY,
+			action_id UUID,
+			flow_id UUID NOT NULL,
+			type TEXT NOT NULL DEFAULT 'workspace',
+			name TEXT NOT NULL,
+			content TEXT NOT NULL DEFAULT '',
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
 		`CREATE TABLE IF NOT EXISTS target_memory (
 			id UUID PRIMARY KEY,
