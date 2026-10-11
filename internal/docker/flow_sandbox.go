@@ -5,10 +5,14 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/bb-agent/mirage/internal/execution"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
@@ -35,11 +39,12 @@ const (
 // because it was never enforced and gave callers a false sense of
 // security.
 type FlowSandboxConfig struct {
-	CPULimit    int64  // CPU quota (nanoCPUs, e.g., 2e9 = 2 CPUs)
-	MemoryLimit int64  // Memory limit in bytes (e.g., 2<<30 = 2GB)
-	DiskLimit   string // Disk limit (e.g., "5g")
-	NetworkMode string // retained for callers; flow sandboxes use a dedicated bridge plus an in-container filter
-	Image       string // optional image override
+	CPULimit      int64  // CPU quota (nanoCPUs, e.g., 2e9 = 2 CPUs)
+	MemoryLimit   int64  // Memory limit in bytes (e.g., 2<<30 = 2GB)
+	DiskLimit     string // Disk limit (e.g., "5g")
+	NetworkMode   string // retained for callers; flow sandboxes use a dedicated bridge plus an in-container filter
+	Image         string // optional image override
+	WorkspaceHost string // host directory mounted at /workspace
 }
 
 // DefaultFlowConfig returns a sensible default sandbox configuration.
@@ -133,22 +138,29 @@ func (fs *FlowSandbox) CreateForFlow(ctx context.Context, flowID string, profile
 			Memory:   config.MemoryLimit,
 		},
 		NetworkMode: container.NetworkMode(netName),
-		CapAdd:      []string{"NET_ADMIN"},
+		CapDrop:     []string{"NET_ADMIN", "SYS_ADMIN"},
 		SecurityOpt: []string{
 			"no-new-privileges",
 		},
 	}
+	if config.WorkspaceHost != "" {
+		hostConfig.Binds = []string{config.WorkspaceHost + ":/workspace"}
+	}
 
-	resp, err := fs.client.ContainerCreate(ctx,
-		&container.Config{
-			Image: image,
-			Cmd:   []string{"tail", "-f", "/dev/null"},
-			Labels: map[string]string{
-				"mirage.flow_id": flowID,
-				"mirage.type":    "flow-sandbox",
-				"mirage.profile": string(profile),
-			},
+	containerCfg := &container.Config{
+		Image: image,
+		Cmd:   []string{"tail", "-f", "/dev/null"},
+		Labels: map[string]string{
+			"mirage.flow_id": flowID,
+			"mirage.type":    "flow-sandbox",
+			"mirage.profile": string(profile),
 		},
+	}
+	if config.WorkspaceHost != "" {
+		containerCfg.WorkingDir = "/workspace"
+	}
+	resp, err := fs.client.ContainerCreate(ctx,
+		containerCfg,
 		hostConfig,
 		&network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{
 			netName: {},
@@ -194,13 +206,107 @@ func shortID(id string) string {
 	return id
 }
 
+// GetContainerIP returns the address the host firewall uses as the packet source.
+func (fs *FlowSandbox) GetContainerIP(ctx context.Context, flowID string) (net.IP, error) {
+	if fs == nil {
+		return nil, fmt.Errorf("flow sandbox is not configured")
+	}
+	fs.mu.Lock()
+	containerID, ok := fs.containers[flowID]
+	fs.mu.Unlock()
+	if !ok {
+		return nil, fmt.Errorf("no container for flow %s", flowID)
+	}
+	inspect, err := fs.client.ContainerInspect(ctx, containerID)
+	if err != nil {
+		return nil, fmt.Errorf("inspect flow container: %w", err)
+	}
+	if inspect.NetworkSettings != nil {
+		if ip := net.ParseIP(inspect.NetworkSettings.IPAddress); ip != nil {
+			return ip, nil
+		}
+		for _, settings := range inspect.NetworkSettings.Networks {
+			if settings != nil {
+				if ip := net.ParseIP(settings.IPAddress); ip != nil {
+					return ip, nil
+				}
+			}
+		}
+	}
+	return nil, fmt.Errorf("container %s has no IP address", shortID(containerID))
+}
+
+// ResolveWorkspaceBind returns the path the Docker daemon can mount.
+// An explicit MIRAGE_WORKSPACE_HOST_ROOT wins. Inside a container, the path is
+// taken from this process's own mount of MIRAGE_WORKSPACE_ROOT, because the
+// daemon cannot see the path as it appears inside the API container.
+func (fs *FlowSandbox) ResolveWorkspaceBind(ctx context.Context, flowID string) (string, error) {
+	created, err := execution.EnsureWorkspace(flowID)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(os.Getenv("MIRAGE_WORKSPACE_HOST_ROOT")) != "" {
+		return execution.WorkspaceBindSource(flowID)
+	}
+	if _, statErr := os.Stat("/.dockerenv"); statErr == nil && fs != nil && fs.client != nil {
+		if source, mountErr := fs.selfMountSource(ctx, execution.WorkspaceRoot()); mountErr == nil && source != "" {
+			return execution.WorkspaceBindFromMount(source, flowID), nil
+		}
+		log.Printf("[sandbox] API is containerized but %s is not a Docker mount the daemon can bind", execution.WorkspaceRoot())
+	}
+	return created, nil
+}
+
+func (fs *FlowSandbox) selfMountSource(ctx context.Context, dest string) (string, error) {
+	if fs == nil || fs.client == nil {
+		return "", fmt.Errorf("docker client is not configured")
+	}
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		return "", fmt.Errorf("container hostname is unknown")
+	}
+	info, err := fs.client.ContainerInspect(ctx, host)
+	if err != nil {
+		return "", err
+	}
+	want := filepath.Clean(dest)
+	for _, mount := range info.Mounts {
+		if filepath.Clean(mount.Destination) == want && mount.Source != "" {
+			return mount.Source, nil
+		}
+	}
+	return "", fmt.Errorf("mount %s not found on container %s", dest, host)
+}
+
 // Ensure creates the per-flow container if it does not already exist.
 func (fs *FlowSandbox) Ensure(ctx context.Context, flowID string) error {
 	if fs == nil {
 		return fmt.Errorf("flow sandbox is not configured")
 	}
-	_, err := fs.CreateForFlow(ctx, flowID, ProfileDefault, DefaultFlowConfig())
+	bind, err := fs.ResolveWorkspaceBind(ctx, flowID)
+	if err != nil {
+		return err
+	}
+	cfg := DefaultFlowConfig()
+	cfg.WorkspaceHost = bind
+	_, err = fs.CreateForFlow(ctx, flowID, ProfileDefault, cfg)
 	return err
+}
+
+// EnsureWorkspace creates the host workspace and the flow container that mounts it.
+func (fs *FlowSandbox) EnsureWorkspace(ctx context.Context, flowID, hostDir, image string) (string, error) {
+	if fs == nil {
+		return "", fmt.Errorf("flow sandbox is not configured")
+	}
+	cfg := DefaultFlowConfig()
+	cfg.WorkspaceHost = hostDir
+	if image != "" {
+		cfg.Image = image
+	}
+	if _, err := fs.CreateForFlow(ctx, flowID, ProfileDefault, cfg); err != nil {
+		return "", err
+	}
+	return hostDir, nil
 }
 
 // ExecuteInFlow runs a shell command in a flow-specific sandbox via `bash -c`.

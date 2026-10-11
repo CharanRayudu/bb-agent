@@ -171,7 +171,8 @@ REASON: [A concise 1-2 sentence explanation of why you accepted or vetoed the fi
 
 	if err != nil {
 		log.Printf("[reflector] Error calling LLM: %v", err)
-		return true, "Reflector LLM failed, automatically accepting."
+		// Fail closed: BinChomp-style external verification must not accept on oracle failure.
+		return false, "Reflector LLM failed; deterministic proof required before acceptance"
 	}
 
 	content := resp.Content

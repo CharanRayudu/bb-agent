@@ -1,0 +1,49 @@
+# Run a full Mirage v2 scan
+
+Copy `.env.example` and start Compose. `MIRAGE_EXECUTION_V2=true` is in that file, and Compose also defaults the variable to `true` when it is unset. A v2 scan authorizes every tool call, runs the scanner in its own container, and keeps that container's files under `data/workspaces/<flow>`. A native `go run` that does not set the variable stays on the legacy shared sandbox. Set `MIRAGE_EXECUTION_V2=false` only for that legacy mode.
+
+For the generative model, prefer Codex ChatGPT models such as `gpt-6.1-sol` or `gpt-6-luna`. Retired ids such as `gpt-5.3-codex` and `gpt-5.4` are remapped and logged. Set `MIRAGE_LLM_PROVIDER=api_key` with `OPENAI_API_KEY` when you want API-key auth instead of Codex OAuth. Unrecoverable LLM failures mark the flow `failed` and do not return a successful assessment report.
+
+The scanner image and the firewall image are different:
+
+| Variable | Image | Role |
+| --- | --- | --- |
+| `SANDBOX_IMAGE` | `mirage-tools:latest` | nmap, nuclei, sqlmap, ffuf, curl, and the other scanner binaries |
+| `FIREWALL_HELPER_IMAGE` | `mirage-firewall:local` | `iptables` on the Docker host only |
+
+The API container does not run iptables itself. It uses the Docker CLI to start the helper image with the host network. The backend image installs `docker-cli` for that call.
+
+## Build and start
+
+```powershell
+docker compose build firewall-helper sandbox backend frontend
+docker compose up -d
+```
+
+`sandbox` is the Kali tool image in `build/tools/Dockerfile`. That build is large. The firewall helper is the small Alpine image and finishes quickly.
+
+The UI is `http://localhost:3000`. The API is proxied at `/api/` and the websocket at `/ws`. Startup logs `execution mode v2` or `execution mode legacy`.
+
+Release validation, after the scanner image exists:
+
+```powershell
+$env:MIRAGE_RELEASE_VALIDATION = "1"
+go test ./internal/smoke/ -count=1 -timeout 10m -run TestProductionScannersRunThroughTheOrchestrator
+```
+
+That command fails if `mirage-tools:latest` is missing. An ordinary `go test ./...` skips that Docker integration test when the image is absent.
+
+## What a v2 scan does
+
+1. Create a flow in the UI against a target you are allowed to test.
+2. The API stores the flow in Postgres and starts the orchestrator.
+3. The generative model still writes the plan and the report.
+4. Compose passes `FOUNDRY_ENDPOINT`, `FOUNDRY_DEPLOYMENT`, `FOUNDRY_API_KEY`, `FOUNDRY_TIMEOUT_SECONDS`, and `FOUNDRY_MIN_CONFIDENCE` into the API. Startup logs whether Decision-1 routing is enabled. All three of endpoint, deployment, and key are required. Decision-1 only chooses specialists, in batches of eight. A low-confidence answer, an abstention, or an API error keeps the existing keyword rules. The log never prints the API key.
+5. Each scanner runs in a container from `mirage-tools:latest`, with its output and any target-list or raw-request file under `/workspace`.
+6. The UI reads status, events, and artifacts back through the API and websocket.
+
+Set `MIRAGE_EXECUTION_V2=false` before `docker compose up` only when you want the legacy shared sandbox. Leave the Foundry variables empty to keep specialist selection on the deterministic rules.
+
+A target that resolves to a private address is refused unless `MIRAGE_TARGET_ALLOWLIST` names that host, address, or CIDR. Loopback addresses stay refused. Use the allowlist for an isolated lab target, not for a general exception.
+
+Do not put a Foundry key in the repository. Pass it only through the environment.

@@ -2,7 +2,7 @@
 
 This is the PR 0 map of places an engagement can cause an effect outside the API process. The same list is enforced by `TestExecutionPathInventory` in `internal/execution/inventory.go`.
 
-`MIRAGE_EXECUTION_V2` defaults to off. When it is on, tool calls, browser traffic, FuzzClient probes, wrapped specialist HTTP clients, and TCP connect scans ask the gateway before they run. Known security tools such as nuclei, nmap, ffuf, curl, and sqlmap run when every destination is inside the engagement. Arbitrary shell commands stay denied unless the authorization explicitly grants them.
+A native process leaves `MIRAGE_EXECUTION_V2` off when the variable is unset. `.env.example` and Docker Compose turn it on; set it to `false` only for the legacy shared sandbox. When it is on, tool calls, browser traffic, FuzzClient probes, wrapped specialist HTTP clients, and TCP connect scans ask the gateway before they run. Known security tools such as nuclei, nmap, ffuf, curl, and sqlmap run when every destination is inside the engagement. Arbitrary shell commands stay denied unless the authorization explicitly grants them.
 
 Scheduled scans and `POST /api/cicd/trigger` inherit the parent authorization, including autonomy level, exclusions, and expiry. They do not mint a broader record.
 

@@ -39,6 +39,8 @@ docker-compose.override.yml
 # Runtime artifacts
 logs/screenshots/*
 !logs/screenshots/.gitkeep
+data/workspaces/
+internal/docker/data/
 
 # Certificates
 *.pem

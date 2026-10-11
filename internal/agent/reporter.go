@@ -28,6 +28,15 @@ type FindingReport struct {
 	Remediation string
 }
 
+// ReportEvidenceRef is a durable pointer from the report to stored evidence.
+type ReportEvidenceRef struct {
+	Kind   string
+	Name   string
+	Path   string
+	Tool   string
+	Status string
+}
+
 // GenerateReport creates a comprehensive markdown pentest report
 func (rg *ReportGenerator) GenerateReport(
 	target string,
@@ -39,6 +48,27 @@ func (rg *ReportGenerator) GenerateReport(
 	exclusions []string,
 	swarmResults string,
 	pocResults string,
+) string {
+	return rg.GenerateReportWithEvidence(target, flowID, duration, reconSummary, findings, leads, exclusions, swarmResults, pocResults, nil, nil, ExecutionHealth{Verdict: ObserverContinue}, VerificationPartition{}, EnvironmentSnapshot{})
+}
+
+// GenerateReportWithEvidence adds workspace artifacts, evidence packs, observer health,
+// deterministic verification partitions, and environment reproducibility metadata.
+func (rg *ReportGenerator) GenerateReportWithEvidence(
+	target string,
+	flowID uuid.UUID,
+	duration time.Duration,
+	reconSummary string,
+	findings []*Finding,
+	leads []string,
+	exclusions []string,
+	swarmResults string,
+	pocResults string,
+	artifacts []ReportEvidenceRef,
+	packs []ReportEvidenceRef,
+	health ExecutionHealth,
+	verification VerificationPartition,
+	env EnvironmentSnapshot,
 ) string {
 	var sb strings.Builder
 
@@ -232,12 +262,119 @@ func (rg *ReportGenerator) GenerateReport(
 		sb.WriteString("\n")
 	}
 
+	if len(artifacts) > 0 || len(packs) > 0 {
+		sb.WriteString("---\n\n## Evidence Trail\n\n")
+		sb.WriteString("Observation → action → durable evidence references used by this report:\n\n")
+		for _, art := range artifacts {
+			sb.WriteString(fmt.Sprintf("- workspace `%s`", art.Name))
+			if art.Path != "" && art.Path != art.Name {
+				sb.WriteString(fmt.Sprintf(" path=`%s`", art.Path))
+			}
+			if art.Tool != "" {
+				sb.WriteString(fmt.Sprintf(" tool=`%s`", art.Tool))
+			}
+			if art.Status != "" {
+				sb.WriteString(fmt.Sprintf(" status=`%s`", art.Status))
+			}
+			sb.WriteString("\n")
+		}
+		for _, pack := range packs {
+			sb.WriteString(fmt.Sprintf("- evidence_pack `%s` id=`%s`", pack.Name, pack.Path))
+			if pack.Tool != "" {
+				sb.WriteString(fmt.Sprintf(" agent=`%s`", pack.Tool))
+			}
+			if pack.Status != "" {
+				sb.WriteString(fmt.Sprintf(" status=`%s`", pack.Status))
+			}
+			sb.WriteString("\n")
+		}
+		sb.WriteString("\n")
+	}
+
+	sb.WriteString("---\n\n## Execution Health\n\n")
+	sb.WriteString(fmt.Sprintf("- Security tool runs: %d\n", health.SecurityToolRuns))
+	sb.WriteString(fmt.Sprintf("- Tool calls: %d\n", health.ToolCalls))
+	sb.WriteString(fmt.Sprintf("- Tool failures: %d\n", health.ToolFailures))
+	sb.WriteString(fmt.Sprintf("- LLM errors: %d\n", health.LLMErrors))
+	sb.WriteString(fmt.Sprintf("- Observer verdict: `%s`\n", health.Verdict))
+	if health.Reason != "" {
+		sb.WriteString(fmt.Sprintf("- Observer reason: %s\n", health.Reason))
+	}
+	sb.WriteString("\n")
+
+	counts := verification.Counts()
+	if counts["total_inputs"] > 0 {
+		sb.WriteString("---\n\n## Verification Status\n\n")
+		sb.WriteString("Deterministic (non-LLM) oracle classification — demonstrated findings only appear as confirmed:\n\n")
+		sb.WriteString(fmt.Sprintf("| Status | Count |\n|--------|-------|\n"))
+		sb.WriteString(fmt.Sprintf("| confirmed | %d |\n", counts["confirmed"]))
+		sb.WriteString(fmt.Sprintf("| needs_proof | %d |\n", counts["needs_proof"]))
+		sb.WriteString(fmt.Sprintf("| hypothesis | %d |\n", counts["hypothesis"]))
+		sb.WriteString(fmt.Sprintf("| rejected | %d |\n", counts["rejected"]))
+		sb.WriteString(fmt.Sprintf("| inconclusive | %d |\n\n", counts["inconclusive"]))
+		writeVerifiedList(&sb, "Confirmed (demonstrated)", verification.Confirmed)
+		writeVerifiedList(&sb, "Needs proof (unverified claims)", verification.NeedsProof)
+		writeVerifiedList(&sb, "Hypothesis (not demonstrated)", verification.Hypothesis)
+		writeVerifiedList(&sb, "Rejected", verification.Rejected)
+	}
+
+	if !env.CapturedAt.IsZero() || env.GoVersion != "" || env.SandboxImage != "" || env.LLMProvider != "" || env.LLMModel != "" {
+		sb.WriteString("---\n\n## Environment Snapshot\n\n")
+		sb.WriteString("Reproducibility metadata for this assessment (authorized lab context):\n\n")
+		if !env.CapturedAt.IsZero() {
+			sb.WriteString(fmt.Sprintf("- Captured at: `%s`\n", env.CapturedAt.Format(time.RFC3339)))
+		}
+		if env.GoVersion != "" {
+			sb.WriteString(fmt.Sprintf("- Go version: `%s`\n", env.GoVersion))
+		}
+		if env.SandboxImage != "" {
+			sb.WriteString(fmt.Sprintf("- Sandbox image: `%s`\n", env.SandboxImage))
+		}
+		if env.LLMProvider != "" {
+			sb.WriteString(fmt.Sprintf("- LLM provider: `%s`\n", env.LLMProvider))
+		}
+		if env.LLMSource != "" {
+			sb.WriteString(fmt.Sprintf("- LLM source: `%s`\n", env.LLMSource))
+		}
+		if env.LLMModel != "" {
+			sb.WriteString(fmt.Sprintf("- LLM model: `%s`\n", env.LLMModel))
+		}
+		if env.ExecutionV2 != "" {
+			sb.WriteString(fmt.Sprintf("- MIRAGE_EXECUTION_V2: `%s`\n", env.ExecutionV2))
+		}
+		if env.TargetAllowlist != "" {
+			sb.WriteString(fmt.Sprintf("- Target allowlist: `%s`\n", env.TargetAllowlist))
+		}
+		sb.WriteString("\n")
+	}
+
 	// Footer
 	sb.WriteString("---\n\n")
 	sb.WriteString("*Report generated by Mirage Autonomous Security Agent*\n")
 	sb.WriteString(fmt.Sprintf("*Assessment completed: %s*\n", time.Now().Format(time.RFC3339)))
 
 	return sb.String()
+}
+
+func writeVerifiedList(sb *strings.Builder, title string, items []VerifiedFinding) {
+	if len(items) == 0 {
+		return
+	}
+	sb.WriteString(fmt.Sprintf("### %s\n\n", title))
+	for _, item := range items {
+		if item.Finding == nil {
+			continue
+		}
+		line := fmt.Sprintf("- `%s` at `%s`", item.Finding.Type, item.Finding.URL)
+		if item.ProofClass != "" {
+			line += fmt.Sprintf(" proof=`%s`", item.ProofClass)
+		}
+		if item.Reason != "" {
+			line += fmt.Sprintf(" — %s", item.Reason)
+		}
+		sb.WriteString(line + "\n")
+	}
+	sb.WriteString("\n")
 }
 
 // countSeverity counts findings of a specific severity

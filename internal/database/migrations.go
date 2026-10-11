@@ -134,6 +134,13 @@ func VersionedMigrations() []Migration {
 			ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS risk TEXT NOT NULL DEFAULT '';
 			ALTER TABLE approval_requests ADD COLUMN IF NOT EXISTS capability TEXT NOT NULL DEFAULT '';`,
 		},
+		{
+			Version:     8,
+			Description: "One workspace artifact row per flow and relative path",
+			SQL: `DELETE FROM artifacts a USING artifacts b
+				WHERE a.ctid > b.ctid AND a.flow_id = b.flow_id AND a.type = b.type AND a.name = b.name;
+			CREATE UNIQUE INDEX IF NOT EXISTS idx_artifacts_flow_type_name ON artifacts (flow_id, type, name);`,
+		},
 	}
 }
 

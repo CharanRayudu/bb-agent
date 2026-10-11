@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/bb-agent/mirage/internal/execution"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
 	"github.com/google/uuid"
@@ -18,7 +20,7 @@ func TestFlowNetworkDropsUnapprovedTCPAndUDP(t *testing.T) {
 	if _, err := exec.Command("docker", "version").CombinedOutput(); err != nil {
 		t.Fatalf("docker is required to prove network egress isolation: %v", err)
 	}
-	build := exec.Command("docker", "build", "-t", "mirage-egress-fixture:local", filepath.Join("..", "..", "build", "egress-fixture"))
+	build := exec.Command("docker", "build", "-t", "mirage-egress-fixture:local", "-t", "mirage-firewall:local", filepath.Join("..", "..", "build", "egress-fixture"))
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build egress fixture: %v\n%s", err, out)
 	}
@@ -30,19 +32,26 @@ func TestFlowNetworkDropsUnapprovedTCPAndUDP(t *testing.T) {
 		t.Fatal(err)
 	}
 	flowID := uuid.NewString()
+	workspace, err := execution.EnsureWorkspace(flowID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	cfg := DefaultFlowConfig()
 	cfg.Image = "mirage-egress-fixture:local"
 	cfg.MemoryLimit = 128 << 20
 	cfg.CPULimit = 5e8
+	cfg.WorkspaceHost = workspace
 	if _, err := fs.CreateForFlow(ctx, flowID, ProfileDefault, cfg); err != nil {
 		t.Fatal(err)
 	}
 	netName := fs.NetworkName(flowID)
 	allowedID := ""
 	deniedID := ""
+	firewall := execution.NewFirewallController("mirage-egress-fixture:local")
 	t.Cleanup(func() {
 		cleanCtx, cleanCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cleanCancel()
+		_ = firewall.RevokeFlowRules(cleanCtx, flowID)
 		if allowedID != "" {
 			_ = fs.client.ContainerRemove(cleanCtx, allowedID, container.RemoveOptions{Force: true})
 		}
@@ -68,8 +77,22 @@ func TestFlowNetworkDropsUnapprovedTCPAndUDP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := fs.EnforceEgress(ctx, flowID, []EgressPermit{{IP: net.ParseIP(allowedIP), Port: 8080}}); err != nil {
+	sourceIP, err := fs.GetContainerIP(ctx, flowID)
+	if err != nil {
 		t.Fatal(err)
+	}
+	firewall.BindContainerIP(flowID, sourceIP)
+	if err := firewall.ApplyFlowRules(ctx, flowID, []execution.NetworkRule{{
+		FlowID:      flowID,
+		ContainerIP: sourceIP,
+		Protocol:    "tcp",
+		IP:          net.ParseIP(allowedIP),
+		Port:        8080,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if firewall.IsAllowed(flowID, net.ParseIP(allowedIP), 8080, "udp") {
+		t.Fatal("tcp host rule also allowed udp")
 	}
 
 	if err := waitHTTP(ctx, fs, flowID, allowedIP); err != nil {
@@ -81,23 +104,28 @@ func TestFlowNetworkDropsUnapprovedTCPAndUDP(t *testing.T) {
 	if code, err := curlCode(ctx, fs, flowID, allowedIP, 9); err != nil || code == 0 {
 		t.Fatalf("unapproved port was reachable, exit=%d err=%v", code, err)
 	}
-	udpAllowed, err := fs.ExecuteArgvInFlow(ctx, flowID, []string{"iptables", "-C", "MIRAGE_EGRESS", "-d", allowedIP, "-p", "udp", "--dport", "8080", "-j", "ACCEPT"}, 15)
-	if err != nil || udpAllowed.ExitCode != 0 {
-		t.Fatalf("udp to the authorized port is not allowed: %+v err=%v", udpAllowed, err)
+	runner := FlowRunner{Sandbox: fs, Image: cfg.Image}
+	wrote, err := runner.Execute(ctx, execution.ToolRequest{
+		FlowID:         flowID,
+		Argv:           []string{"sh", "-c", "printf smoke > /workspace/evidence.txt"},
+		TimeoutSeconds: 15,
+	})
+	if err != nil || wrote.ExitCode != 0 {
+		t.Fatalf("workspace write failed: %+v err=%v", wrote, err)
 	}
-	udpDenied, err := fs.ExecuteArgvInFlow(ctx, flowID, []string{"iptables", "-C", "MIRAGE_EGRESS", "-d", deniedIP, "-p", "udp", "--dport", "8080", "-j", "ACCEPT"}, 15)
+	evidence, err := os.ReadFile(filepath.Join(workspace, "evidence.txt"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if udpDenied.ExitCode == 0 {
-		t.Fatal("udp to the excluded destination is allowed")
+	if string(evidence) != "smoke" {
+		t.Fatalf("host workspace=%q", evidence)
 	}
 }
 
 func startPeer(ctx context.Context, fs *FlowSandbox, netName, name string) (string, error) {
 	resp, err := fs.client.ContainerCreate(ctx, &container.Config{
 		Image: "mirage-egress-fixture:local",
-		Cmd: []string{"sh", "-c", `while true; do printf 'HTTP/1.0 200 OK\r\nContent-Length: 2\r\n\r\nok' | nc -l -p 8080; done`},
+		Cmd:   []string{"sh", "-c", `while true; do printf 'HTTP/1.0 200 OK\r\nContent-Length: 2\r\n\r\nok' | nc -l -p 8080; done`},
 		Labels: map[string]string{
 			"mirage.type": "egress-fixture",
 		},

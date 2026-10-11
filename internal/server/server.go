@@ -13,6 +13,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"github.com/bb-agent/mirage/internal/config"
 	"github.com/bb-agent/mirage/internal/copilot"
 	"github.com/bb-agent/mirage/internal/database"
+	"github.com/bb-agent/mirage/internal/decision"
 	"github.com/bb-agent/mirage/internal/docker"
 	"github.com/bb-agent/mirage/internal/execution"
 	"github.com/bb-agent/mirage/internal/knowledge"
@@ -91,6 +93,10 @@ type Server struct {
 	authSessions map[string]*base.AuthSession
 	authMu       sync.RWMutex
 
+	// llmOverride and decisionPlanner are test seams. Production leaves them nil.
+	llmOverride     llm.Provider
+	decisionPlanner *agent.Planner
+
 	// llmProvider is used for stateless LLM API requests (e.g. /api/mutate).
 	// May be nil when no auth is configured.
 	llmProvider llm.Provider
@@ -99,6 +105,7 @@ type Server struct {
 	engagements *policy.Book
 	execLog     *execution.MemoryStore
 	gateway     *execution.Gateway
+	firewall    *execution.FirewallController
 	restoreErr  error
 
 	// Shared knowledge graph — persists across scans within the same server process.
@@ -216,6 +223,11 @@ func New(cfg *config.Config, db *sql.DB) *Server {
 	}
 	s.gateway = execution.NewGateway(s.engagements, execStore, execution.NetResolver{})
 	s.gateway.EnableResume()
+	helperImage := ""
+	if cfg != nil {
+		helperImage = cfg.FirewallHelperImage
+	}
+	s.firewall = execution.NewFirewallController(helperImage)
 
 	// Continuous monitoring subsystem
 	s.monitorStore = monitoring.NewStore()
@@ -318,32 +330,62 @@ func (s *Server) authorizeTriggeredScan(target, source string) error {
 }
 
 func buildLLMProvider(cfg *config.Config, selectedModel string) llm.Provider {
-	if cfg == nil {
+	provider, _, err := selectLLMProvider(cfg, selectedModel)
+	if err != nil {
+		log.Printf("[llm] provider selection failed: %v", err)
 		return nil
+	}
+	return provider
+}
+
+func selectLLMProvider(cfg *config.Config, selectedModel string) (llm.Provider, llm.Selection, error) {
+	if cfg == nil {
+		return nil, llm.Selection{}, fmt.Errorf("config is not loaded")
 	}
 	model := strings.TrimSpace(selectedModel)
 	if model == "" {
 		model = cfg.OpenAIModel
 	}
-
-	var provider llm.Provider
 	codexAuth := llm.NewCodexTokenProvider(cfg.CodexHome)
-	if codexAuth.IsAvailable() {
-		provider = llm.NewOpenAIProviderWithCodex(codexAuth, model, cfg.OpenAITemperature)
-	} else if cfg.OpenAIAPIKey != "" {
-		provider = llm.NewOpenAIProvider(cfg.OpenAIAPIKey, model, cfg.OpenAITemperature)
+	provider, sel, err := llm.SelectProvider(llm.SelectionInput{
+		Preference:     cfg.LLMProvider,
+		CodexHome:      cfg.CodexHome,
+		APIKey:         cfg.OpenAIAPIKey,
+		Model:          model,
+		FallbackModel:  cfg.LLMFallbackModel,
+		Temperature:    cfg.OpenAITemperature,
+		CodexAvailable: codexAuth.IsAvailable(),
+	})
+	if err != nil {
+		return nil, sel, err
 	}
-	if provider != nil {
-		provider = llm.NewResilientProvider(provider)
-	}
-	return provider
+	log.Printf("[llm] %s", sel.Status())
+	return llm.NewGuardedProvider(llm.NewResilientProvider(provider), sel), sel, nil
 }
 
 func (s *Server) currentLLMProvider(model string) llm.Provider {
 	if s == nil {
 		return nil
 	}
+	if s.llmOverride != nil {
+		return s.llmOverride
+	}
 	return buildLLMProvider(s.cfg, model)
+}
+
+// UseLLMProvider replaces the generative model for scans started after this call.
+// It does not change specialist routing.
+func (s *Server) UseLLMProvider(provider llm.Provider) {
+	if s != nil {
+		s.llmOverride = provider
+	}
+}
+
+// UseDecisionPlanner installs Decision-1 routing for scans started after this call.
+func (s *Server) UseDecisionPlanner(planner *agent.Planner) {
+	if s != nil {
+		s.decisionPlanner = planner
+	}
 }
 
 // firePlan is the FireFunc called by the schedplan Runner when a schedule fires.
@@ -594,6 +636,15 @@ func (s *Server) handleFlow(w http.ResponseWriter, r *http.Request) {
 			return
 		} else if subRoute == "/surface-diff" && r.Method == http.MethodGet {
 			s.handleSurfaceDiff(w, r, id)
+			return
+		} else if subRoute == "/artifacts" && r.Method == http.MethodGet {
+			s.handleListArtifacts(w, r, id)
+			return
+		} else if strings.HasPrefix(subRoute, "/artifacts/") && r.Method == http.MethodGet {
+			s.handleDownloadArtifact(w, r, id, strings.TrimPrefix(subRoute, "/artifacts/"))
+			return
+		} else if subRoute == "/report" && r.Method == http.MethodGet {
+			s.handleStoredReport(w, r, id)
 			return
 		} else if subRoute == "/report/html" && r.Method == http.MethodGet {
 			s.handleHTMLReport(w, r, id)
@@ -1056,7 +1107,12 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 			return
 		}
 		flows = created
-		defer flows.DestroyForFlow(context.Background(), flowID.String())
+		defer func() {
+			if s.firewall != nil {
+				_ = s.firewall.RevokeFlowRules(context.Background(), flowID.String())
+			}
+			_ = flows.DestroyForFlow(context.Background(), flowID.String())
+		}()
 	}
 	createdSandbox, err := docker.NewSandbox(s.cfg.DockerHost, s.cfg.SandboxImage)
 	if err != nil && flows == nil {
@@ -1082,28 +1138,38 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 	log.Printf("[BRAIN] Using model: %s", model)
 
 	// Create LLM provider -- prefer Codex OAuth, fall back to API key.
-	provider := s.currentLLMProvider(model)
-	if provider == nil {
-		errMsg := "No LLM authentication available. Run 'codex login' or set OPENAI_API_KEY"
-		log.Printf("[ERROR] %s", errMsg)
-		s.queries.UpdateFlowStatus(flowID, models.FlowStatusFailed)
-		s.broadcast(agent.Event{
-			Type:      agent.EventError,
-			FlowID:    flowID.String(),
-			Content:   errMsg,
-			Timestamp: time.Now(),
-		})
-		return
+	var provider llm.Provider
+	var selection llm.Selection
+	if s.llmOverride != nil {
+		provider = s.llmOverride
+		selection = llm.Selection{Source: "test_override", Model: model}
+		log.Printf("[llm] %s", selection.Status())
+	} else {
+		var err error
+		provider, selection, err = selectLLMProvider(s.cfg, model)
+		if err != nil || provider == nil {
+			errMsg := err.Error()
+			if err == nil {
+				errMsg = "No LLM authentication available. Run 'codex login' or set OPENAI_API_KEY"
+			}
+			log.Printf("[ERROR] %s", errMsg)
+			s.queries.UpdateFlowStatus(flowID, models.FlowStatusFailed)
+			s.broadcast(agent.Event{
+				Type:      agent.EventError,
+				FlowID:    flowID.String(),
+				Content:   errMsg,
+				Timestamp: time.Now(),
+			})
+			return
+		}
 	}
-	log.Printf("[AUTH] Using LLM provider: %s", provider.Name())
-
-	// Wrap with ResilientProvider to handle transient connection errors (Brain-Hardening)
-	provider = llm.NewResilientProvider(provider)
+	_ = selection
 
 	// Create tool registry
 	registry := tools.NewRegistry(sandbox)
 	if flows != nil {
 		registry.UseFlowSandbox(flows)
+		registry.UseFirewall(s.firewall)
 	}
 
 	// Load externalized prompts
@@ -1152,9 +1218,19 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 		conductor.SetAgentTimeout(time.Duration(agentTimeout) * time.Minute)
 	}
 	orchestrator.SetConductor(conductor)
+	if s.decisionPlanner != nil {
+		orchestrator.SetDecisionPlanner(s.decisionPlanner)
+		log.Printf("[planner] Decision-1 specialist routing enabled by the process configuration")
+	} else if s.cfg != nil && s.cfg.FoundryEndpoint != "" && s.cfg.FoundryAPIKey != "" && s.cfg.FoundryDeployment != "" {
+		foundry := decision.NewFoundryClient(s.cfg.FoundryEndpoint, s.cfg.FoundryDeployment, s.cfg.FoundryAPIKey, s.cfg.FoundryTimeout)
+		planner := agent.NewPlanner(provider, orchestrator.GetEventBus(), nil)
+		planner.SetDecisionProvider(foundry, s.cfg.FoundryMinConfidence)
+		orchestrator.SetDecisionPlanner(planner)
+		log.Printf("[planner] Decision-1 specialist routing enabled for deployment %s", s.cfg.FoundryDeployment)
+	}
 
 	// Subscribe to internal Conductor metrics and broadcast them
-	orchestrator.GetEventBus().Subscribe("queue_metrics", func(data interface{}) {
+	orchestrator.GetEventBus().SubscribeDurable("queue_metrics", func(data interface{}) {
 		metrics, ok := data.(map[string]interface{})
 		if !ok {
 			return
@@ -1800,6 +1876,81 @@ func globalFindingsForFlow(allFindings []database.GlobalFinding, flowID uuid.UUI
 	return out
 }
 
+func (s *Server) handleListArtifacts(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	items, err := s.queries.ListWorkspaceArtifacts(id)
+	if err != nil {
+		http.Error(w, "failed to list artifacts", http.StatusInternalServerError)
+		return
+	}
+	if items == nil {
+		items = []database.WorkspaceArtifact{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(items)
+}
+
+func (s *Server) handleDownloadArtifact(w http.ResponseWriter, r *http.Request, flowID uuid.UUID, artifactID string) {
+	id, err := uuid.Parse(artifactID)
+	if err != nil {
+		http.Error(w, "invalid artifact id", http.StatusBadRequest)
+		return
+	}
+	item, err := s.queries.GetWorkspaceArtifact(flowID, id)
+	if err != nil {
+		http.Error(w, "artifact not found", http.StatusNotFound)
+		return
+	}
+	path, ok := resolveWorkspaceArtifact(flowID, item.Path)
+	if !ok {
+		http.Error(w, "artifact path is outside the flow workspace", http.StatusForbidden)
+		return
+	}
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filepath.Base(item.Name)))
+	http.ServeFile(w, r, path)
+}
+
+func (s *Server) handleStoredReport(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	report, err := s.queries.GetFinalReport(id)
+	if err == sql.ErrNoRows || strings.TrimSpace(report) == "" {
+		http.Error(w, "report is not ready", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, "failed to load report", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	fmt.Fprint(w, report)
+}
+
+func resolveWorkspaceArtifact(flowID uuid.UUID, stored string) (string, bool) {
+	root, err := execution.EnsureWorkspace(flowID.String())
+	if err != nil {
+		return "", false
+	}
+	target := stored
+	if !filepath.IsAbs(stored) && !strings.HasPrefix(stored, "/") && !strings.HasPrefix(stored, `\`) {
+		target = filepath.Join(root, filepath.FromSlash(stored))
+	}
+	return workspaceFileAllowed(target)
+}
+
+func workspaceFileAllowed(path string) (string, bool) {
+	root, err := filepath.Abs(execution.WorkspaceRoot())
+	if err != nil {
+		return "", false
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", false
+	}
+	rel, err := filepath.Rel(root, abs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return abs, true
+}
+
 func (s *Server) handleHTMLReport(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	flow, err := s.queries.GetFlow(id)
 	if err != nil {
@@ -1810,6 +1961,19 @@ func (s *Server) handleHTMLReport(w http.ResponseWriter, r *http.Request, id uui
 	agentFindings := globalFindingsForFlow(all, id)
 	duration := time.Since(flow.CreatedAt).Round(time.Second).String()
 	html := agent.GenerateHTMLReport(flow.Target, id.String(), duration, agentFindings)
+	if arts, err := s.queries.ListWorkspaceArtifacts(id); err == nil && len(arts) > 0 {
+		var section strings.Builder
+		section.WriteString("<section><h2>Evidence files</h2><ul>")
+		for _, art := range arts {
+			section.WriteString("<li>" + art.Name)
+			if art.Tool != "" {
+				section.WriteString(" (" + art.Tool + ")")
+			}
+			section.WriteString("</li>")
+		}
+		section.WriteString("</ul></section>")
+		html = strings.Replace(html, "</body>", section.String()+"</body>", 1)
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"mirage-report-%s.html\"", id.String()[:8]))
 	fmt.Fprint(w, html)

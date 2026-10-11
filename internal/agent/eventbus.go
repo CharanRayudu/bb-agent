@@ -28,9 +28,12 @@ const (
 	EventBrainUpdate EventTypeInternal = "brain_update"
 )
 
-// EventBus handles internal communication between agents
+// EventBus handles internal communication between agents.
+// Durable subscribers survive Reset so process-level listeners, such as the
+// WebSocket metrics bridge, are not removed when a scan starts.
 type EventBus struct {
 	subscribers map[EventTypeInternal][]func(data interface{})
+	durable     map[EventTypeInternal][]func(data interface{})
 	mu          sync.RWMutex
 }
 
@@ -38,6 +41,7 @@ type EventBus struct {
 func NewEventBus() *EventBus {
 	return &EventBus{
 		subscribers: make(map[EventTypeInternal][]func(data interface{})),
+		durable:     make(map[EventTypeInternal][]func(data interface{})),
 	}
 }
 
@@ -48,15 +52,22 @@ func (eb *EventBus) Subscribe(eventType EventTypeInternal, handler func(data int
 	eb.subscribers[eventType] = append(eb.subscribers[eventType], handler)
 }
 
+// SubscribeDurable registers a listener that Reset will not remove.
+func (eb *EventBus) SubscribeDurable(eventType EventTypeInternal, handler func(data interface{})) {
+	eb.mu.Lock()
+	defer eb.mu.Unlock()
+	if eb.durable == nil {
+		eb.durable = make(map[EventTypeInternal][]func(data interface{}))
+	}
+	eb.durable[eventType] = append(eb.durable[eventType], handler)
+}
+
 // Emit triggers all handlers for a specific event type
 func (eb *EventBus) Emit(eventType EventTypeInternal, data interface{}) {
 	eb.mu.RLock()
-	handlers, ok := eb.subscribers[eventType]
+	handlers := append([]func(data interface{}){}, eb.subscribers[eventType]...)
+	handlers = append(handlers, eb.durable[eventType]...)
 	eb.mu.RUnlock()
-
-	if !ok {
-		return
-	}
 
 	for _, handler := range handlers {
 		// Run handlers in a goroutine to avoid blocking the emitter
@@ -64,7 +75,7 @@ func (eb *EventBus) Emit(eventType EventTypeInternal, data interface{}) {
 	}
 }
 
-// Reset removes all subscribers from the event bus
+// Reset removes scan-local subscribers. Durable listeners stay attached.
 func (eb *EventBus) Reset() {
 	eb.mu.Lock()
 	defer eb.mu.Unlock()

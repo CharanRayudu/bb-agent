@@ -4,11 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"log"
 	"net"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -145,14 +147,18 @@ type HallucinationEntry struct {
 
 // SwarmAgentSpec is a richer agent dispatch format from the Planner
 type SwarmAgentSpec struct {
-	Type         string `json:"type"`                    // e.g. "SQLi", "XSS", "Code Review"
-	Target       string `json:"target,omitempty"`        // specific endpoint/param
-	Context      string `json:"context,omitempty"`       // what the planner observed
-	Hypothesis   string `json:"hypothesis,omitempty"`    // focused attack-path hypothesis
-	Proof        string `json:"proof,omitempty"`         // proof required for promotion
-	RequiresAuth bool   `json:"requires_auth,omitempty"` // whether auth continuity matters
-	AuthContext  string `json:"auth_context,omitempty"`  // auth notes/cookies/tokens to preserve
-	Priority     string `json:"priority,omitempty"`      // "critical", "high", "medium", "low"
+	Type               string  `json:"type"`                 // e.g. "SQLi", "XSS", "Code Review"
+	Target             string  `json:"target,omitempty"`     // specific endpoint/param
+	Context            string  `json:"context,omitempty"`    // what the planner observed
+	Hypothesis         string  `json:"hypothesis,omitempty"` // focused attack-path hypothesis
+	Proof              string  `json:"proof,omitempty"`      // proof required for promotion
+	DecisionSource     string  `json:"decision_source,omitempty"`
+	DecisionConfidence float64 `json:"decision_confidence,omitempty"`
+	DecisionLatencyMS  int64   `json:"decision_latency_ms,omitempty"`
+	DecisionReason     string  `json:"decision_reason,omitempty"`
+	RequiresAuth       bool    `json:"requires_auth,omitempty"` // whether auth continuity matters
+	AuthContext        string  `json:"auth_context,omitempty"`  // auth notes/cookies/tokens to preserve
+	Priority           string  `json:"priority,omitempty"`      // "critical", "high", "medium", "low"
 }
 
 // Orchestrator is the main AI agent that plans and executes pentest tasks
@@ -215,6 +221,15 @@ type Orchestrator struct {
 	// is set, tool calls with a nil gateway are denied.
 	execGateway        *execution.Gateway
 	requireExecutionV2 bool
+	decisionPlanner    *Planner
+
+	// fatalLLM is set when the generative model fails permanently. RunFlow
+	// must not mark the engagement completed or emit a successful report.
+	fatalLLM   error
+	fatalLLMMu sync.Mutex
+
+	// observer watches stalls, redundant failures, and empty assessments.
+	observer *ExecutionObserver
 }
 
 func buildSpecialists(provider llm.Provider) map[string]Specialist {
@@ -500,6 +515,7 @@ func NewOrchestrator(provider llm.Provider, registry *tools.Registry, db *sql.DB
 		hypothesisEngine: NewHypothesisEngine(provider, ""),
 		knowledgeGraph:   knowledge.NewInMemoryGraph(),
 		payloadEngine:    NewPayloadEngine(provider),
+		observer:         NewExecutionObserver(),
 	}
 
 	if db != nil {
@@ -618,6 +634,21 @@ func (o *Orchestrator) GetEventBus() *EventBus {
 func (o *Orchestrator) SetExecutionGateway(g *execution.Gateway, required bool) {
 	o.execGateway = g
 	o.requireExecutionV2 = required
+}
+
+// SetDecisionPlanner routes specialist labels through Decision-1 when it is confident.
+func (o *Orchestrator) SetDecisionPlanner(p *Planner) {
+	if o != nil {
+		o.decisionPlanner = p
+	}
+}
+
+// routeSpecialists asks Decision-1 to label specs. A missing planner leaves them unchanged.
+func (o *Orchestrator) routeSpecialists(ctx context.Context, specs []SwarmAgentSpec) []SwarmAgentSpec {
+	if o == nil || o.decisionPlanner == nil {
+		return specs
+	}
+	return o.decisionPlanner.RouteSpecs(ctx, specs)
 }
 
 // bindExecutionContext attaches the flow gateway so direct browser calls,
@@ -822,7 +853,8 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		ctx = execution.WithFlowProxy(ctx, flowProxy)
 	}
 
-	// Reset internal event bus for this flow to clear old subscribers
+	// Drop scan-local subscribers from a previous run. Durable listeners,
+	// including the WebSocket queue-metrics bridge, stay attached.
 	o.bus.Reset()
 
 	// Initialize pipeline state machine for this scan
@@ -1301,6 +1333,16 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 	const maxStableLoops = 2 // Stop after 2 loops with no new high-confidence findings
 
 	for loopCount := 1; loopCount <= maxLoops; loopCount++ {
+		if o.observer != nil {
+			if need, reason := o.observer.ConsumeReplanRequest(); need {
+				o.emit(flowID.String(), Event{
+					Type:    EventMessage,
+					FlowID:  flowID.String(),
+					TaskID:  "",
+					Content: "[OBSERVER] Replan requested: " + reason,
+				})
+			}
+		}
 		// Reset trigger for each loop iteration until it's set again
 		resetMu.Lock()
 		loopTriggered = false
@@ -1352,6 +1394,9 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		}
 
 		reconResult := o.runAgentLoop(reconCtx, flowID, task.ID, reconSubtask.ID, reconPrompt, "Start Recon.", &brain, &brainMu)
+		if err := o.abortIfFatalLLM(flowID, task.ID, "reconnaissance"); err != nil {
+			return err
+		}
 
 		// ==========================================
 		// PHASE 1.5: SPA DEEP CRAWL (Headless Discovery)
@@ -1564,6 +1609,7 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		}
 
 		agentSpecs = filterDispatchSpecs(agentSpecs, dispatchedSpecs, flow.Target, base.BrowserAvailable())
+		agentSpecs = o.routeSpecialists(plannerCtx, agentSpecs)
 
 		o.emit(flowID.String(), Event{
 			Type:     EventMessage,
@@ -2014,6 +2060,7 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 				Content: fmt.Sprintf("[OOB] CONFIRMED: %d blind vulnerabilities received callbacks!", len(oobInteractions))})
 
 			brainMu.Lock()
+			oobAccepted := 0
 			for _, interaction := range oobInteractions {
 				oobFinding := &Finding{
 					Type:       interaction.VulnType,
@@ -2028,12 +2075,19 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 						"oob_token":    interaction.Token,
 					},
 				}
-				brain.Findings = append(brain.Findings, oobFinding)
+				if ok, reason := shouldPromoteFinding(oobFinding); ok {
+					brain.Findings = append(brain.Findings, oobFinding)
+					oobAccepted++
+					o.recordEvidencePack(flowID, &task.ID, subtaskIDFromFinding(oobFinding), oobFinding, models.EvidenceStatusConfirmed, reason)
+				} else {
+					brain.Leads = append(brain.Leads, fmt.Sprintf("OOB candidate %s at %s needs proof: %s", oobFinding.Type, oobFinding.URL, reason))
+					o.recordEvidencePack(flowID, &task.ID, subtaskIDFromFinding(oobFinding), oobFinding, models.EvidenceStatusNeedsProof, reason)
+				}
 			}
 			brainMu.Unlock()
 			persistBrainState("oob_finding")
 
-			pocResult += fmt.Sprintf("\n\n## OOB Confirmed Findings\n%d blind vulnerabilities confirmed via out-of-band callbacks.\n", len(oobInteractions))
+			pocResult += fmt.Sprintf("\n\n## OOB Confirmed Findings\n%d/%d blind callbacks passed deterministic promotion.\n", oobAccepted, len(oobInteractions))
 		} else if o.oobManager.PendingCount() > 0 {
 			o.emit(flowID.String(), Event{Type: EventMessage, FlowID: flowID.String(), TaskID: task.ID.String(),
 				Content: fmt.Sprintf("⏳ %d OOB tokens still pending (callbacks may arrive later).", o.oobManager.PendingCount())})
@@ -2044,17 +2098,9 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		// ==========================================
 		// PHASE 5: REPORTING
 		// ==========================================
-		if err := o.pipeline.Advance("Validation complete", nil); err != nil {
-			log.Printf("[pipeline] Advance to REPORTING failed: %v", err)
+		if err := o.abortIfFatalLLM(flowID, task.ID, "reporting"); err != nil {
+			return err
 		}
-		o.emitPipelineEvent(flowID.String(), task.ID.String())
-
-		o.emit(flowID.String(), Event{
-			Type:    EventThinking,
-			FlowID:  flowID.String(),
-			TaskID:  task.ID.String(),
-			Content: "Generating Final Report...",
-		})
 
 		// Advanced Deduplication: Remove redundant findings that share a common root cause
 		brainMu.Lock()
@@ -2073,6 +2119,59 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 			})
 		}
 
+		workspaceArts := 0
+		evidencePacks := 0
+		var artifactTrail []ReportEvidenceRef
+		var packTrail []ReportEvidenceRef
+		if o.queries != nil {
+			if arts, artErr := o.queries.ListWorkspaceArtifacts(flowID); artErr == nil {
+				workspaceArts = len(arts)
+				for _, art := range arts {
+					artifactTrail = append(artifactTrail, ReportEvidenceRef{
+						Kind: "workspace", Name: art.Name, Path: art.Path, Tool: art.Tool, Status: art.Status,
+					})
+				}
+			}
+			if packs, packErr := o.queries.GetEvidencePacksByFlow(flowID); packErr == nil {
+				evidencePacks = len(packs)
+				for _, pack := range packs {
+					name := pack.Type
+					if name == "" {
+						name = pack.Fingerprint
+					}
+					packTrail = append(packTrail, ReportEvidenceRef{
+						Kind: "evidence_pack", Name: name, Path: pack.ID.String(), Tool: pack.SourceAgent, Status: string(pack.Status),
+					})
+				}
+			}
+		}
+		if o.observer != nil {
+			health := o.observer.Health()
+			o.emit(flowID.String(), Event{
+				Type:     EventMessage,
+				FlowID:   flowID.String(),
+				TaskID:   task.ID.String(),
+				Content:  fmt.Sprintf("[OBSERVER] security_tools=%d failures=%d llm_errors=%d verdict=%s", health.SecurityToolRuns, health.ToolFailures, health.LLMErrors, health.Verdict),
+				Metadata: map[string]interface{}{"execution_health": health},
+			})
+			if err := o.observer.IncompleteAssessment(len(brain.Findings), workspaceArts, evidencePacks); err != nil {
+				o.setFatalLLM(err)
+				return o.abortIfFatalLLM(flowID, task.ID, "observer")
+			}
+		}
+
+		if err := o.pipeline.Advance("Validation complete", nil); err != nil {
+			log.Printf("[pipeline] Advance to REPORTING failed: %v", err)
+		}
+		o.emitPipelineEvent(flowID.String(), task.ID.String())
+
+		o.emit(flowID.String(), Event{
+			Type:    EventThinking,
+			FlowID:  flowID.String(),
+			TaskID:  task.ID.String(),
+			Content: "Generating Final Report...",
+		})
+
 		// Save this flow's findings to cross-flow memory for future scans
 		o.memory.SaveBrainFindings(flow.Target, flowID, brain.Leads, brain.Findings, brain.Exclusions)
 		persistBrainState("flow_complete")
@@ -2082,18 +2181,66 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 			swarmRes += fmt.Sprintf("- %s: %s (param: %s)\n", f.Type, f.URL, f.Parameter)
 		}
 
-		finalReport := o.reporter.GenerateReport(
+		if len(artifactTrail) > 0 {
+			swarmRes += "\nEvidence files:\n"
+			for _, art := range artifactTrail {
+				swarmRes += fmt.Sprintf("- %s (%s)\n", art.Name, art.Path)
+			}
+		}
+
+		health := ExecutionHealth{Verdict: ObserverContinue}
+		if o.observer != nil {
+			health = o.observer.Health()
+		}
+		var packModels []models.EvidencePack
+		if o.queries != nil {
+			if packs, packErr := o.queries.GetEvidencePacksByFlow(flowID); packErr == nil {
+				packModels = packs
+			}
+		}
+		verification := PartitionFindingsForReport(brain.Findings, packModels)
+		confirmedOnly := verification.ConfirmedFindings()
+		for _, item := range verification.NeedsProof {
+			if item.Finding != nil {
+				brain.Leads = append(brain.Leads, fmt.Sprintf("[UNVERIFIED] %s at %s — %s", item.Finding.Type, item.Finding.URL, item.Reason))
+			}
+		}
+		for _, item := range verification.Hypothesis {
+			if item.Finding != nil {
+				brain.Leads = append(brain.Leads, fmt.Sprintf("[HYPOTHESIS] %s at %s — %s", item.Finding.Type, item.Finding.URL, item.Reason))
+			}
+		}
+		envSnap := CaptureEnvironmentSnapshot(o.llmProvider)
+		o.emit(flowID.String(), Event{
+			Type:    EventMessage,
+			FlowID:  flowID.String(),
+			TaskID:  task.ID.String(),
+			Content: fmt.Sprintf("[VERIFY] deterministic oracle: confirmed=%d needs_proof=%d hypothesis=%d rejected=%d", len(verification.Confirmed), len(verification.NeedsProof), len(verification.Hypothesis), len(verification.Rejected)),
+			Metadata: map[string]interface{}{
+				"verification": verification.Counts(),
+				"environment":  envSnap,
+			},
+		})
+		finalReport := o.reporter.GenerateReportWithEvidence(
 			flow.Target,
 			flowID,
 			time.Since(task.CreatedAt),
 			brain.PivotContext,
-			brain.Findings,
+			confirmedOnly,
 			brain.Leads,
 			brain.Exclusions,
 			swarmRes,
 			pocResult,
+			artifactTrail,
+			packTrail,
+			health,
+			verification,
+			envSnap,
 		)
 
+		if err := o.queries.SaveFinalReport(flowID, finalReport); err != nil {
+			log.Printf("[report] could not store the final report: %v", err)
+		}
 		o.queries.UpdateTaskStatus(task.ID, models.TaskStatusDone, finalReport)
 		o.queries.UpdateFlowStatus(flowID, models.FlowStatusCompleted)
 
@@ -2230,6 +2377,14 @@ func (o *Orchestrator) runAgentLoop(ctx context.Context, flowID uuid.UUID, taskI
 			o.updateLedgerSubTask(subtaskID, models.SubTaskStatusFailed, err.Error(), models.SubTaskOutcomeBlockedByRuntime, map[string]any{
 				"reason": "llm completion failed",
 			})
+			if o.observer != nil {
+				o.observer.NoteLLMError()
+			}
+			if llm.IsPermanentModelError(err) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				o.setFatalLLM(err)
+			} else if isUnrecoverableLLMError(err) {
+				o.setFatalLLM(err)
+			}
 			return "Error: " + err.Error()
 		}
 
@@ -2280,23 +2435,51 @@ func (o *Orchestrator) runAgentLoop(ctx context.Context, flowID uuid.UUID, taskI
 					}
 				}
 
+				if o.observer != nil {
+					o.observer.NoteTool(tc.Name, callErr != nil || isToolOutputFailure(res))
+				}
 				if o.queries != nil {
+					fields := mirageResultFields(res)
 					status := "success"
 					if callErr != nil {
 						status = "denied"
+					} else if fields["status"] == "failed" {
+						status = "failed"
 					}
-					o.queries.CreateAction(subtaskID, models.ActionTypeCommand, tc.Arguments, res, status)
+					action, actionErr := o.queries.CreateAction(subtaskID, models.ActionTypeCommand, tc.Arguments, res, status)
+					if actionErr != nil {
+						log.Printf("[artifact] could not store tool action: %v", actionErr)
+					}
+					root, _ := execution.EnsureWorkspace(flowID.String())
+					for _, path := range strings.Split(fields["artifacts"], ",") {
+						path = strings.TrimSpace(path)
+						if path == "" {
+							continue
+						}
+						rel := execution.WorkspaceRelative(root, path)
+						var actionID *uuid.UUID
+						if action != nil {
+							actionID = &action.ID
+						}
+						if err := o.queries.SaveWorkspaceArtifact(flowID, actionID, rel, rel, tc.Name, fields["status"]); err != nil {
+							log.Printf("[artifact] could not store %s: %v", rel, err)
+						}
+					}
 				}
 
+				toolMeta := map[string]interface{}{
+					"tool":       tc.Name,
+					"subtask_id": subtaskID.String(),
+				}
+				for key, value := range mirageResultFields(res) {
+					toolMeta[key] = value
+				}
 				o.emit(flowID.String(), Event{
-					Type:    EventToolResult,
-					FlowID:  flowID.String(),
-					TaskID:  taskID.String(),
-					Content: res,
-					Metadata: map[string]interface{}{
-						"tool":       tc.Name,
-						"subtask_id": subtaskID.String(),
-					},
+					Type:     EventToolResult,
+					FlowID:   flowID.String(),
+					TaskID:   taskID.String(),
+					Content:  res,
+					Metadata: toolMeta,
 				})
 				chatMsgs = append(chatMsgs, models.ChatMessage{Role: "tool", Content: res, ToolCallID: tc.ID})
 
@@ -2987,27 +3170,12 @@ func buildFallbackAgentSpecs(baseTarget string, brain *Brain) []SwarmAgentSpec {
 			continue
 		}
 
-		switch {
-		case strings.Contains(note, "login"), strings.Contains(note, "auth"), strings.Contains(note, "credential"):
-			addSpec(SwarmAgentSpec{Type: "Auth Discovery", Target: extractTargetHint(raw), Context: raw, Priority: "high"})
-		case strings.Contains(note, "/api"), strings.Contains(note, "json"), strings.Contains(note, "graphql"):
-			addSpec(SwarmAgentSpec{Type: "API Security", Target: extractTargetHint(raw), Context: raw, Priority: "high"})
-		case strings.Contains(note, "upload"):
-			addSpec(SwarmAgentSpec{Type: "File Upload", Target: extractTargetHint(raw), Context: raw, Priority: "high"})
-		case strings.Contains(note, "xss"), strings.Contains(note, "script"), strings.Contains(note, "dom"):
-			addSpec(SwarmAgentSpec{Type: "XSS", Target: extractTargetHint(raw), Context: raw, Priority: "high"})
-		case strings.Contains(note, "sqli"), strings.Contains(note, "sql"), strings.Contains(note, "database"):
-			addSpec(SwarmAgentSpec{Type: "SQLi", Target: extractTargetHint(raw), Context: raw, Priority: "high"})
-		case strings.Contains(note, "ssrf"), strings.Contains(note, "metadata"), strings.Contains(note, "callback"):
-			addSpec(SwarmAgentSpec{Type: "SSRF", Target: extractTargetHint(raw), Context: raw, Priority: "high"})
-		case strings.Contains(note, "include"), strings.Contains(note, "passwd"), strings.Contains(note, "traversal"), strings.Contains(note, "lfi"):
-			addSpec(SwarmAgentSpec{Type: "LFI", Target: extractTargetHint(raw), Context: raw, Priority: "high"})
-		case strings.Contains(note, "exec"), strings.Contains(note, "command"), strings.Contains(note, "shell"), strings.Contains(note, "rce"):
-			addSpec(SwarmAgentSpec{Type: "RCE", Target: extractTargetHint(raw), Context: raw, Priority: "high"})
-		case strings.Contains(note, "idor"), strings.Contains(note, "object id"), strings.Contains(note, "profile"), strings.Contains(note, "account"):
-			addSpec(SwarmAgentSpec{Type: "IDOR", Target: extractTargetHint(raw), Context: raw, Priority: "medium"})
-		case strings.Contains(note, "spa"), strings.Contains(note, "react"), strings.Contains(note, "vue"), strings.Contains(note, "angular"):
-			addSpec(SwarmAgentSpec{Type: "Visual Crawler", Target: extractTargetHint(raw), Context: raw, Priority: "medium"})
+		if kind := RuleSpecialist(raw); kind != "" {
+			priority := "high"
+			if kind == "IDOR" || kind == "Visual Crawler" {
+				priority = "medium"
+			}
+			addSpec(SwarmAgentSpec{Type: kind, Target: extractTargetHint(raw), Context: raw, Priority: priority})
 		}
 	}
 
@@ -3061,6 +3229,28 @@ func buildFallbackAgentSpecs(baseTarget string, brain *Brain) []SwarmAgentSpec {
 
 // isToolOutputFailure detects failure patterns in tool execution output.
 // Returns true if the output indicates a failed/unproductive command execution.
+func mirageResultFields(output string) map[string]string {
+	fields := map[string]string{}
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "artifacts=") {
+			fields["artifacts"] = strings.TrimPrefix(line, "artifacts=")
+			continue
+		}
+		if !strings.HasPrefix(line, "[mirage-result]") {
+			continue
+		}
+		rest := strings.TrimSpace(strings.TrimPrefix(line, "[mirage-result]"))
+		for _, part := range strings.Fields(rest) {
+			key, value, ok := strings.Cut(part, "=")
+			if ok && key != "" {
+				fields[key] = value
+			}
+		}
+	}
+	return fields
+}
+
 func isToolOutputFailure(output string) bool {
 	if output == "" || output == "null" || output == "{}" {
 		return true
@@ -3131,6 +3321,63 @@ func (o *Orchestrator) AddCausalNode(brain *Brain, brainMu *sync.Mutex, node mod
 	brain.CausalGraph.Nodes[node.ID] = &n
 }
 
+func (o *Orchestrator) setFatalLLM(err error) {
+	if o == nil || err == nil {
+		return
+	}
+	o.fatalLLMMu.Lock()
+	defer o.fatalLLMMu.Unlock()
+	if o.fatalLLM == nil {
+		o.fatalLLM = err
+	}
+}
+
+func (o *Orchestrator) fatalLLMError() error {
+	if o == nil {
+		return nil
+	}
+	o.fatalLLMMu.Lock()
+	defer o.fatalLLMMu.Unlock()
+	return o.fatalLLM
+}
+
+func (o *Orchestrator) abortIfFatalLLM(flowID, taskID uuid.UUID, phase string) error {
+	err := o.fatalLLMError()
+	if err == nil {
+		return nil
+	}
+	msg := fmt.Sprintf("scan aborted during %s: %v", phase, err)
+	o.emit(flowID.String(), Event{Type: EventError, FlowID: flowID.String(), TaskID: taskID.String(), Content: msg})
+	if o.queries != nil {
+		_ = o.queries.UpdateTaskStatus(taskID, models.TaskStatusFailed, msg)
+		_ = o.queries.UpdateFlowStatus(flowID, models.FlowStatusFailed)
+	}
+	return fmt.Errorf("%s", msg)
+}
+
+func isUnrecoverableLLMError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if llm.IsPermanentModelError(err) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	for _, signal := range []string{
+		"invalid api key",
+		"incorrect api key",
+		"authentication",
+		"unauthorized",
+		"no llm authentication",
+		"permanent llm failure",
+	} {
+		if strings.Contains(msg, signal) {
+			return true
+		}
+	}
+	return false
+}
+
 // validateScanTarget rejects private/loopback/link-local targets to prevent SSRF misuse.
 func validateScanTarget(target string) error {
 	u, err := url.Parse(target)
@@ -3155,15 +3402,41 @@ func validateScanTarget(target string) error {
 		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
 			return fmt.Errorf("target %s resolves to reserved/loopback address %s — refusing scan", target, addr)
 		}
-		// Block RFC-1918 private ranges
+		// Block RFC-1918 private ranges unless the operator named this host or address.
 		for _, cidr := range []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "fc00::/7"} {
 			_, privateNet, _ := net.ParseCIDR(cidr)
-			if privateNet != nil && privateNet.Contains(ip) {
-				return fmt.Errorf("target %s resolves to private address %s — refusing scan (configure allowlist to override)", target, addr)
+			if privateNet != nil && privateNet.Contains(ip) && !targetAllowlisted(hostname, addr) {
+				return fmt.Errorf("target %s resolves to private address %s — refusing scan (configure MIRAGE_TARGET_ALLOWLIST to override)", target, addr)
 			}
 		}
 	}
 	return nil
+}
+
+// targetAllowlisted reports whether MIRAGE_TARGET_ALLOWLIST names this host or address.
+// Entries are comma-separated hostnames, IPs, or CIDRs. Loopback is never listed here.
+func targetAllowlisted(hostname, address string) bool {
+	raw := strings.TrimSpace(os.Getenv("MIRAGE_TARGET_ALLOWLIST"))
+	if raw == "" {
+		return false
+	}
+	host := strings.ToLower(strings.TrimSpace(hostname))
+	ip := net.ParseIP(address)
+	for _, entry := range strings.Split(raw, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		if strings.EqualFold(entry, host) || entry == address {
+			return true
+		}
+		if ip != nil {
+			if _, network, err := net.ParseCIDR(entry); err == nil && network.Contains(ip) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // AddCausalEdge safely links two nodes in the Brain's CausalGraph
