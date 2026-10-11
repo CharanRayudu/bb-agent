@@ -2,6 +2,8 @@
 
 Copy `.env.example` and start Compose. `MIRAGE_EXECUTION_V2=true` is in that file, and Compose also defaults the variable to `true` when it is unset. A v2 scan authorizes every tool call, runs the scanner in its own container, and keeps that container's files under `data/workspaces/<flow>`. A native `go run` that does not set the variable stays on the legacy shared sandbox. Set `MIRAGE_EXECUTION_V2=false` only for that legacy mode.
 
+For the generative model, prefer Codex ChatGPT models such as `gpt-6.1-sol` or `gpt-6-luna`. Retired ids such as `gpt-5.3-codex` and `gpt-5.4` are remapped and logged. Set `MIRAGE_LLM_PROVIDER=api_key` with `OPENAI_API_KEY` when you want API-key auth instead of Codex OAuth. Unrecoverable LLM failures mark the flow `failed` and do not return a successful assessment report.
+
 The scanner image and the firewall image are different:
 
 | Variable | Image | Role |

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"log"
@@ -221,6 +222,11 @@ type Orchestrator struct {
 	execGateway        *execution.Gateway
 	requireExecutionV2 bool
 	decisionPlanner    *Planner
+
+	// fatalLLM is set when the generative model fails permanently. RunFlow
+	// must not mark the engagement completed or emit a successful report.
+	fatalLLM   error
+	fatalLLMMu sync.Mutex
 }
 
 func buildSpecialists(provider llm.Provider) map[string]Specialist {
@@ -1374,6 +1380,9 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		}
 
 		reconResult := o.runAgentLoop(reconCtx, flowID, task.ID, reconSubtask.ID, reconPrompt, "Start Recon.", &brain, &brainMu)
+		if err := o.abortIfFatalLLM(flowID, task.ID, "reconnaissance"); err != nil {
+			return err
+		}
 
 		// ==========================================
 		// PHASE 1.5: SPA DEEP CRAWL (Headless Discovery)
@@ -2067,6 +2076,9 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		// ==========================================
 		// PHASE 5: REPORTING
 		// ==========================================
+		if err := o.abortIfFatalLLM(flowID, task.ID, "reporting"); err != nil {
+			return err
+		}
 		if err := o.pipeline.Advance("Validation complete", nil); err != nil {
 			log.Printf("[pipeline] Advance to REPORTING failed: %v", err)
 		}
@@ -2265,6 +2277,11 @@ func (o *Orchestrator) runAgentLoop(ctx context.Context, flowID uuid.UUID, taskI
 			o.updateLedgerSubTask(subtaskID, models.SubTaskStatusFailed, err.Error(), models.SubTaskOutcomeBlockedByRuntime, map[string]any{
 				"reason": "llm completion failed",
 			})
+			if llm.IsPermanentModelError(err) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				o.setFatalLLM(err)
+			} else if isUnrecoverableLLMError(err) {
+				o.setFatalLLM(err)
+			}
 			return "Error: " + err.Error()
 		}
 
@@ -3196,6 +3213,63 @@ func (o *Orchestrator) AddCausalNode(brain *Brain, brainMu *sync.Mutex, node mod
 	// Create a copy to store in the map
 	n := node
 	brain.CausalGraph.Nodes[node.ID] = &n
+}
+
+func (o *Orchestrator) setFatalLLM(err error) {
+	if o == nil || err == nil {
+		return
+	}
+	o.fatalLLMMu.Lock()
+	defer o.fatalLLMMu.Unlock()
+	if o.fatalLLM == nil {
+		o.fatalLLM = err
+	}
+}
+
+func (o *Orchestrator) fatalLLMError() error {
+	if o == nil {
+		return nil
+	}
+	o.fatalLLMMu.Lock()
+	defer o.fatalLLMMu.Unlock()
+	return o.fatalLLM
+}
+
+func (o *Orchestrator) abortIfFatalLLM(flowID, taskID uuid.UUID, phase string) error {
+	err := o.fatalLLMError()
+	if err == nil {
+		return nil
+	}
+	msg := fmt.Sprintf("scan aborted during %s: %v", phase, err)
+	o.emit(flowID.String(), Event{Type: EventError, FlowID: flowID.String(), TaskID: taskID.String(), Content: msg})
+	if o.queries != nil {
+		_ = o.queries.UpdateTaskStatus(taskID, models.TaskStatusFailed, msg)
+		_ = o.queries.UpdateFlowStatus(flowID, models.FlowStatusFailed)
+	}
+	return fmt.Errorf("%s", msg)
+}
+
+func isUnrecoverableLLMError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if llm.IsPermanentModelError(err) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	for _, signal := range []string{
+		"invalid api key",
+		"incorrect api key",
+		"authentication",
+		"unauthorized",
+		"no llm authentication",
+		"permanent llm failure",
+	} {
+		if strings.Contains(msg, signal) {
+			return true
+		}
+	}
+	return false
 }
 
 // validateScanTarget rejects private/loopback/link-local targets to prevent SSRF misuse.

@@ -338,7 +338,7 @@ func (q *Queries) GetFinalReport(flowID uuid.UUID) (string, error) {
 		return "", err
 	}
 	err = q.db.QueryRow(
-		`SELECT result FROM tasks WHERE flow_id = $1 AND name = 'Penetration Test' AND result <> '' ORDER BY updated_at DESC LIMIT 1`,
+		`SELECT result FROM tasks WHERE flow_id = $1 AND name = 'Penetration Test' AND status = 'done' AND result <> '' ORDER BY updated_at DESC LIMIT 1`,
 		flowID,
 	).Scan(&content)
 	if err == sql.ErrNoRows || strings.TrimSpace(content) == "" {

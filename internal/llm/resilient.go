@@ -52,6 +52,11 @@ func (r *ResilientProvider) Complete(ctx context.Context, req CompletionRequest)
 			return nil, err
 		}
 
+		if IsPermanentModelError(err) {
+			log.Printf("[ERROR] [llm-resilience] Permanent model error: %v. Aborting retries.", err)
+			return nil, err
+		}
+
 		// Determine if the error is transient and should be retried
 		if !r.isTransientError(err) {
 			log.Printf("[ERROR] [llm-resilience] Non-transient error: %v. Aborting.", err)

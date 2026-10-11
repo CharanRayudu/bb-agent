@@ -330,25 +330,37 @@ func (s *Server) authorizeTriggeredScan(target, source string) error {
 }
 
 func buildLLMProvider(cfg *config.Config, selectedModel string) llm.Provider {
-	if cfg == nil {
+	provider, _, err := selectLLMProvider(cfg, selectedModel)
+	if err != nil {
+		log.Printf("[llm] provider selection failed: %v", err)
 		return nil
+	}
+	return provider
+}
+
+func selectLLMProvider(cfg *config.Config, selectedModel string) (llm.Provider, llm.Selection, error) {
+	if cfg == nil {
+		return nil, llm.Selection{}, fmt.Errorf("config is not loaded")
 	}
 	model := strings.TrimSpace(selectedModel)
 	if model == "" {
 		model = cfg.OpenAIModel
 	}
-
-	var provider llm.Provider
 	codexAuth := llm.NewCodexTokenProvider(cfg.CodexHome)
-	if codexAuth.IsAvailable() {
-		provider = llm.NewOpenAIProviderWithCodex(codexAuth, model, cfg.OpenAITemperature)
-	} else if cfg.OpenAIAPIKey != "" {
-		provider = llm.NewOpenAIProvider(cfg.OpenAIAPIKey, model, cfg.OpenAITemperature)
+	provider, sel, err := llm.SelectProvider(llm.SelectionInput{
+		Preference:     cfg.LLMProvider,
+		CodexHome:      cfg.CodexHome,
+		APIKey:         cfg.OpenAIAPIKey,
+		Model:          model,
+		FallbackModel:  cfg.LLMFallbackModel,
+		Temperature:    cfg.OpenAITemperature,
+		CodexAvailable: codexAuth.IsAvailable(),
+	})
+	if err != nil {
+		return nil, sel, err
 	}
-	if provider != nil {
-		provider = llm.NewResilientProvider(provider)
-	}
-	return provider
+	log.Printf("[llm] %s", sel.Status())
+	return llm.NewGuardedProvider(llm.NewResilientProvider(provider), sel), sel, nil
 }
 
 func (s *Server) currentLLMProvider(model string) llm.Provider {
@@ -1126,23 +1138,32 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 	log.Printf("[BRAIN] Using model: %s", model)
 
 	// Create LLM provider -- prefer Codex OAuth, fall back to API key.
-	provider := s.currentLLMProvider(model)
-	if provider == nil {
-		errMsg := "No LLM authentication available. Run 'codex login' or set OPENAI_API_KEY"
-		log.Printf("[ERROR] %s", errMsg)
-		s.queries.UpdateFlowStatus(flowID, models.FlowStatusFailed)
-		s.broadcast(agent.Event{
-			Type:      agent.EventError,
-			FlowID:    flowID.String(),
-			Content:   errMsg,
-			Timestamp: time.Now(),
-		})
-		return
+	var provider llm.Provider
+	var selection llm.Selection
+	if s.llmOverride != nil {
+		provider = s.llmOverride
+		selection = llm.Selection{Source: "test_override", Model: model}
+		log.Printf("[llm] %s", selection.Status())
+	} else {
+		var err error
+		provider, selection, err = selectLLMProvider(s.cfg, model)
+		if err != nil || provider == nil {
+			errMsg := err.Error()
+			if err == nil {
+				errMsg = "No LLM authentication available. Run 'codex login' or set OPENAI_API_KEY"
+			}
+			log.Printf("[ERROR] %s", errMsg)
+			s.queries.UpdateFlowStatus(flowID, models.FlowStatusFailed)
+			s.broadcast(agent.Event{
+				Type:      agent.EventError,
+				FlowID:    flowID.String(),
+				Content:   errMsg,
+				Timestamp: time.Now(),
+			})
+			return
+		}
 	}
-	log.Printf("[AUTH] Using LLM provider: %s", provider.Name())
-
-	// Wrap with ResilientProvider to handle transient connection errors (Brain-Hardening)
-	provider = llm.NewResilientProvider(provider)
+	_ = selection
 
 	// Create tool registry
 	registry := tools.NewRegistry(sandbox)

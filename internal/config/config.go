@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -27,6 +26,8 @@ type Config struct {
 	OpenAIAPIKey      string // Optional fallback: raw API key
 	OpenAIModel       string
 	OpenAITemperature float64
+	LLMProvider       string // auto, codex, or api_key
+	LLMFallbackModel  string // remap target when Codex ChatGPT rejects the configured model
 
 	// Microsoft Foundry Decision-1. Empty endpoint leaves specialist
 	// selection on the existing deterministic rules.
@@ -72,8 +73,10 @@ func Load() (*Config, error) {
 		FirewallHelperImage:  getEnv("FIREWALL_HELPER_IMAGE", "mirage-firewall:local"),
 		CodexHome:            getEnv("CODEX_HOME", ""),
 		OpenAIAPIKey:         getEnv("OPENAI_API_KEY", ""),
-		OpenAIModel:          getEnv("OPENAI_MODEL", "gpt-4o"),
+		OpenAIModel:          getEnv("OPENAI_MODEL", "gpt-6.1-sol"),
 		OpenAITemperature:    temp,
+		LLMProvider:          strings.ToLower(getEnv("MIRAGE_LLM_PROVIDER", "auto")),
+		LLMFallbackModel:     getEnv("MIRAGE_LLM_FALLBACK_MODEL", ""),
 		FoundryEndpoint:      getEnv("FOUNDRY_ENDPOINT", ""),
 		FoundryDeployment:    getEnv("FOUNDRY_DEPLOYMENT", ""),
 		FoundryAPIKey:        getEnv("FOUNDRY_API_KEY", ""),
@@ -90,13 +93,6 @@ func Load() (*Config, error) {
 		DurableWorkflows:     envBool("MIRAGE_DURABLE_WORKFLOWS"),
 		VerificationV2:       envBool("MIRAGE_VERIFICATION_V2"),
 		SkillsV2:             envBool("MIRAGE_SKILLS_V2"),
-	}
-
-	// No hard requirement on API key anymore -- Codex OAuth is checked at runtime
-	if cfg.OpenAIAPIKey != "" {
-		log.Println("[KEY] Using OpenAI API key for authentication")
-	} else {
-		log.Println("[AUTH] No API key set -- will use Codex CLI OAuth (run 'codex login' first)")
 	}
 
 	return cfg, nil

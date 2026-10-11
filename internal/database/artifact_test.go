@@ -49,6 +49,12 @@ func TestWorkspaceArtifactsDeduplicateAndReportsAreExplicit(t *testing.T) {
 	if _, err := q.GetFinalReport(flowID); err != sql.ErrNoRows {
 		t.Fatal("an unrelated task result was treated as the final report")
 	}
+	if _, err := db.Exec(`INSERT INTO tasks (id, flow_id, name, status, result) VALUES ($1, $2, 'Penetration Test', 'failed', 'scan aborted during reconnaissance')`, uuid.New(), flowID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.GetFinalReport(flowID); err != sql.ErrNoRows {
+		t.Fatal("a failed task result was treated as the final report")
+	}
 	if _, err := db.Exec(`INSERT INTO tasks (id, flow_id, name, status, result) VALUES ($1, $2, 'Penetration Test', 'done', 'historical findings and evidence.txt')`, uuid.New(), flowID); err != nil {
 		t.Fatal(err)
 	}
