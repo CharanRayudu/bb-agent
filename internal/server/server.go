@@ -13,6 +13,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -22,12 +23,15 @@ import (
 	"github.com/bb-agent/mirage/internal/config"
 	"github.com/bb-agent/mirage/internal/copilot"
 	"github.com/bb-agent/mirage/internal/database"
+	"github.com/bb-agent/mirage/internal/decision"
 	"github.com/bb-agent/mirage/internal/docker"
+	"github.com/bb-agent/mirage/internal/execution"
 	"github.com/bb-agent/mirage/internal/knowledge"
 	"github.com/bb-agent/mirage/internal/llm"
 	"github.com/bb-agent/mirage/internal/models"
 	"github.com/bb-agent/mirage/internal/monitoring"
 	"github.com/bb-agent/mirage/internal/notify"
+	"github.com/bb-agent/mirage/internal/policy"
 	"github.com/bb-agent/mirage/internal/posture"
 	"github.com/bb-agent/mirage/internal/profiles"
 	"github.com/bb-agent/mirage/internal/remediation"
@@ -89,9 +93,20 @@ type Server struct {
 	authSessions map[string]*base.AuthSession
 	authMu       sync.RWMutex
 
+	// llmOverride and decisionPlanner are test seams. Production leaves them nil.
+	llmOverride     llm.Provider
+	decisionPlanner *agent.Planner
+
 	// llmProvider is used for stateless LLM API requests (e.g. /api/mutate).
 	// May be nil when no auth is configured.
 	llmProvider llm.Provider
+
+	// v2 authorization. The book is what scheduled and CI scans consult.
+	engagements *policy.Book
+	execLog     *execution.MemoryStore
+	gateway     *execution.Gateway
+	firewall    *execution.FirewallController
+	restoreErr  error
 
 	// Shared knowledge graph — persists across scans within the same server process.
 	knowledgeGraph   knowledge.Graph
@@ -195,7 +210,24 @@ func New(cfg *config.Config, db *sql.DB) *Server {
 		remediationTracker:  remediationTracker,
 		surfaceStore:        surfaceStore,
 		llmProvider:         sharedProvider,
+		engagements:         policy.NewBook(),
+		execLog:             execution.NewMemoryStore(),
 	}
+	var execStore execution.Store = s.execLog
+	if db != nil {
+		if err := execution.LoadState(context.Background(), db, s.engagements, s.execLog); err != nil {
+			log.Printf("[policy] authorization restore failed: %v", err)
+			s.restoreErr = err
+		}
+		execStore = execution.NewDurableStore(s.execLog, db)
+	}
+	s.gateway = execution.NewGateway(s.engagements, execStore, execution.NetResolver{})
+	s.gateway.EnableResume()
+	helperImage := ""
+	if cfg != nil {
+		helperImage = cfg.FirewallHelperImage
+	}
+	s.firewall = execution.NewFirewallController(helperImage)
 
 	// Continuous monitoring subsystem
 	s.monitorStore = monitoring.NewStore()
@@ -214,45 +246,167 @@ func New(cfg *config.Config, db *sql.DB) *Server {
 	return s
 }
 
-func buildLLMProvider(cfg *config.Config, selectedModel string) llm.Provider {
-	if cfg == nil {
+func (s *Server) handleListApprovals(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	w.Header().Set("Content-Type", "application/json")
+	if s.gateway == nil || s.gateway.Store() == nil {
+		json.NewEncoder(w).Encode([]policy.Approval{})
+		return
+	}
+	json.NewEncoder(w).Encode(s.gateway.Store().ApprovalsForFlow(id.String()))
+}
+
+func (s *Server) handleApprovalDecision(w http.ResponseWriter, r *http.Request, id uuid.UUID, approvalID string) {
+	if s.gateway == nil {
+		http.Error(w, "approval gateway is not configured", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		Status string `json:"status"`
+		Reason string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	approval, err := s.gateway.ResolveApproval(approvalID, s.actorFromRequest(r), body.Status, body.Reason, 30*time.Minute)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(approval)
+}
+
+func (s *Server) inheritedAutonomy(target string) (string, *policy.Authorization) {
+	if s == nil || s.cfg == nil || !s.cfg.ExecutionV2 || s.engagements == nil {
+		return "L3", nil
+	}
+	parent, ok := s.engagements.Match(target, time.Now())
+	if !ok {
+		return "L3", nil
+	}
+	return string(parent.Autonomy), &parent
+}
+
+func (s *Server) bindInherited(flowID string, parent *policy.Authorization) error {
+	if parent == nil {
 		return nil
+	}
+	clone := parent.CloneForFlow(flowID)
+	s.engagements.Put(clone)
+	if s.gateway != nil && s.gateway.Store() != nil {
+		if err := s.gateway.Store().SaveAuthorization(clone); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// authorizeTriggeredScan is the shared gate for scheduled scans and CI triggers.
+// Interactive flow creation mints an authorization record later; these paths
+// may only start when a matching unexpired record already exists.
+func (s *Server) authorizeTriggeredScan(target, source string) error {
+	if s == nil || s.cfg == nil || !s.cfg.ExecutionV2 {
+		return nil
+	}
+	if s.engagements == nil {
+		s.engagements = policy.NewBook()
+	}
+	decision := s.engagements.AuthorizeStart(target, time.Now())
+	if decision.Allowed {
+		return nil
+	}
+	if s.execLog != nil {
+		_ = s.execLog.AppendDecision(execution.Decision{
+			ID:        uuid.NewString(),
+			Allowed:   false,
+			Code:      decision.Code,
+			Reason:    source + ": " + decision.Reason,
+			ActorID:   source,
+			CreatedAt: time.Now(),
+		})
+	}
+	return fmt.Errorf("%s", decision.Reason)
+}
+
+func buildLLMProvider(cfg *config.Config, selectedModel string) llm.Provider {
+	provider, _, err := selectLLMProvider(cfg, selectedModel)
+	if err != nil {
+		log.Printf("[llm] provider selection failed: %v", err)
+		return nil
+	}
+	return provider
+}
+
+func selectLLMProvider(cfg *config.Config, selectedModel string) (llm.Provider, llm.Selection, error) {
+	if cfg == nil {
+		return nil, llm.Selection{}, fmt.Errorf("config is not loaded")
 	}
 	model := strings.TrimSpace(selectedModel)
 	if model == "" {
 		model = cfg.OpenAIModel
 	}
-
-	var provider llm.Provider
 	codexAuth := llm.NewCodexTokenProvider(cfg.CodexHome)
-	if codexAuth.IsAvailable() {
-		provider = llm.NewOpenAIProviderWithCodex(codexAuth, model, cfg.OpenAITemperature)
-	} else if cfg.OpenAIAPIKey != "" {
-		provider = llm.NewOpenAIProvider(cfg.OpenAIAPIKey, model, cfg.OpenAITemperature)
+	provider, sel, err := llm.SelectProvider(llm.SelectionInput{
+		Preference:     cfg.LLMProvider,
+		CodexHome:      cfg.CodexHome,
+		APIKey:         cfg.OpenAIAPIKey,
+		Model:          model,
+		FallbackModel:  cfg.LLMFallbackModel,
+		Temperature:    cfg.OpenAITemperature,
+		CodexAvailable: codexAuth.IsAvailable(),
+	})
+	if err != nil {
+		return nil, sel, err
 	}
-	if provider != nil {
-		provider = llm.NewResilientProvider(provider)
-	}
-	return provider
+	log.Printf("[llm] %s", sel.Status())
+	return llm.NewGuardedProvider(llm.NewResilientProvider(provider), sel), sel, nil
 }
 
 func (s *Server) currentLLMProvider(model string) llm.Provider {
 	if s == nil {
 		return nil
 	}
+	if s.llmOverride != nil {
+		return s.llmOverride
+	}
 	return buildLLMProvider(s.cfg, model)
+}
+
+// UseLLMProvider replaces the generative model for scans started after this call.
+// It does not change specialist routing.
+func (s *Server) UseLLMProvider(provider llm.Provider) {
+	if s != nil {
+		s.llmOverride = provider
+	}
+}
+
+// UseDecisionPlanner installs Decision-1 routing for scans started after this call.
+func (s *Server) UseDecisionPlanner(planner *agent.Planner) {
+	if s != nil {
+		s.decisionPlanner = planner
+	}
 }
 
 // firePlan is the FireFunc called by the schedplan Runner when a schedule fires.
 func (s *Server) firePlan(sc *schedplan.Schedule) {
+	if err := s.authorizeTriggeredScan(sc.Target, "schedule"); err != nil {
+		log.Printf("[SCHEDPLAN] Refusing %s: %v", sc.Target, err)
+		return
+	}
+	autonomy, parent := s.inheritedAutonomy(sc.Target)
 	flow, err := s.queries.CreateFlow(
 		"Scheduled: "+sc.Name,
 		"Automated scan — profile: "+sc.ProfileName,
 		sc.Target,
-		"L3",
+		autonomy,
 	)
 	if err != nil {
 		log.Printf("[SCHEDPLAN] Failed to create flow for %s: %v", sc.Target, err)
+		return
+	}
+	if err := s.bindInherited(flow.ID.String(), parent); err != nil {
+		log.Printf("[SCHEDPLAN] Refusing %s: %v", sc.Target, err)
 		return
 	}
 	s.auditLog.Record("scheduler", "scan_started", flow.ID.String(), map[string]interface{}{
@@ -273,9 +427,18 @@ func (s *Server) firePlan(sc *schedplan.Schedule) {
 
 // schedulerTrigger is the callback invoked by the Scheduler to start a new scan.
 func (s *Server) schedulerTrigger(target, profile string) {
-	flow, err := s.queries.CreateFlow("Scheduled: "+target, "Scheduled scan via profile "+profile, target, "L3")
+	if err := s.authorizeTriggeredScan(target, "schedule"); err != nil {
+		log.Printf("[SCHEDULER] Refusing %s: %v", target, err)
+		return
+	}
+	autonomy, parent := s.inheritedAutonomy(target)
+	flow, err := s.queries.CreateFlow("Scheduled: "+target, "Scheduled scan via profile "+profile, target, autonomy)
 	if err != nil {
 		log.Printf("[SCHEDULER] Failed to create flow for %s: %v", target, err)
+		return
+	}
+	if err := s.bindInherited(flow.ID.String(), parent); err != nil {
+		log.Printf("[SCHEDULER] Refusing %s: %v", target, err)
 		return
 	}
 	s.auditLog.Record("scheduler", "scan_started", flow.ID.String(), map[string]interface{}{
@@ -331,6 +494,14 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) Start(ctx context.Context, addr string) error {
+	if s.restoreErr != nil {
+		return fmt.Errorf("authorization restore failed: %w", s.restoreErr)
+	}
+	if s.cfg != nil {
+		if err := s.cfg.ValidateProduction(); err != nil {
+			return err
+		}
+	}
 	srv := &http.Server{
 		Addr:    addr,
 		Handler: s.Handler(),
@@ -439,6 +610,12 @@ func (s *Server) handleFlow(w http.ResponseWriter, r *http.Request) {
 		if subRoute == "/events" && r.Method == http.MethodGet {
 			s.handleFlowEvents(w, r, id)
 			return
+		} else if subRoute == "/approvals" && r.Method == http.MethodGet {
+			s.handleListApprovals(w, r, id)
+			return
+		} else if strings.HasPrefix(subRoute, "/approvals/") && strings.HasSuffix(subRoute, "/decision") && r.Method == http.MethodPost {
+			s.handleApprovalDecision(w, r, id, strings.TrimSuffix(strings.TrimPrefix(subRoute, "/approvals/"), "/decision"))
+			return
 		} else if subRoute == "/ledger" && r.Method == http.MethodGet {
 			s.handleFlowLedger(w, r, id)
 			return
@@ -459,6 +636,15 @@ func (s *Server) handleFlow(w http.ResponseWriter, r *http.Request) {
 			return
 		} else if subRoute == "/surface-diff" && r.Method == http.MethodGet {
 			s.handleSurfaceDiff(w, r, id)
+			return
+		} else if subRoute == "/artifacts" && r.Method == http.MethodGet {
+			s.handleListArtifacts(w, r, id)
+			return
+		} else if strings.HasPrefix(subRoute, "/artifacts/") && r.Method == http.MethodGet {
+			s.handleDownloadArtifact(w, r, id, strings.TrimPrefix(subRoute, "/artifacts/"))
+			return
+		} else if subRoute == "/report" && r.Method == http.MethodGet {
+			s.handleStoredReport(w, r, id)
 			return
 		} else if subRoute == "/report/html" && r.Method == http.MethodGet {
 			s.handleHTMLReport(w, r, id)
@@ -904,9 +1090,32 @@ func (s *Server) handleCreateFlow(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string, timeout int, agentTimeout int) {
-	// Create Docker sandbox
-	sandbox, err := docker.NewSandbox(s.cfg.DockerHost, s.cfg.SandboxImage)
-	if err != nil {
+	// v2 scans run in a per-flow container whose OUTPUT filter is the egress boundary.
+	// The shared mirage-sandbox remains only for engagements that have not enabled execution v2.
+	var sandbox *docker.Sandbox
+	var flows *docker.FlowSandbox
+	if s.cfg != nil && s.cfg.ExecutionV2 {
+		created, err := docker.NewFlowSandbox(s.cfg.DockerHost, s.cfg.SandboxImage)
+		if err != nil {
+			log.Printf("[ERROR] Failed to create flow sandbox: %v", err)
+			s.queries.UpdateFlowStatus(flowID, models.FlowStatusFailed)
+			s.broadcast(agent.Event{
+				Type:    agent.EventError,
+				FlowID:  flowID.String(),
+				Content: fmt.Sprintf("Failed to create per-flow sandbox: %v", err),
+			})
+			return
+		}
+		flows = created
+		defer func() {
+			if s.firewall != nil {
+				_ = s.firewall.RevokeFlowRules(context.Background(), flowID.String())
+			}
+			_ = flows.DestroyForFlow(context.Background(), flowID.String())
+		}()
+	}
+	createdSandbox, err := docker.NewSandbox(s.cfg.DockerHost, s.cfg.SandboxImage)
+	if err != nil && flows == nil {
 		log.Printf("[ERROR] Failed to create sandbox: %v", err)
 		s.queries.UpdateFlowStatus(flowID, models.FlowStatusFailed)
 		s.broadcast(agent.Event{
@@ -916,7 +1125,10 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 		})
 		return
 	}
-	defer sandbox.Close()
+	if createdSandbox != nil {
+		sandbox = createdSandbox
+		defer sandbox.Close()
+	}
 
 	// Use the user-selected model, or fall back to config default
 	model := selectedModel
@@ -926,26 +1138,39 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 	log.Printf("[BRAIN] Using model: %s", model)
 
 	// Create LLM provider -- prefer Codex OAuth, fall back to API key.
-	provider := s.currentLLMProvider(model)
-	if provider == nil {
-		errMsg := "No LLM authentication available. Run 'codex login' or set OPENAI_API_KEY"
-		log.Printf("[ERROR] %s", errMsg)
-		s.queries.UpdateFlowStatus(flowID, models.FlowStatusFailed)
-		s.broadcast(agent.Event{
-			Type:      agent.EventError,
-			FlowID:    flowID.String(),
-			Content:   errMsg,
-			Timestamp: time.Now(),
-		})
-		return
+	var provider llm.Provider
+	var selection llm.Selection
+	if s.llmOverride != nil {
+		provider = s.llmOverride
+		selection = llm.Selection{Source: "test_override", Model: model}
+		log.Printf("[llm] %s", selection.Status())
+	} else {
+		var err error
+		provider, selection, err = selectLLMProvider(s.cfg, model)
+		if err != nil || provider == nil {
+			errMsg := err.Error()
+			if err == nil {
+				errMsg = "No LLM authentication available. Run 'codex login' or set OPENAI_API_KEY"
+			}
+			log.Printf("[ERROR] %s", errMsg)
+			s.queries.UpdateFlowStatus(flowID, models.FlowStatusFailed)
+			s.broadcast(agent.Event{
+				Type:      agent.EventError,
+				FlowID:    flowID.String(),
+				Content:   errMsg,
+				Timestamp: time.Now(),
+			})
+			return
+		}
 	}
-	log.Printf("[AUTH] Using LLM provider: %s", provider.Name())
-
-	// Wrap with ResilientProvider to handle transient connection errors (Brain-Hardening)
-	provider = llm.NewResilientProvider(provider)
+	_ = selection
 
 	// Create tool registry
 	registry := tools.NewRegistry(sandbox)
+	if flows != nil {
+		registry.UseFlowSandbox(flows)
+		registry.UseFirewall(s.firewall)
+	}
 
 	// Load externalized prompts
 	prompts, err := config.LoadPrompts("prompts.yaml")
@@ -993,9 +1218,19 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 		conductor.SetAgentTimeout(time.Duration(agentTimeout) * time.Minute)
 	}
 	orchestrator.SetConductor(conductor)
+	if s.decisionPlanner != nil {
+		orchestrator.SetDecisionPlanner(s.decisionPlanner)
+		log.Printf("[planner] Decision-1 specialist routing enabled by the process configuration")
+	} else if s.cfg != nil && s.cfg.FoundryEndpoint != "" && s.cfg.FoundryAPIKey != "" && s.cfg.FoundryDeployment != "" {
+		foundry := decision.NewFoundryClient(s.cfg.FoundryEndpoint, s.cfg.FoundryDeployment, s.cfg.FoundryAPIKey, s.cfg.FoundryTimeout)
+		planner := agent.NewPlanner(provider, orchestrator.GetEventBus(), nil)
+		planner.SetDecisionProvider(foundry, s.cfg.FoundryMinConfidence)
+		orchestrator.SetDecisionPlanner(planner)
+		log.Printf("[planner] Decision-1 specialist routing enabled for deployment %s", s.cfg.FoundryDeployment)
+	}
 
 	// Subscribe to internal Conductor metrics and broadcast them
-	orchestrator.GetEventBus().Subscribe("queue_metrics", func(data interface{}) {
+	orchestrator.GetEventBus().SubscribeDurable("queue_metrics", func(data interface{}) {
 		metrics, ok := data.(map[string]interface{})
 		if !ok {
 			return
@@ -1014,6 +1249,36 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 	flow, err := s.queries.GetFlow(flowID)
 	if err == nil && flow.AutonomyLevel != "" {
 		orchestrator.SetAutonomyLevel(agent.ParseAutonomyLevel(flow.AutonomyLevel))
+	}
+	if s.cfg != nil && s.cfg.ExecutionV2 {
+		if err != nil {
+			log.Printf("[policy] refusing flow %s: authorization requires the flow record: %v", flowID, err)
+			s.queries.UpdateFlowStatus(flowID, models.FlowStatusFailed)
+			return
+		}
+		if stored := s.engagements.Get(flow.ID.String()); stored != nil {
+			orchestrator.SetExecutionGateway(s.gateway.WithAuthorization(stored), true)
+		} else {
+			auth, aerr := policy.AuthorizationForTarget(flow.ID.String(), flow.Target, policy.Autonomy(flow.AutonomyLevel), "flow", time.Now())
+			if aerr != nil {
+				log.Printf("[policy] refusing flow %s: %v", flowID, aerr)
+				s.queries.UpdateFlowStatus(flowID, models.FlowStatusFailed)
+				return
+			}
+			stored := s.engagements.Put(auth)
+			if s.gateway != nil && s.gateway.Store() != nil {
+				if saveErr := s.gateway.Store().SaveAuthorization(auth); saveErr != nil {
+					log.Printf("[policy] refusing flow %s: could not persist authorization: %v", flowID, saveErr)
+					s.queries.UpdateFlowStatus(flowID, models.FlowStatusFailed)
+					return
+				}
+			}
+			if s.gateway != nil {
+				orchestrator.SetExecutionGateway(s.gateway.WithAuthorization(stored), true)
+			} else {
+				orchestrator.SetExecutionGateway(nil, true)
+			}
+		}
 	}
 
 	// Setup cancellable context and track it
@@ -1379,11 +1644,20 @@ func (s *Server) handleCICDTrigger(w http.ResponseWriter, r *http.Request) {
 	if req.Profile == "" {
 		req.Profile = "quick"
 	}
+	if err := s.authorizeTriggeredScan(req.Target, "cicd"); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
 
+	autonomy, parent := s.inheritedAutonomy(req.Target)
 	name := fmt.Sprintf("CI/CD: %s [%s]", req.Repo, req.Ref)
-	flow, err := s.queries.CreateFlow(name, "Triggered by CI/CD pipeline", req.Target, "L3")
+	flow, err := s.queries.CreateFlow(name, "Triggered by CI/CD pipeline", req.Target, autonomy)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := s.bindInherited(flow.ID.String(), parent); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 
@@ -1602,6 +1876,81 @@ func globalFindingsForFlow(allFindings []database.GlobalFinding, flowID uuid.UUI
 	return out
 }
 
+func (s *Server) handleListArtifacts(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	items, err := s.queries.ListWorkspaceArtifacts(id)
+	if err != nil {
+		http.Error(w, "failed to list artifacts", http.StatusInternalServerError)
+		return
+	}
+	if items == nil {
+		items = []database.WorkspaceArtifact{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(items)
+}
+
+func (s *Server) handleDownloadArtifact(w http.ResponseWriter, r *http.Request, flowID uuid.UUID, artifactID string) {
+	id, err := uuid.Parse(artifactID)
+	if err != nil {
+		http.Error(w, "invalid artifact id", http.StatusBadRequest)
+		return
+	}
+	item, err := s.queries.GetWorkspaceArtifact(flowID, id)
+	if err != nil {
+		http.Error(w, "artifact not found", http.StatusNotFound)
+		return
+	}
+	path, ok := resolveWorkspaceArtifact(flowID, item.Path)
+	if !ok {
+		http.Error(w, "artifact path is outside the flow workspace", http.StatusForbidden)
+		return
+	}
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filepath.Base(item.Name)))
+	http.ServeFile(w, r, path)
+}
+
+func (s *Server) handleStoredReport(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+	report, err := s.queries.GetFinalReport(id)
+	if err == sql.ErrNoRows || strings.TrimSpace(report) == "" {
+		http.Error(w, "report is not ready", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, "failed to load report", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	fmt.Fprint(w, report)
+}
+
+func resolveWorkspaceArtifact(flowID uuid.UUID, stored string) (string, bool) {
+	root, err := execution.EnsureWorkspace(flowID.String())
+	if err != nil {
+		return "", false
+	}
+	target := stored
+	if !filepath.IsAbs(stored) && !strings.HasPrefix(stored, "/") && !strings.HasPrefix(stored, `\`) {
+		target = filepath.Join(root, filepath.FromSlash(stored))
+	}
+	return workspaceFileAllowed(target)
+}
+
+func workspaceFileAllowed(path string) (string, bool) {
+	root, err := filepath.Abs(execution.WorkspaceRoot())
+	if err != nil {
+		return "", false
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", false
+	}
+	rel, err := filepath.Rel(root, abs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return abs, true
+}
+
 func (s *Server) handleHTMLReport(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	flow, err := s.queries.GetFlow(id)
 	if err != nil {
@@ -1612,6 +1961,19 @@ func (s *Server) handleHTMLReport(w http.ResponseWriter, r *http.Request, id uui
 	agentFindings := globalFindingsForFlow(all, id)
 	duration := time.Since(flow.CreatedAt).Round(time.Second).String()
 	html := agent.GenerateHTMLReport(flow.Target, id.String(), duration, agentFindings)
+	if arts, err := s.queries.ListWorkspaceArtifacts(id); err == nil && len(arts) > 0 {
+		var section strings.Builder
+		section.WriteString("<section><h2>Evidence files</h2><ul>")
+		for _, art := range arts {
+			section.WriteString("<li>" + art.Name)
+			if art.Tool != "" {
+				section.WriteString(" (" + art.Tool + ")")
+			}
+			section.WriteString("</li>")
+		}
+		section.WriteString("</ul></section>")
+		html = strings.Replace(html, "</body>", section.String()+"</body>", 1)
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"mirage-report-%s.html\"", id.String()[:8]))
 	fmt.Fprint(w, html)
@@ -1725,7 +2087,13 @@ func (s *Server) handleCaptureScreenshot(w http.ResponseWriter, r *http.Request,
 		body.Title = body.URL
 	}
 
-	rec, err := agent.CaptureAndStore(r.Context(), id.String(), "", body.URL, body.Title)
+	captureCtx := r.Context()
+	if s.cfg != nil && s.cfg.ExecutionV2 && s.gateway != nil {
+		captureCtx = execution.WithGateway(captureCtx, s.gateway)
+		captureCtx = execution.WithRequired(captureCtx)
+		captureCtx = execution.WithFlowID(captureCtx, id.String())
+	}
+	rec, err := agent.CaptureAndStore(captureCtx, id.String(), "", body.URL, body.Title)
 	if err != nil {
 		log.Printf("[SCREENSHOT] capture error for flow %s: %v", id, err)
 		http.Error(w, fmt.Sprintf("capture failed: %v", err), http.StatusInternalServerError)

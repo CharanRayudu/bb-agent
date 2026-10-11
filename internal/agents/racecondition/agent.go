@@ -55,7 +55,7 @@ type raceClient struct {
 
 func newRaceClient() *raceClient {
 	return &raceClient{
-		hc: &http.Client{
+		hc: base.WrapClient(&http.Client{
 			Timeout: 10 * time.Second,
 			Transport: &http.Transport{
 				TLSClientConfig:     &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
@@ -66,7 +66,7 @@ func newRaceClient() *raceClient {
 			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 				return http.ErrUseLastResponse
 			},
-		},
+		}),
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bb-agent/mirage/internal/execution"
 	"github.com/bb-agent/mirage/internal/llm"
 	"github.com/bb-agent/mirage/internal/models"
 	"github.com/bb-agent/mirage/internal/tools"
@@ -173,6 +174,23 @@ func (e *Executor) executeTool(ctx context.Context, tc models.ToolCall, brain *B
 	tool, ok := e.toolRegistry.Get(tc.Name)
 	if !ok {
 		return fmt.Sprintf("[ERROR] Tool '%s' not found in registry", tc.Name)
+	}
+
+	if execution.Required(ctx) || execution.HasGateway(ctx) {
+		gw := execution.GatewayFrom(ctx)
+		if gw == nil {
+			return "BLOCKED: execution gateway required"
+		}
+		output, err := gw.ExecuteTool(ctx, execution.FlowID(ctx), tc.Name, "executor", json.RawMessage(tc.Arguments), func(runCtx context.Context) (string, error) {
+			return tool.Execute(runCtx, json.RawMessage(tc.Arguments))
+		})
+		if err != nil {
+			if output == "" {
+				return err.Error()
+			}
+			return output
+		}
+		return output
 	}
 
 	output, err := tool.Execute(ctx, json.RawMessage(tc.Arguments))

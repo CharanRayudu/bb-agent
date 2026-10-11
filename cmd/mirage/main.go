@@ -18,6 +18,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
+	if err := cfg.ValidateProduction(); err != nil {
+		log.Fatalf("Refusing to start: %v", err)
+	}
 
 	db, err := database.Connect(cfg.DatabaseURL)
 	if err != nil {
@@ -27,6 +30,11 @@ func main() {
 
 	if err := database.RunMigrations(db); err != nil {
 		log.Fatalf("Failed to run migrations: %v", err)
+	}
+	if n, err := database.NewQueries(db).FailInterruptedFlows(); err != nil {
+		log.Printf("[startup] could not reconcile interrupted flows: %v", err)
+	} else if n > 0 {
+		log.Printf("[startup] marked %d interrupted flow(s) failed after restart", n)
 	}
 
 	srv := server.New(cfg, db)
@@ -43,6 +51,12 @@ func main() {
 		cancel()
 	}()
 
+	log.Printf("[startup] %s", cfg.ExecutionModeStatus())
+	log.Printf("[startup] llm preference=%s model=%s fallback=%s", cfg.LLMProvider, cfg.OpenAIModel, cfg.LLMFallbackModel)
+	log.Printf("[startup] %s", cfg.DecisionRoutingStatus())
+	if _, err := os.Stat("frontend/dist/index.html"); err != nil {
+		log.Printf("[startup] frontend/dist is not in this process; the UI is served by the frontend container or npm run dev")
+	}
 	addr := fmt.Sprintf("%s:%d", cfg.ServerHost, cfg.ServerPort)
 	log.Printf("[startup] mirage server starting on %s", addr)
 

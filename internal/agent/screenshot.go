@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bb-agent/mirage/internal/agent/base"
 	"github.com/chromedp/chromedp"
 	"github.com/google/uuid"
 )
@@ -65,14 +66,23 @@ func (s *ScreenshotStore) GetByID(id string) (*ScreenshotRecord, bool) {
 // CaptureScreenshot navigates to targetURL and returns a PNG screenshot.
 // It uses chromedp with a 15-second timeout and Docker-compatible flags.
 func CaptureScreenshot(ctx context.Context, targetURL string) ([]byte, error) {
-	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+	browserOpts := base.DefaultBrowserOptions()
+	closeProxy, err := base.PrepareBrowserEgress(ctx, targetURL, &browserOpts)
+	if err != nil {
+		return nil, err
+	}
+	defer closeProxy()
+	opts := base.WithChromePath(append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.NoFirstRun,
 		chromedp.NoDefaultBrowserCheck,
 		chromedp.Flag("headless", true),
 		chromedp.Flag("no-sandbox", true),
 		chromedp.Flag("disable-gpu", true),
 		chromedp.Flag("disable-dev-shm-usage", true),
-	)
+	))
+	if browserOpts.Proxy != "" {
+		opts = append(opts, chromedp.ProxyServer(browserOpts.Proxy))
+	}
 
 	allocCtx, allocCancel := chromedp.NewExecAllocator(ctx, opts...)
 	defer allocCancel()
@@ -84,7 +94,7 @@ func CaptureScreenshot(ctx context.Context, targetURL string) ([]byte, error) {
 	defer chromedpCancel()
 
 	var buf []byte
-	err := chromedp.Run(chromedpCtx,
+	err = chromedp.Run(chromedpCtx,
 		chromedp.Navigate(targetURL),
 		chromedp.CaptureScreenshot(&buf),
 	)

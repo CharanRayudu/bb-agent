@@ -68,7 +68,7 @@ func FormLogin(ctx context.Context, loginURL, usernameField, passwordField, user
 
 	// Use a jar-aware client so redirects carry cookies.
 	jar := &simpleCookieJar{}
-	client := &http.Client{
+	client := WrapClient(&http.Client{
 		Timeout: 15 * time.Second,
 		CheckRedirect: func(r *http.Request, via []*http.Request) error {
 			// Propagate cookies on redirect.
@@ -80,7 +80,7 @@ func FormLogin(ctx context.Context, loginURL, usernameField, passwordField, user
 			}
 			return nil
 		},
-	}
+	})
 
 	resp, err := client.Do(req)
 	if err != nil {

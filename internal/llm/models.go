@@ -16,44 +16,56 @@ type CodexModel struct {
 }
 
 // GetAvailableModels returns the list of models available through Codex CLI
-// These are the models supported when authenticated via ChatGPT OAuth
+// when authenticated via ChatGPT OAuth. Retired ids stay listed so the UI can
+// show remapping guidance, but they are marked in the description.
 func GetAvailableModels(codexHome string) []CodexModel {
 	currentModel := readCurrentModel(codexHome)
 
 	models := []CodexModel{
 		{
-			ID:          "gpt-5.4",
-			Name:        "gpt-5.4",
-			Description: "Latest frontier agentic coding model.",
+			ID:          "gpt-6.1-sol",
+			Name:        "gpt-6.1-sol",
+			Description: "Current recommended Codex ChatGPT model for complex agent work.",
 			Category:    "Recommended",
+		},
+		{
+			ID:          "gpt-6-sol",
+			Name:        "gpt-6-sol",
+			Description: "Codex ChatGPT model for repeated long-running work.",
+			Category:    "Recommended",
+		},
+		{
+			ID:          "gpt-6-luna",
+			Name:        "gpt-6-luna",
+			Description: "Efficient Codex ChatGPT model for focused high-volume tasks.",
+			Category:    "Recommended",
+		},
+		{
+			ID:          "gpt-6-astra",
+			Name:        "gpt-6-astra",
+			Description: "Highest-capability Codex ChatGPT model when available to the account.",
+			Category:    "Advanced",
+		},
+		{
+			ID:          "gpt-4o",
+			Name:        "gpt-4o",
+			Description: "OpenAI API chat model. Use with MIRAGE_LLM_PROVIDER=api_key.",
+			Category:    "API key",
 		},
 		{
 			ID:          "gpt-5.3-codex",
 			Name:        "gpt-5.3-codex",
-			Description: "Latest frontier agentic coding model.",
-			Category:    "Coding",
+			Description: "Retired for Codex ChatGPT sign-in. Mirage remaps this to gpt-6.1-sol.",
+			Category:    "Retired",
 		},
 		{
-			ID:          "gpt-5.2-codex",
-			Name:        "gpt-5.2-codex",
-			Description: "Frontier agentic coding model.",
-			Category:    "Coding",
-		},
-		{
-			ID:          "gpt-5.1-codex-max",
-			Name:        "gpt-5.1-codex-max",
-			Description: "Codex-optimized flagship for deep and fast reasoning.",
-			Category:    "Coding",
-		},
-		{
-			ID:          "gpt-5.2",
-			Name:        "gpt-5.2",
-			Description: "Latest frontier model with improvements across knowledge, reasoning and coding",
-			Category:    "General",
+			ID:          "gpt-5.4",
+			Name:        "gpt-5.4",
+			Description: "Retired for Codex ChatGPT sign-in. Mirage remaps this to gpt-6.1-sol.",
+			Category:    "Retired",
 		},
 	}
 
-	// Mark which model is currently selected in the user's config
 	for i := range models {
 		if models[i].ID == currentModel {
 			models[i].Current = true
@@ -75,8 +87,6 @@ func readCurrentModel(codexHome string) string {
 		return ""
 	}
 
-	// Simple TOML parsing -- look for the model = "..." line
-	// Only match top-level model key (not inside a [section])
 	inSection := false
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)

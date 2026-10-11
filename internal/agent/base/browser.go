@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/bb-agent/mirage/internal/execution"
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
@@ -21,6 +22,50 @@ var (
 	ErrBrowserUnavailable = errors.New("browser automation unavailable")
 	browserDisabled       atomic.Bool
 )
+
+// WithChromePath adds the container Chromium binary when CHROME_PATH is set.
+func WithChromePath(opts []chromedp.ExecAllocatorOption) []chromedp.ExecAllocatorOption {
+	if p := strings.TrimSpace(os.Getenv("CHROME_PATH")); p != "" {
+		return append(opts, chromedp.ExecPath(p))
+	}
+	return opts
+}
+
+func PrepareBrowserEgress(ctx context.Context, targetURL string, opts *BrowserOptions) (func(), error) {
+	noop := func() {}
+	if !execution.HasGateway(ctx) && !execution.Required(ctx) {
+		return noop, nil
+	}
+	if opts != nil && opts.Active {
+		method := opts.Method
+		if method == "" {
+			method = "GET"
+		}
+		if err := execution.CheckActiveRequest(ctx, "browser.probe", "browser.probe", method, targetURL); err != nil {
+			return nil, err
+		}
+	} else if err := execution.CheckDestination(ctx, "browser.navigate", "browser.crawl", targetURL); err != nil {
+		return nil, err
+	}
+	if existing := execution.ProxyFrom(ctx); existing != nil {
+		if opts != nil && opts.Proxy == "" {
+			opts.Proxy = "http://" + existing.Addr
+		}
+		return noop, nil
+	}
+	gw := execution.GatewayFrom(ctx)
+	if gw == nil {
+		return nil, execution.ErrGatewayRequired
+	}
+	proxy, err := execution.StartFlowProxy(gw, execution.FlowID(ctx))
+	if err != nil {
+		return nil, err
+	}
+	if opts != nil && opts.Proxy == "" {
+		opts.Proxy = "http://" + proxy.Addr
+	}
+	return func() { _ = proxy.Close() }, nil
+}
 
 func shouldIgnoreBrowserErrorMessage(msg string) bool {
 	lower := strings.ToLower(strings.TrimSpace(msg))
@@ -56,6 +101,10 @@ type BrowserOptions struct {
 	Proxy     string
 	UserAgent string
 	Headers   map[string]string
+	// Active marks a vulnerability probe. Ordinary crawl and screenshot
+	// navigation stays passive.
+	Active bool
+	Method string
 }
 
 // DefaultBrowserOptions returns standard settings for vulnerability validation.
@@ -125,27 +174,29 @@ func normalizeBrowserError(err error) error {
 
 // RunHeadless executes a browser task and returns metadata.
 func RunHeadless(ctx context.Context, targetURL string, opts BrowserOptions) (*BrowserMetadata, error) {
+	closeProxy, err := PrepareBrowserEgress(ctx, targetURL, &opts)
+	if err != nil {
+		return nil, err
+	}
+	defer closeProxy()
+	return runHeadlessNavigation(ctx, targetURL, opts)
+}
+
+func runHeadlessNavigation(ctx context.Context, targetURL string, opts BrowserOptions) (*BrowserMetadata, error) {
 	if !BrowserAvailable() {
 		return nil, ErrBrowserUnavailable
 	}
 
 	if opts.Timeout == 0 {
-		opts = DefaultBrowserOptions()
+		opts = preserveBrowserLaunch(opts, DefaultBrowserOptions())
 	}
 
-	allocOpts := append(chromedp.DefaultExecAllocatorOptions[:],
+	allocOpts := browserAllocatorOptions(append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.NoSandbox,
 		chromedp.Flag("disable-setuid-sandbox", true),
 		chromedp.Flag("disable-web-security", true),
 		chromedp.WindowSize(opts.Width, opts.Height),
-	)
-
-	if opts.Proxy != "" {
-		allocOpts = append(allocOpts, chromedp.ProxyServer(opts.Proxy))
-	}
-	if opts.UserAgent != "" {
-		allocOpts = append(allocOpts, chromedp.UserAgent(opts.UserAgent))
-	}
+	), opts)
 
 	allocCtx, cancelAlloc := chromedp.NewExecAllocator(ctx, allocOpts...)
 	defer cancelAlloc()
@@ -204,20 +255,25 @@ type CrawlResults struct {
 
 // RunCrawl executes a discovery-focused browser task
 func RunCrawl(ctx context.Context, targetURL string, opts BrowserOptions) (*CrawlResults, error) {
+	closeProxy, err := PrepareBrowserEgress(ctx, targetURL, &opts)
+	if err != nil {
+		return nil, err
+	}
+	defer closeProxy()
 	if !BrowserAvailable() {
 		return nil, ErrBrowserUnavailable
 	}
 
 	if opts.Timeout == 0 {
-		opts = DefaultBrowserOptions()
+		opts = preserveBrowserLaunch(opts, DefaultBrowserOptions())
 		opts.Timeout = 30 * time.Second
 	}
 
-	allocOpts := append(chromedp.DefaultExecAllocatorOptions[:],
+	allocOpts := browserAllocatorOptions(append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.NoSandbox,
 		chromedp.Flag("disable-setuid-sandbox", true),
 		chromedp.WindowSize(opts.Width, opts.Height),
-	)
+	), opts)
 
 	allocCtx, cancelAlloc := chromedp.NewExecAllocator(ctx, allocOpts...)
 	defer cancelAlloc()
@@ -229,7 +285,7 @@ func RunCrawl(ctx context.Context, targetURL string, opts BrowserOptions) (*Craw
 	defer cancelTimeout()
 
 	results := &CrawlResults{}
-	err := chromedp.Run(timeoutCtx,
+	err = chromedp.Run(timeoutCtx,
 		chromedp.Navigate(targetURL),
 		chromedp.Sleep(3*time.Second),
 		chromedp.Evaluate(`
@@ -264,7 +320,39 @@ func RunHeadlessPOST(ctx context.Context, actionURL string, data map[string]stri
 	formHTML += `</form></body></html>`
 
 	dataURL := fmt.Sprintf("data:text/html;base64,%s", base64.StdEncoding.EncodeToString([]byte(formHTML)))
-	return RunHeadless(ctx, dataURL, opts)
+	opts.Active = true
+	if opts.Method == "" {
+		opts.Method = "POST"
+	}
+	closeProxy, err := PrepareBrowserEgress(ctx, actionURL, &opts)
+	if err != nil {
+		return nil, err
+	}
+	defer closeProxy()
+	return runHeadlessNavigation(ctx, dataURL, opts)
+}
+
+// browserAllocatorOptions is the Chrome launch setup shared by crawl and
+// headless navigation. Crawl used to authorize a proxy and then launch Chrome
+// without it, so the browser dialed the target directly.
+func preserveBrowserLaunch(from BrowserOptions, defaults BrowserOptions) BrowserOptions {
+	defaults.Proxy = from.Proxy
+	defaults.UserAgent = from.UserAgent
+	defaults.Headers = from.Headers
+	defaults.Active = from.Active
+	defaults.Method = from.Method
+	return defaults
+}
+
+func browserAllocatorOptions(base []chromedp.ExecAllocatorOption, opts BrowserOptions) []chromedp.ExecAllocatorOption {
+	out := WithChromePath(append([]chromedp.ExecAllocatorOption{}, base...))
+	if opts.Proxy != "" {
+		out = append(out, chromedp.ProxyServer(opts.Proxy))
+	}
+	if opts.UserAgent != "" {
+		out = append(out, chromedp.UserAgent(opts.UserAgent))
+	}
+	return out
 }
 
 func saveScreenshot(buf []byte) (string, error) {

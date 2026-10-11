@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/bb-agent/mirage/internal/docker"
+	"github.com/bb-agent/mirage/internal/execution"
 	"github.com/bb-agent/mirage/internal/llm"
 )
 
@@ -61,8 +62,24 @@ type Tool struct {
 
 // Registry holds all available tools
 type Registry struct {
-	tools   map[string]*Tool
-	sandbox *docker.Sandbox
+	tools    map[string]*Tool
+	sandbox  *docker.Sandbox
+	flows    *docker.FlowSandbox
+	firewall *execution.FirewallController
+}
+
+// UseFlowSandbox routes tool execution into the per-flow container.
+func (r *Registry) UseFlowSandbox(fs *docker.FlowSandbox) {
+	if r != nil {
+		r.flows = fs
+	}
+}
+
+// UseFirewall attaches the host egress filter for per-flow containers.
+func (r *Registry) UseFirewall(fc *execution.FirewallController) {
+	if r != nil {
+		r.firewall = fc
+	}
 }
 
 // NewRegistry creates a tool registry with all built-in tools
@@ -80,7 +97,7 @@ func (r *Registry) registerBuiltins() {
 	r.Register(&Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "execute_command",
-			Description: "Execute a shell command inside the sandbox to enumerate the in-scope target and gather reproducible evidence. Prefer short commands, multi-line scripts, or inline Python over brittle nested shell quoting. Use the command output to confirm behavior with concrete request/response, timing, browser, or callback proof.\n\nAVAILABLE SANDBOX TOOLS:\n- Recon and assets: `subfinder`, `amass`, `puredns`, `waybackurls`, `gau`\n- Ports and services: `naabu`, `nmap`, `masscan`\n- HTTP probing and crawling: `httpx`, `hakrawler`, `katana`, `curl`\n- Content discovery and fuzzing: `feroxbuster`, `gobuster`, `ffuf`, `dirsearch`\n- Parameter and reflection discovery: `arjun`, `paramspider`, `x8`, `qsreplace`, `kxss`\n- Vulnerability scanning and exploitation: `nuclei`, `dalfox`, `crlfuzz`, `sqlmap`, `ghauri`, `commix`, `tplmap`\n- JavaScript and JWT analysis: `jsluice`, `jwt-hack`\n- Tool management: `pdtm`\n\nIMPORTANT LOCATIONS:\n- Wordlists for gobuster/dirb are located at: `/usr/share/dirb/wordlists/common.txt` and others in `/usr/share/dirb/wordlists/`. Do NOT assume `/usr/share/wordlists` exists.\n\nIMPORTANT: This container is PERSISTENT, so keep commands tidy and deterministic. If a command becomes quote-heavy, switch to a heredoc or a small script instead of stacking escapes. Match tool choice to the user's request whenever possible.",
+			Description: "Run an unrestricted shell command inside the sandbox. This is denied unless the engagement explicitly grants unrestricted shell. For nuclei, nmap, ffuf, curl, sqlmap, httpx, and the other scanners listed below, use run_security_tool with a tool name and an args array so the command is not parsed by a shell.\n\nAVAILABLE SANDBOX TOOLS:\n- Recon and assets: `subfinder`, `amass`, `puredns`, `waybackurls`, `gau`\n- Ports and services: `naabu`, `nmap`, `masscan`\n- HTTP probing and crawling: `httpx`, `hakrawler`, `katana`, `curl`\n- Content discovery and fuzzing: `feroxbuster`, `gobuster`, `ffuf`, `dirsearch`\n- Parameter and reflection discovery: `arjun`, `paramspider`, `x8`, `qsreplace`, `kxss`\n- Vulnerability scanning and exploitation: `nuclei`, `dalfox`, `crlfuzz`, `sqlmap`, `ghauri`, `commix`, `tplmap`\n- JavaScript and JWT analysis: `jsluice`, `jwt-hack`\n- Tool management: `pdtm`\n\nIMPORTANT LOCATIONS:\n- Wordlists for gobuster/dirb are located at: `/usr/share/dirb/wordlists/common.txt` and others in `/usr/share/dirb/wordlists/`. Do NOT assume `/usr/share/wordlists` exists.\n\nIMPORTANT: This container is PERSISTENT, so keep commands tidy and deterministic. If a command becomes quote-heavy, switch to a heredoc or a small script instead of stacking escapes. Match tool choice to the user's request whenever possible.",
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -97,6 +114,33 @@ func (r *Registry) registerBuiltins() {
 			},
 		},
 		Execute: r.executeCommand,
+	})
+
+	r.Register(&Tool{
+		Definition: llm.ToolDefinition{
+			Name:        "run_security_tool",
+			Description: "Run one authorized security tool as an argv array, without a shell. Use this for scanning, fuzzing, and verification. The tool name is a single executable such as nuclei, nmap, ffuf, curl, sqlmap, httpx, katana, gobuster, gau, or waybackurls. Put the target URL and flags in args. Do not put shell operators, command substitutions, or a second program in the tool name.",
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"tool": map[string]interface{}{
+						"type":        "string",
+						"description": "Executable name only, for example nuclei, nmap, ffuf, curl, or sqlmap",
+					},
+					"args": map[string]interface{}{
+						"type":        "array",
+						"items":       map[string]interface{}{"type": "string"},
+						"description": "Argv elements. Include the in-scope target URL or host. Example: [\"-u\", \"http://target.example/FUZZ\", \"-w\", \"/usr/share/dirb/wordlists/common.txt\"]",
+					},
+					"timeout": map[string]interface{}{
+						"type":        "integer",
+						"description": "Maximum execution time in seconds (default: 300, max: 1800)",
+					},
+				},
+				"required": []string{"tool", "args"},
+			},
+		},
+		Execute: r.executeSecurityTool,
 	})
 
 	// think -- internal reasoning/planning step
@@ -331,24 +375,201 @@ func (r *Registry) executeCommand(ctx context.Context, args json.RawMessage) (st
 
 	log.Printf("[TOOL] Executing: %s (timeout: %ds)", params.Command, params.Timeout)
 
-	result, err := r.sandbox.Execute(ctx, params.Command, params.Timeout)
+	result, err := r.execShell(ctx, params.Command, params.Timeout)
+	attachWorkspace(ctx, result, "shell")
 	if err != nil {
 		return "", fmt.Errorf("sandbox execution failed: %w", err)
 	}
+	return formatSandboxOutput(result), nil
+}
 
-	output := result.Stdout
+func (r *Registry) executeSecurityTool(ctx context.Context, args json.RawMessage) (string, error) {
+	argv, timeout, err := execution.ParseSecurityArgv(args)
+	if err != nil {
+		return "", err
+	}
+	if proxy := execution.ToolProxyURL(ctx); proxy != "" {
+		argv = execution.AppendProxyArg(argv, proxy)
+	}
+	log.Printf("[TOOL] Executing argv: %s", strings.Join(argv, " "))
+	result, err := r.execArgv(ctx, argv, timeout)
+	formatted := formatSandboxOutput(result)
+	if err != nil {
+		if formatted == "" {
+			return "", fmt.Errorf("sandbox execution failed: %w", err)
+		}
+		return formatted + "\n" + err.Error(), fmt.Errorf("sandbox execution failed: %w", err)
+	}
+	return formatted, nil
+}
+
+func (r *Registry) execArgv(ctx context.Context, argv []string, timeout int) (*docker.ExecResult, error) {
+	if r == nil {
+		return nil, fmt.Errorf("sandbox is not configured")
+	}
+	flowID := execution.FlowID(ctx)
+	if r.flows != nil && flowID != "" {
+		if err := r.prepareFlow(ctx, flowID); err != nil {
+			return nil, err
+		}
+		out, err := (docker.FlowRunner{Sandbox: r.flows}).Execute(ctx, execution.ToolRequest{
+			FlowID:         flowID,
+			Tool:           toolName(argv),
+			Argv:           argv,
+			TimeoutSeconds: timeout,
+		})
+		mapped := execFromOutput(out)
+		if err != nil {
+			return mapped, err
+		}
+		return mapped, nil
+	}
+	if execution.Required(ctx) {
+		return nil, fmt.Errorf("per-flow sandbox is required")
+	}
+	if r.sandbox == nil {
+		return nil, fmt.Errorf("sandbox is not configured")
+	}
+	return r.sandbox.ExecuteArgv(ctx, argv, timeout)
+}
+
+func (r *Registry) execShell(ctx context.Context, command string, timeout int) (*docker.ExecResult, error) {
+	if r == nil {
+		return nil, fmt.Errorf("sandbox is not configured")
+	}
+	flowID := execution.FlowID(ctx)
+	if r.flows != nil && flowID != "" {
+		if err := r.prepareFlow(ctx, flowID); err != nil {
+			return nil, err
+		}
+		return r.flows.ExecuteInFlow(ctx, flowID, command, timeout)
+	}
+	if execution.Required(ctx) {
+		return nil, fmt.Errorf("per-flow sandbox is required")
+	}
+	if r.sandbox == nil {
+		return nil, fmt.Errorf("sandbox is not configured")
+	}
+	return r.sandbox.Execute(ctx, command, timeout)
+}
+
+func (r *Registry) prepareFlow(ctx context.Context, flowID string) error {
+	if err := r.flows.Ensure(ctx, flowID); err != nil {
+		return err
+	}
+	if !execution.HasGateway(ctx) && !execution.Required(ctx) {
+		return nil
+	}
+	containerIP, err := r.flows.GetContainerIP(ctx, flowID)
+	if err != nil {
+		return err
+	}
+	if r.firewall == nil {
+		if execution.Required(ctx) {
+			return fmt.Errorf("host firewall is required")
+		}
+		var permits []docker.EgressPermit
+		if gw := execution.GatewayFrom(ctx); gw != nil && gw.Egress() != nil {
+			for _, permit := range gw.Egress().Permits(flowID) {
+				permits = append(permits, docker.EgressPermit{IP: permit.IP, Port: permit.Port, Protocol: permit.Protocol})
+			}
+		}
+		return r.flows.EnforceEgress(ctx, flowID, permits)
+	}
+	var rules []execution.NetworkRule
+	if gw := execution.GatewayFrom(ctx); gw != nil && gw.Egress() != nil {
+		for _, permit := range gw.Egress().Permits(flowID) {
+			if permit.IP == nil || permit.Port <= 0 {
+				continue
+			}
+			rules = append(rules, execution.NetworkRule{
+				FlowID:      flowID,
+				ContainerIP: containerIP,
+				Protocol:    permit.Protocol,
+				IP:          permit.IP,
+				Port:        permit.Port,
+			})
+		}
+	}
+	r.firewall.BindContainerIP(flowID, containerIP)
+	return r.firewall.ApplyFlowRules(ctx, flowID, rules)
+}
+
+func attachWorkspace(ctx context.Context, result *docker.ExecResult, tool string) {
+	if result == nil {
+		return
+	}
+	if result.Tool == "" {
+		result.Tool = tool
+	}
+	flowID := execution.FlowID(ctx)
+	if flowID == "" {
+		return
+	}
+	result.FlowID = flowID
+	dir, err := execution.EnsureWorkspace(flowID)
+	if err != nil {
+		return
+	}
+	result.Workspace = dir
+	if len(result.Artifacts) > 0 {
+		return
+	}
+	result.Artifacts = execution.RelativeWorkspaceFiles(dir)
+}
+
+func toolName(argv []string) string {
+	if len(argv) == 0 {
+		return ""
+	}
+	return argv[0]
+}
+
+func execFromOutput(out execution.ToolOutput) *docker.ExecResult {
+	return &docker.ExecResult{
+		FlowID:    out.FlowID,
+		Tool:      out.Tool,
+		Stdout:    out.Stdout,
+		Stderr:    out.Stderr,
+		ExitCode:  out.ExitCode,
+		Duration:  out.Duration,
+		Workspace: out.Workspace,
+		Artifacts: append([]string{}, out.Artifacts...),
+		Status:    out.Status,
+		Reason:    out.Reason,
+	}
+}
+
+func formatSandboxOutput(result *docker.ExecResult) string {
+	if result == nil {
+		return ""
+	}
+	status := result.Status
+	if status == "" {
+		if result.ExitCode == 0 {
+			status = "ok"
+		} else {
+			status = "failed"
+		}
+	}
+	output := fmt.Sprintf("[mirage-result] flow_id=%s tool=%s status=%s exit_code=%d duration_ms=%d workspace=%s reason=%s\n",
+		result.FlowID, result.Tool, status, result.ExitCode, result.Duration.Milliseconds(), result.Workspace, result.Reason)
+	if len(result.Artifacts) > 0 {
+		output += "artifacts=" + strings.Join(result.Artifacts, ",") + "\n"
+	}
+	output += result.Stdout
 	if result.Stderr != "" {
 		output += "\n" + result.Stderr
 	}
 	output += fmt.Sprintf("\n\n[Exit Code: %d | Duration: %s]", result.ExitCode, result.Duration.Round(time.Millisecond))
-
-	// Truncate very long output to avoid filling LLM context
+	if len(result.Artifacts) > 0 {
+		output += "\nArtifacts:\n" + strings.Join(result.Artifacts, "\n")
+	}
 	const maxOutput = 15000
 	if len(output) > maxOutput {
 		output = output[:maxOutput] + "\n\n... [output truncated, showing first 15000 characters]"
 	}
-
-	return output, nil
+	return output
 }
 
 // Register adds a tool to the registry
@@ -374,12 +595,12 @@ func (r *Registry) analyzeSourceCode(ctx context.Context, args json.RawMessage) 
 	log.Printf("[ANALYZE] CodeMapper: Analyzing %s (focus: %s)", cleanURL, params.Focus)
 
 	// Step 1: wipe previous clone via argv (no shell interpolation).
-	if _, err := r.sandbox.ExecuteArgv(ctx, []string{"rm", "-rf", "/tmp/codemapper_repo"}, 30); err != nil {
+	if _, err := r.execArgv(ctx, []string{"rm", "-rf", "/tmp/codemapper_repo"}, 30); err != nil {
 		return "", fmt.Errorf("codemapper cleanup failed: %w", err)
 	}
 
 	// Step 2: clone via argv — the URL is never seen by a shell.
-	cloneRes, err := r.sandbox.ExecuteArgv(ctx, []string{
+	cloneRes, err := r.execArgv(ctx, []string{
 		"git", "clone", "--depth=1", "--", cleanURL, "/tmp/codemapper_repo",
 	}, 120)
 	if err != nil {
@@ -424,7 +645,7 @@ func (r *Registry) analyzeSourceCode(ctx context.Context, args json.RawMessage) 
 
 	fullCmd := fmt.Sprintf("%s && echo '=== Security Analysis ===' && %s", statsCmd, grepPatterns)
 
-	result, err := r.sandbox.Execute(ctx, fullCmd, 120)
+	result, err := r.execShell(ctx, fullCmd, 120)
 	if err != nil {
 		return "", fmt.Errorf("codemapper execution failed: %w", err)
 	}

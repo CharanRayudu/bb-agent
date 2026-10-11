@@ -4,11 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"log"
 	"net"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -71,6 +73,7 @@ import (
 	"github.com/bb-agent/mirage/internal/agents/xxe"
 	"github.com/bb-agent/mirage/internal/config"
 	"github.com/bb-agent/mirage/internal/database"
+	"github.com/bb-agent/mirage/internal/execution"
 	"github.com/bb-agent/mirage/internal/llm"
 	"github.com/bb-agent/mirage/internal/models"
 	"github.com/bb-agent/mirage/internal/pipeline"
@@ -144,14 +147,18 @@ type HallucinationEntry struct {
 
 // SwarmAgentSpec is a richer agent dispatch format from the Planner
 type SwarmAgentSpec struct {
-	Type         string `json:"type"`                    // e.g. "SQLi", "XSS", "Code Review"
-	Target       string `json:"target,omitempty"`        // specific endpoint/param
-	Context      string `json:"context,omitempty"`       // what the planner observed
-	Hypothesis   string `json:"hypothesis,omitempty"`    // focused attack-path hypothesis
-	Proof        string `json:"proof,omitempty"`         // proof required for promotion
-	RequiresAuth bool   `json:"requires_auth,omitempty"` // whether auth continuity matters
-	AuthContext  string `json:"auth_context,omitempty"`  // auth notes/cookies/tokens to preserve
-	Priority     string `json:"priority,omitempty"`      // "critical", "high", "medium", "low"
+	Type               string  `json:"type"`                 // e.g. "SQLi", "XSS", "Code Review"
+	Target             string  `json:"target,omitempty"`     // specific endpoint/param
+	Context            string  `json:"context,omitempty"`    // what the planner observed
+	Hypothesis         string  `json:"hypothesis,omitempty"` // focused attack-path hypothesis
+	Proof              string  `json:"proof,omitempty"`      // proof required for promotion
+	DecisionSource     string  `json:"decision_source,omitempty"`
+	DecisionConfidence float64 `json:"decision_confidence,omitempty"`
+	DecisionLatencyMS  int64   `json:"decision_latency_ms,omitempty"`
+	DecisionReason     string  `json:"decision_reason,omitempty"`
+	RequiresAuth       bool    `json:"requires_auth,omitempty"` // whether auth continuity matters
+	AuthContext        string  `json:"auth_context,omitempty"`  // auth notes/cookies/tokens to preserve
+	Priority           string  `json:"priority,omitempty"`      // "critical", "high", "medium", "low"
 }
 
 // Orchestrator is the main AI agent that plans and executes pentest tasks
@@ -209,6 +216,17 @@ type Orchestrator struct {
 
 	// Webhook notifier for critical/high finding alerts
 	webhookNotifier *WebhookNotifier
+
+	// execGateway is the v2 authorization boundary. When requireExecutionV2
+	// is set, tool calls with a nil gateway are denied.
+	execGateway        *execution.Gateway
+	requireExecutionV2 bool
+	decisionPlanner    *Planner
+
+	// fatalLLM is set when the generative model fails permanently. RunFlow
+	// must not mark the engagement completed or emit a successful report.
+	fatalLLM   error
+	fatalLLMMu sync.Mutex
 }
 
 func buildSpecialists(provider llm.Provider) map[string]Specialist {
@@ -503,6 +521,7 @@ func NewOrchestrator(provider llm.Provider, registry *tools.Registry, db *sql.DB
 	// Register brain-integrated tools
 	o.toolRegistry.AddPayloadMutationTool(provider)
 	o.toolRegistry.AddVisualCrawlTool(func(ctx context.Context, url string) (string, error) {
+		ctx = o.bindExecutionContext(ctx, uuid.Nil)
 		res, err := base.RunCrawl(ctx, url, base.DefaultBrowserOptions())
 		if err != nil {
 			if base.IsBrowserUnavailableError(err) {
@@ -604,6 +623,103 @@ func (o *Orchestrator) SetConductor(c *Conductor) {
 // GetEventBus returns the internal event bus
 func (o *Orchestrator) GetEventBus() *EventBus {
 	return o.bus
+}
+
+// SetExecutionGateway installs the v2 action gateway.
+// required makes a missing gateway fail closed for tool calls.
+func (o *Orchestrator) SetExecutionGateway(g *execution.Gateway, required bool) {
+	o.execGateway = g
+	o.requireExecutionV2 = required
+}
+
+// SetDecisionPlanner routes specialist labels through Decision-1 when it is confident.
+func (o *Orchestrator) SetDecisionPlanner(p *Planner) {
+	if o != nil {
+		o.decisionPlanner = p
+	}
+}
+
+// routeSpecialists asks Decision-1 to label specs. A missing planner leaves them unchanged.
+func (o *Orchestrator) routeSpecialists(ctx context.Context, specs []SwarmAgentSpec) []SwarmAgentSpec {
+	if o == nil || o.decisionPlanner == nil {
+		return specs
+	}
+	return o.decisionPlanner.RouteSpecs(ctx, specs)
+}
+
+// bindExecutionContext attaches the flow gateway so direct browser calls,
+// including the SPA crawl, cannot skip the action gateway.
+func (o *Orchestrator) bindExecutionContext(ctx context.Context, flowID uuid.UUID) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if o != nil && o.execGateway != nil {
+		ctx = execution.WithGateway(ctx, o.execGateway)
+	}
+	if o != nil && o.requireExecutionV2 {
+		ctx = execution.WithRequired(ctx)
+	}
+	if flowID != uuid.Nil {
+		ctx = execution.WithFlowID(ctx, flowID.String())
+	}
+	return ctx
+}
+
+func (o *Orchestrator) executeToolCall(ctx context.Context, name string, args json.RawMessage, tool *tools.Tool, flowID, taskID uuid.UUID) (string, error) {
+	return ExecuteWithHealing(ctx, name, func(callArgs json.RawMessage) (string, error) {
+		finalArgs := callArgs
+		if name == "execute_command" && o.rateLimiter != nil {
+			var params map[string]interface{}
+			if err := json.Unmarshal(callArgs, &params); err == nil {
+				if cmd, ok := params["command"].(string); ok {
+					params["command"] = o.rateLimiter.InjectRateFlags(cmd)
+					if encoded, err := json.Marshal(params); err == nil {
+						finalArgs = encoded
+					}
+				}
+			}
+		}
+		run := func(runCtx context.Context) (string, error) {
+			output, err := tool.Execute(runCtx, finalArgs)
+			if o.isWAFBlocked(output) {
+				o.emit(flowID.String(), Event{
+					Type:    EventMessage,
+					FlowID:  flowID.String(),
+					TaskID:  taskID.String(),
+					Content: "[ALERT] [WAF BLOCK] Evasion strategy triggered.",
+				})
+				if o.strategist != nil {
+					strategy := o.strategist.SuggestedEncoding(name, output)
+					o.emit(flowID.String(), Event{
+						Type:    EventMessage,
+						FlowID:  flowID.String(),
+						TaskID:  taskID.String(),
+						Content: fmt.Sprintf("[STRATEGY] Strategist suggesting shift to: %s", strategy),
+					})
+				}
+				if o.rateLimiter != nil {
+					o.rateLimiter.SlowDown()
+				}
+			} else if o.rateLimiter != nil && o.rateLimiter.IsWAFDetected() {
+				o.rateLimiter.SpeedUp()
+			}
+			return output, err
+		}
+		if o.requireExecutionV2 && o.execGateway == nil {
+			return "", execution.ErrGatewayRequired
+		}
+		if o.execGateway != nil {
+			return o.execGateway.ExecuteTool(ctx, flowID.String(), name, "orchestrator", finalArgs, run)
+		}
+		return run(ctx)
+	}, args, func(msg string) {
+		o.emit(flowID.String(), Event{
+			Type:    EventMessage,
+			FlowID:  flowID.String(),
+			TaskID:  taskID.String(),
+			Content: msg,
+		})
+	})
 }
 
 // SetKnowledgeGraph replaces the orchestrator's knowledge graph with a shared instance.
@@ -723,8 +839,18 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 	}
 
 	base.ResetBrowserAutomation()
+	ctx = o.bindExecutionContext(ctx, flowID)
+	if o.execGateway != nil {
+		flowProxy, proxyErr := execution.StartFlowProxy(o.execGateway, flowID.String())
+		if proxyErr != nil {
+			return fmt.Errorf("flow egress proxy: %w", proxyErr)
+		}
+		defer flowProxy.Close()
+		ctx = execution.WithFlowProxy(ctx, flowProxy)
+	}
 
-	// Reset internal event bus for this flow to clear old subscribers
+	// Drop scan-local subscribers from a previous run. Durable listeners,
+	// including the WebSocket queue-metrics bridge, stay attached.
 	o.bus.Reset()
 
 	// Initialize pipeline state machine for this scan
@@ -782,7 +908,14 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 
 	// ── Mythos: WAF fingerprint at scan start (shared across all agents) ──
 	{
-		wafCtx, cancelWAF := context.WithTimeout(ctx, 10*time.Second)
+		wafBase := ctx
+		if o.execGateway != nil {
+			wafBase = execution.WithGateway(wafBase, o.execGateway)
+		}
+		if o.requireExecutionV2 {
+			wafBase = execution.WithRequired(wafBase)
+		}
+		wafCtx, cancelWAF := context.WithTimeout(wafBase, 10*time.Second)
 		wafRes := FingerprintWAF(wafCtx, flow.Target)
 		cancelWAF()
 		o.wafResultMu.Lock()
@@ -1247,13 +1380,16 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		}
 
 		reconResult := o.runAgentLoop(reconCtx, flowID, task.ID, reconSubtask.ID, reconPrompt, "Start Recon.", &brain, &brainMu)
+		if err := o.abortIfFatalLLM(flowID, task.ID, "reconnaissance"); err != nil {
+			return err
+		}
 
 		// ==========================================
 		// PHASE 1.5: SPA DEEP CRAWL (Headless Discovery)
 		// ==========================================
 		o.emit(flowID.String(), Event{Type: EventMessage, FlowID: flowID.String(), TaskID: task.ID.String(), Content: "[CRAWL] Phase 1.5: SPA Deep Crawl (Headless Browser Discovery)"})
 
-		crawlCtx, cancelCrawl := context.WithTimeout(ctx, 30*time.Second)
+		crawlCtx, cancelCrawl := context.WithTimeout(o.bindExecutionContext(ctx, flowID), 30*time.Second)
 		crawlResults, crawlErr := base.RunCrawl(crawlCtx, flow.Target, base.DefaultBrowserOptions())
 		cancelCrawl()
 
@@ -1459,6 +1595,7 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		}
 
 		agentSpecs = filterDispatchSpecs(agentSpecs, dispatchedSpecs, flow.Target, base.BrowserAvailable())
+		agentSpecs = o.routeSpecialists(plannerCtx, agentSpecs)
 
 		o.emit(flowID.String(), Event{
 			Type:     EventMessage,
@@ -1939,6 +2076,9 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		// ==========================================
 		// PHASE 5: REPORTING
 		// ==========================================
+		if err := o.abortIfFatalLLM(flowID, task.ID, "reporting"); err != nil {
+			return err
+		}
 		if err := o.pipeline.Advance("Validation complete", nil); err != nil {
 			log.Printf("[pipeline] Advance to REPORTING failed: %v", err)
 		}
@@ -1977,6 +2117,15 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 			swarmRes += fmt.Sprintf("- %s: %s (param: %s)\n", f.Type, f.URL, f.Parameter)
 		}
 
+		if o.queries != nil {
+			if arts, artErr := o.queries.ListWorkspaceArtifacts(flowID); artErr == nil && len(arts) > 0 {
+				swarmRes += "\nEvidence files:\n"
+				for _, art := range arts {
+					swarmRes += fmt.Sprintf("- %s (%s)\n", art.Name, art.Path)
+				}
+			}
+		}
+
 		finalReport := o.reporter.GenerateReport(
 			flow.Target,
 			flowID,
@@ -1989,6 +2138,9 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 			pocResult,
 		)
 
+		if err := o.queries.SaveFinalReport(flowID, finalReport); err != nil {
+			log.Printf("[report] could not store the final report: %v", err)
+		}
 		o.queries.UpdateTaskStatus(task.ID, models.TaskStatusDone, finalReport)
 		o.queries.UpdateFlowStatus(flowID, models.FlowStatusCompleted)
 
@@ -2125,6 +2277,11 @@ func (o *Orchestrator) runAgentLoop(ctx context.Context, flowID uuid.UUID, taskI
 			o.updateLedgerSubTask(subtaskID, models.SubTaskStatusFailed, err.Error(), models.SubTaskOutcomeBlockedByRuntime, map[string]any{
 				"reason": "llm completion failed",
 			})
+			if llm.IsPermanentModelError(err) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				o.setFatalLLM(err)
+			} else if isUnrecoverableLLMError(err) {
+				o.setFatalLLM(err)
+			}
 			return "Error: " + err.Error()
 		}
 
@@ -2152,87 +2309,78 @@ func (o *Orchestrator) runAgentLoop(ctx context.Context, flowID uuid.UUID, taskI
 
 				tool, ok := o.toolRegistry.Get(tc.Name)
 				var res string
+				var callErr error
 				if !ok {
 					res = "Tool not found: " + tc.Name
+					callErr = fmt.Errorf("tool not found")
+				} else if o.execGateway != nil || o.requireExecutionV2 {
+					res, callErr = o.executeToolCall(ctx, tc.Name, json.RawMessage(tc.Arguments), tool, flowID, taskID)
+					if callErr != nil && res == "" {
+						res = callErr.Error()
+					}
 				} else {
-					// 1. Scope Check
 					inScope := true
 					reason := ""
 					if o.scope != nil {
 						inScope, reason = o.scope.ValidateToolArgs(tc.Name, json.RawMessage(tc.Arguments))
 					}
-
 					if !inScope {
 						res = reason
+						callErr = fmt.Errorf("%s", reason)
 					} else {
-						// 2. Execute with Self-Healing Resilience
-						res, _ = ExecuteWithHealing(ctx, tc.Name, func(args json.RawMessage) (string, error) {
-							// 3. Adaptive Rate Flag Injection
-							finalArgs := args
-							if tc.Name == "execute_command" {
-								var params map[string]interface{}
-								json.Unmarshal(args, &params)
-								if cmd, ok := params["command"].(string); ok {
-									params["command"] = o.rateLimiter.InjectRateFlags(cmd)
-									finalArgs, _ = json.Marshal(params)
-								}
-							}
-
-							output, err := tool.Execute(ctx, finalArgs)
-
-							// 4. WAF/Throttle Detection & Strategy Shift (Phase 14)
-							if o.isWAFBlocked(output) {
-								o.emit(flowID.String(), Event{
-									Type:    EventMessage,
-									FlowID:  flowID.String(),
-									TaskID:  taskID.String(),
-									Content: "[ALERT] [WAF BLOCK] Evasion strategy triggered.",
-								})
-								strategy := o.strategist.SuggestedEncoding(tc.Name, output)
-								o.emit(flowID.String(), Event{
-									Type:    EventMessage,
-									FlowID:  flowID.String(),
-									TaskID:  taskID.String(),
-									Content: fmt.Sprintf("[STRATEGY] Strategist suggesting shift to: %s", strategy),
-								})
-								o.rateLimiter.SlowDown()
-							} else if o.rateLimiter.IsWAFDetected() {
-								o.rateLimiter.SpeedUp()
-							}
-
-							return output, err
-						}, json.RawMessage(tc.Arguments), func(msg string) {
-							o.emit(flowID.String(), Event{
-								Type:    EventMessage,
-								FlowID:  flowID.String(),
-								TaskID:  taskID.String(),
-								Content: msg,
-							})
-						})
+						res, callErr = o.executeToolCall(ctx, tc.Name, json.RawMessage(tc.Arguments), tool, flowID, taskID)
 					}
 				}
 
-				// Restore Action Persistence
 				if o.queries != nil {
-					o.queries.CreateAction(subtaskID, models.ActionTypeCommand, tc.Arguments, res, "success")
+					fields := mirageResultFields(res)
+					status := "success"
+					if callErr != nil {
+						status = "denied"
+					} else if fields["status"] == "failed" {
+						status = "failed"
+					}
+					action, actionErr := o.queries.CreateAction(subtaskID, models.ActionTypeCommand, tc.Arguments, res, status)
+					if actionErr != nil {
+						log.Printf("[artifact] could not store tool action: %v", actionErr)
+					}
+					root, _ := execution.EnsureWorkspace(flowID.String())
+					for _, path := range strings.Split(fields["artifacts"], ",") {
+						path = strings.TrimSpace(path)
+						if path == "" {
+							continue
+						}
+						rel := execution.WorkspaceRelative(root, path)
+						var actionID *uuid.UUID
+						if action != nil {
+							actionID = &action.ID
+						}
+						if err := o.queries.SaveWorkspaceArtifact(flowID, actionID, rel, rel, tc.Name, fields["status"]); err != nil {
+							log.Printf("[artifact] could not store %s: %v", rel, err)
+						}
+					}
 				}
 
+				toolMeta := map[string]interface{}{
+					"tool":       tc.Name,
+					"subtask_id": subtaskID.String(),
+				}
+				for key, value := range mirageResultFields(res) {
+					toolMeta[key] = value
+				}
 				o.emit(flowID.String(), Event{
-					Type:    EventToolResult,
-					FlowID:  flowID.String(),
-					TaskID:  taskID.String(),
-					Content: res,
-					Metadata: map[string]interface{}{
-						"tool":       tc.Name,
-						"subtask_id": subtaskID.String(),
-					},
+					Type:     EventToolResult,
+					FlowID:   flowID.String(),
+					TaskID:   taskID.String(),
+					Content:  res,
+					Metadata: toolMeta,
 				})
 				chatMsgs = append(chatMsgs, models.ChatMessage{Role: "tool", Content: res, ToolCallID: tc.ID})
 
 				// ============================================
 				// Feature: Redirect Tracking (302 Intelligence)
 				// ============================================
-				if tc.Name == "execute_command" {
+				if tc.Name == "execute_command" || tc.Name == "run_security_tool" {
 					if insight := redirectTracker.Analyze(res); insight != nil && insight.ShouldPivot {
 						// Inject auth wall alert into the conversation
 						chatMsgs = append(chatMsgs, models.ChatMessage{
@@ -2368,7 +2516,7 @@ func (o *Orchestrator) runAgentLoop(ctx context.Context, flowID uuid.UUID, taskI
 				}
 
 				// Victory Hierarchy Check: Stop if we've achieved high impact
-				if tc.Name == "execute_command" {
+				if tc.Name == "execute_command" || tc.Name == "run_security_tool" {
 					lowerRes := strings.ToLower(res)
 					if strings.Contains(lowerRes, "success") || strings.Contains(lowerRes, "pwned") || strings.Contains(lowerRes, "vulnerable") {
 						successCount++
@@ -2916,27 +3064,12 @@ func buildFallbackAgentSpecs(baseTarget string, brain *Brain) []SwarmAgentSpec {
 			continue
 		}
 
-		switch {
-		case strings.Contains(note, "login"), strings.Contains(note, "auth"), strings.Contains(note, "credential"):
-			addSpec(SwarmAgentSpec{Type: "Auth Discovery", Target: extractTargetHint(raw), Context: raw, Priority: "high"})
-		case strings.Contains(note, "/api"), strings.Contains(note, "json"), strings.Contains(note, "graphql"):
-			addSpec(SwarmAgentSpec{Type: "API Security", Target: extractTargetHint(raw), Context: raw, Priority: "high"})
-		case strings.Contains(note, "upload"):
-			addSpec(SwarmAgentSpec{Type: "File Upload", Target: extractTargetHint(raw), Context: raw, Priority: "high"})
-		case strings.Contains(note, "xss"), strings.Contains(note, "script"), strings.Contains(note, "dom"):
-			addSpec(SwarmAgentSpec{Type: "XSS", Target: extractTargetHint(raw), Context: raw, Priority: "high"})
-		case strings.Contains(note, "sqli"), strings.Contains(note, "sql"), strings.Contains(note, "database"):
-			addSpec(SwarmAgentSpec{Type: "SQLi", Target: extractTargetHint(raw), Context: raw, Priority: "high"})
-		case strings.Contains(note, "ssrf"), strings.Contains(note, "metadata"), strings.Contains(note, "callback"):
-			addSpec(SwarmAgentSpec{Type: "SSRF", Target: extractTargetHint(raw), Context: raw, Priority: "high"})
-		case strings.Contains(note, "include"), strings.Contains(note, "passwd"), strings.Contains(note, "traversal"), strings.Contains(note, "lfi"):
-			addSpec(SwarmAgentSpec{Type: "LFI", Target: extractTargetHint(raw), Context: raw, Priority: "high"})
-		case strings.Contains(note, "exec"), strings.Contains(note, "command"), strings.Contains(note, "shell"), strings.Contains(note, "rce"):
-			addSpec(SwarmAgentSpec{Type: "RCE", Target: extractTargetHint(raw), Context: raw, Priority: "high"})
-		case strings.Contains(note, "idor"), strings.Contains(note, "object id"), strings.Contains(note, "profile"), strings.Contains(note, "account"):
-			addSpec(SwarmAgentSpec{Type: "IDOR", Target: extractTargetHint(raw), Context: raw, Priority: "medium"})
-		case strings.Contains(note, "spa"), strings.Contains(note, "react"), strings.Contains(note, "vue"), strings.Contains(note, "angular"):
-			addSpec(SwarmAgentSpec{Type: "Visual Crawler", Target: extractTargetHint(raw), Context: raw, Priority: "medium"})
+		if kind := RuleSpecialist(raw); kind != "" {
+			priority := "high"
+			if kind == "IDOR" || kind == "Visual Crawler" {
+				priority = "medium"
+			}
+			addSpec(SwarmAgentSpec{Type: kind, Target: extractTargetHint(raw), Context: raw, Priority: priority})
 		}
 	}
 
@@ -2990,6 +3123,28 @@ func buildFallbackAgentSpecs(baseTarget string, brain *Brain) []SwarmAgentSpec {
 
 // isToolOutputFailure detects failure patterns in tool execution output.
 // Returns true if the output indicates a failed/unproductive command execution.
+func mirageResultFields(output string) map[string]string {
+	fields := map[string]string{}
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "artifacts=") {
+			fields["artifacts"] = strings.TrimPrefix(line, "artifacts=")
+			continue
+		}
+		if !strings.HasPrefix(line, "[mirage-result]") {
+			continue
+		}
+		rest := strings.TrimSpace(strings.TrimPrefix(line, "[mirage-result]"))
+		for _, part := range strings.Fields(rest) {
+			key, value, ok := strings.Cut(part, "=")
+			if ok && key != "" {
+				fields[key] = value
+			}
+		}
+	}
+	return fields
+}
+
 func isToolOutputFailure(output string) bool {
 	if output == "" || output == "null" || output == "{}" {
 		return true
@@ -3060,6 +3215,63 @@ func (o *Orchestrator) AddCausalNode(brain *Brain, brainMu *sync.Mutex, node mod
 	brain.CausalGraph.Nodes[node.ID] = &n
 }
 
+func (o *Orchestrator) setFatalLLM(err error) {
+	if o == nil || err == nil {
+		return
+	}
+	o.fatalLLMMu.Lock()
+	defer o.fatalLLMMu.Unlock()
+	if o.fatalLLM == nil {
+		o.fatalLLM = err
+	}
+}
+
+func (o *Orchestrator) fatalLLMError() error {
+	if o == nil {
+		return nil
+	}
+	o.fatalLLMMu.Lock()
+	defer o.fatalLLMMu.Unlock()
+	return o.fatalLLM
+}
+
+func (o *Orchestrator) abortIfFatalLLM(flowID, taskID uuid.UUID, phase string) error {
+	err := o.fatalLLMError()
+	if err == nil {
+		return nil
+	}
+	msg := fmt.Sprintf("scan aborted during %s: %v", phase, err)
+	o.emit(flowID.String(), Event{Type: EventError, FlowID: flowID.String(), TaskID: taskID.String(), Content: msg})
+	if o.queries != nil {
+		_ = o.queries.UpdateTaskStatus(taskID, models.TaskStatusFailed, msg)
+		_ = o.queries.UpdateFlowStatus(flowID, models.FlowStatusFailed)
+	}
+	return fmt.Errorf("%s", msg)
+}
+
+func isUnrecoverableLLMError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if llm.IsPermanentModelError(err) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	for _, signal := range []string{
+		"invalid api key",
+		"incorrect api key",
+		"authentication",
+		"unauthorized",
+		"no llm authentication",
+		"permanent llm failure",
+	} {
+		if strings.Contains(msg, signal) {
+			return true
+		}
+	}
+	return false
+}
+
 // validateScanTarget rejects private/loopback/link-local targets to prevent SSRF misuse.
 func validateScanTarget(target string) error {
 	u, err := url.Parse(target)
@@ -3084,15 +3296,41 @@ func validateScanTarget(target string) error {
 		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
 			return fmt.Errorf("target %s resolves to reserved/loopback address %s — refusing scan", target, addr)
 		}
-		// Block RFC-1918 private ranges
+		// Block RFC-1918 private ranges unless the operator named this host or address.
 		for _, cidr := range []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "fc00::/7"} {
 			_, privateNet, _ := net.ParseCIDR(cidr)
-			if privateNet != nil && privateNet.Contains(ip) {
-				return fmt.Errorf("target %s resolves to private address %s — refusing scan (configure allowlist to override)", target, addr)
+			if privateNet != nil && privateNet.Contains(ip) && !targetAllowlisted(hostname, addr) {
+				return fmt.Errorf("target %s resolves to private address %s — refusing scan (configure MIRAGE_TARGET_ALLOWLIST to override)", target, addr)
 			}
 		}
 	}
 	return nil
+}
+
+// targetAllowlisted reports whether MIRAGE_TARGET_ALLOWLIST names this host or address.
+// Entries are comma-separated hostnames, IPs, or CIDRs. Loopback is never listed here.
+func targetAllowlisted(hostname, address string) bool {
+	raw := strings.TrimSpace(os.Getenv("MIRAGE_TARGET_ALLOWLIST"))
+	if raw == "" {
+		return false
+	}
+	host := strings.ToLower(strings.TrimSpace(hostname))
+	ip := net.ParseIP(address)
+	for _, entry := range strings.Split(raw, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		if strings.EqualFold(entry, host) || entry == address {
+			return true
+		}
+		if ip != nil {
+			if _, network, err := net.ParseCIDR(entry); err == nil && network.Contains(ip) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // AddCausalEdge safely links two nodes in the Brain's CausalGraph
