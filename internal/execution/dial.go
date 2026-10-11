@@ -68,7 +68,7 @@ func dialPinned(ctx context.Context, network, address string, ips []net.IP) (net
 	for _, ip := range ips {
 		if egress := EgressFrom(ctx); egress != nil && FlowID(ctx) != "" {
 			portNum, _ := strconv.Atoi(port)
-			if !egress.Allows(FlowID(ctx), ip, portNum) {
+			if !egress.Allows(FlowID(ctx), ip, portNum, network) {
 				return nil, ErrEgressDenied
 			}
 		}

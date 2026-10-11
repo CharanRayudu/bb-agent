@@ -111,13 +111,15 @@ RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest 
     go install -v github.com/BishopFox/jsluice/cmd/jsluice@latest
 
 RUN set -eux; \
-    DALFOX_URL="$(curl -fsSL https://api.github.com/repos/hahwul/dalfox/releases/latest | jq -r '.assets[] | select(.name == "dalfox-linux-amd64.tar.gz") | .browser_download_url')"; \
+    DALFOX_URL="$(curl -fsSL https://api.github.com/repos/hahwul/dalfox/releases/latest | jq -r '.assets[] | select(.name | test("linux-x86_64.tar.gz$")) | .browser_download_url')"; \
     test -n "$DALFOX_URL"; \
     curl -fsSL "$DALFOX_URL" -o /tmp/dalfox.tar.gz; \
-    tar -xzf /tmp/dalfox.tar.gz -C /usr/local/bin/ dalfox-linux-amd64; \
-    mv /usr/local/bin/dalfox-linux-amd64 /usr/local/bin/dalfox; \
+    tar -xzf /tmp/dalfox.tar.gz -C /tmp; \
+    bin="$(find /tmp -type f -name 'dalfox' -o -name 'dalfox-linux-x86_64' | head -n 1)"; \
+    test -n "$bin"; \
+    mv "$bin" /usr/local/bin/dalfox; \
     chmod +x /usr/local/bin/dalfox; \
-    rm -f /tmp/dalfox.tar.gz
+    rm -rf /tmp/dalfox.tar.gz /tmp/dalfox /tmp/dalfox-*
 
 # Install Rust-based tools
 RUN cargo install feroxbuster && \

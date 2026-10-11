@@ -72,14 +72,14 @@ func CaptureScreenshot(ctx context.Context, targetURL string) ([]byte, error) {
 		return nil, err
 	}
 	defer closeProxy()
-	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+	opts := base.WithChromePath(append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.NoFirstRun,
 		chromedp.NoDefaultBrowserCheck,
 		chromedp.Flag("headless", true),
 		chromedp.Flag("no-sandbox", true),
 		chromedp.Flag("disable-gpu", true),
 		chromedp.Flag("disable-dev-shm-usage", true),
-	)
+	))
 	if browserOpts.Proxy != "" {
 		opts = append(opts, chromedp.ProxyServer(browserOpts.Proxy))
 	}

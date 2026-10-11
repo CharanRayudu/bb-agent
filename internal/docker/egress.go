@@ -11,8 +11,9 @@ import (
 
 // EgressPermit is one destination socket the flow container may open.
 type EgressPermit struct {
-	IP   net.IP
-	Port int
+	IP       net.IP
+	Port     int
+	Protocol string
 }
 
 // EnforceEgress installs an OUTPUT filter inside the flow container.
@@ -60,9 +61,12 @@ func applyFamily(ctx context.Context, cli *client.Client, containerID, binary st
 		}
 		ip := permit.IP.String()
 		port := fmt.Sprintf("%d", permit.Port)
+		proto := strings.ToLower(permit.Protocol)
+		if proto != "udp" {
+			proto = "tcp"
+		}
 		commands = append(commands,
-			[]string{binary, "-A", "MIRAGE_EGRESS", "-d", ip, "-p", "tcp", "--dport", port, "-j", "ACCEPT"},
-			[]string{binary, "-A", "MIRAGE_EGRESS", "-d", ip, "-p", "udp", "--dport", port, "-j", "ACCEPT"},
+			[]string{binary, "-A", "MIRAGE_EGRESS", "-d", ip, "-p", proto, "--dport", port, "-j", "ACCEPT"},
 		)
 		if !seenICMP[ip] {
 			seenICMP[ip] = true

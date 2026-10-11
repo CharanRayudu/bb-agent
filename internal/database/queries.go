@@ -3,12 +3,14 @@ package database
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/bb-agent/mirage/internal/models"
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 // Queries provides data access methods
@@ -82,6 +84,59 @@ func (q *Queries) ListFlows() ([]models.Flow, error) {
 		flows = append(flows, f)
 	}
 	return flows, nil
+}
+
+// FailInterruptedFlows marks scans left active by a dead process as failed.
+// Running tasks and subtasks on those scans are failed in the same transaction
+// so the UI does not keep showing a live job under a dead flow. A paused flow
+// is an operator choice and is left alone.
+func (q *Queries) FailInterruptedFlows() (int64, error) {
+	if q == nil || q.db == nil {
+		return 0, fmt.Errorf("database is not configured")
+	}
+	tx, err := q.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.Query(`UPDATE flows SET status = 'failed', updated_at = NOW() WHERE status = 'active' RETURNING id`)
+	if err != nil {
+		return 0, err
+	}
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	for _, id := range ids {
+		if _, err := tx.Exec(
+			`UPDATE tasks SET status = 'failed', result = CASE WHEN result = '' THEN 'interrupted by process restart' ELSE result END, updated_at = NOW() WHERE flow_id = $1 AND status IN ('pending', 'running')`,
+			id,
+		); err != nil {
+			return 0, err
+		}
+		if _, err := tx.Exec(
+			`UPDATE subtasks SET status = 'failed', updated_at = NOW() WHERE status IN ('queued', 'running') AND task_id IN (SELECT id FROM tasks WHERE flow_id = $1)`,
+			id,
+		); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return int64(len(ids)), nil
 }
 
 func (q *Queries) UpdateFlowStatus(id uuid.UUID, status models.FlowStatus) error {
@@ -244,6 +299,132 @@ func (q *Queries) UpdateSubTaskStatus(id uuid.UUID, status models.SubTaskStatus)
 }
 
 // ============ Actions ============
+
+// WorkspaceArtifact is a file produced by a scanner and stored for the flow.
+type WorkspaceArtifact struct {
+	ID     uuid.UUID `json:"id"`
+	FlowID uuid.UUID `json:"flow_id"`
+	Name   string    `json:"name"`
+	Path   string    `json:"path"`
+	Tool   string    `json:"tool,omitempty"`
+	Status string    `json:"status,omitempty"`
+}
+
+func (q *Queries) SaveWorkspaceArtifact(flowID uuid.UUID, actionID *uuid.UUID, name, path, tool, status string) error {
+	body, err := json.Marshal(map[string]string{"path": path, "tool": tool, "status": status})
+	if err != nil {
+		return err
+	}
+	return q.upsertArtifact(flowID, actionID, "workspace", name, string(body))
+}
+
+func (q *Queries) SaveFinalReport(flowID uuid.UUID, markdown string) error {
+	return q.upsertArtifact(flowID, nil, "report", "final-report", markdown)
+}
+
+func (q *Queries) GetFinalReport(flowID uuid.UUID) (string, error) {
+	if q == nil || q.db == nil {
+		return "", fmt.Errorf("database is not configured")
+	}
+	var content string
+	err := q.db.QueryRow(
+		`SELECT content FROM artifacts WHERE flow_id = $1 AND type = 'report' AND name = 'final-report'`,
+		flowID,
+	).Scan(&content)
+	if err == nil && strings.TrimSpace(content) != "" {
+		return content, nil
+	}
+	if err != nil && err != sql.ErrNoRows {
+		return "", err
+	}
+	err = q.db.QueryRow(
+		`SELECT result FROM tasks WHERE flow_id = $1 AND name = 'Penetration Test' AND status = 'done' AND result <> '' ORDER BY updated_at DESC LIMIT 1`,
+		flowID,
+	).Scan(&content)
+	if err == sql.ErrNoRows || strings.TrimSpace(content) == "" {
+		return "", sql.ErrNoRows
+	}
+	return content, err
+}
+
+func (q *Queries) upsertArtifact(flowID uuid.UUID, actionID *uuid.UUID, kind, name, content string) error {
+	if q == nil || q.db == nil {
+		return fmt.Errorf("database is not configured")
+	}
+	res, err := q.db.Exec(
+		`UPDATE artifacts SET action_id = COALESCE($1, action_id), content = $2 WHERE flow_id = $3 AND type = $4 AND name = $5`,
+		actionID, content, flowID, kind, name,
+	)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		return nil
+	}
+	_, err = q.db.Exec(
+		`INSERT INTO artifacts (id, action_id, flow_id, type, name, content) VALUES ($1, $2, $3, $4, $5, $6)`,
+		uuid.New(), actionID, flowID, kind, name, content,
+	)
+	if err == nil || !isUniqueViolation(err) {
+		return err
+	}
+	_, err = q.db.Exec(
+		`UPDATE artifacts SET action_id = COALESCE($1, action_id), content = $2 WHERE flow_id = $3 AND type = $4 AND name = $5`,
+		actionID, content, flowID, kind, name,
+	)
+	return err
+}
+
+func isUniqueViolation(err error) bool {
+	var pqErr *pq.Error
+	return errors.As(err, &pqErr) && pqErr.Code == "23505"
+}
+
+func (q *Queries) ListWorkspaceArtifacts(flowID uuid.UUID) ([]WorkspaceArtifact, error) {
+	if q == nil || q.db == nil {
+		return nil, fmt.Errorf("database is not configured")
+	}
+	rows, err := q.db.Query(
+		`SELECT id, flow_id, name, content FROM artifacts WHERE flow_id = $1 AND type = 'workspace' ORDER BY name ASC`,
+		flowID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []WorkspaceArtifact
+	for rows.Next() {
+		var item WorkspaceArtifact
+		var content string
+		if err := rows.Scan(&item.ID, &item.FlowID, &item.Name, &content); err != nil {
+			return nil, err
+		}
+		var meta map[string]string
+		_ = json.Unmarshal([]byte(content), &meta)
+		item.Path = meta["path"]
+		item.Tool = meta["tool"]
+		item.Status = meta["status"]
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (q *Queries) GetWorkspaceArtifact(flowID, artifactID uuid.UUID) (*WorkspaceArtifact, error) {
+	items, err := q.ListWorkspaceArtifacts(flowID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range items {
+		if items[i].ID == artifactID {
+			return &items[i], nil
+		}
+	}
+	return nil, sql.ErrNoRows
+}
 
 func (q *Queries) CreateAction(subtaskID uuid.UUID, actionType models.ActionType, input, output, status string) (*models.Action, error) {
 	action := &models.Action{

@@ -30,29 +30,93 @@ services:
     environment:
       DATABASE_URL: postgres://mirage:mirage@postgres:5432/miragedb?sslmode=disable
       DOCKER_HOST: unix:///var/run/docker.sock
+      # Scanners run in the full tool image. The firewall helper is a separate
+      # minimal image and is never used as the scan sandbox.
       SANDBOX_IMAGE: mirage-tools:latest
+      FIREWALL_HELPER_IMAGE: mirage-firewall:local
+      MIRAGE_EXECUTION_V2: ${MIRAGE_EXECUTION_V2:-true}
+      # Optional private-lab override. Loopback stays refused.
+      MIRAGE_TARGET_ALLOWLIST: ${MIRAGE_TARGET_ALLOWLIST:-}
+      # The API writes here. The host path Docker can bind is discovered from
+      # this container's own /workspaces mount, so a Windows ${PWD} is not
+      # passed back through the socket.
+      MIRAGE_WORKSPACE_ROOT: /workspaces
       CODEX_HOME: /root/.codex
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.3-codex}
+      # gpt-5.3-codex is retired for Codex ChatGPT sign-in. Prefer gpt-6.1-sol
+      # or set MIRAGE_LLM_PROVIDER=api_key with OPENAI_API_KEY and gpt-4o.
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-6.1-sol}
+      MIRAGE_LLM_PROVIDER: ${MIRAGE_LLM_PROVIDER:-auto}
+      # Empty fallback lets Mirage use ~/.codex/config.toml when remapping.
+      MIRAGE_LLM_FALLBACK_MODEL: ${MIRAGE_LLM_FALLBACK_MODEL:-}
       # Optional API key fallback (not needed if using codex login)
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # Decision-1 specialist routing. Leave empty to keep deterministic rules.
+      # The generative model above still writes plans, tool calls, and reports.
+      FOUNDRY_ENDPOINT: ${FOUNDRY_ENDPOINT:-}
+      FOUNDRY_DEPLOYMENT: ${FOUNDRY_DEPLOYMENT:-}
+      FOUNDRY_API_KEY: ${FOUNDRY_API_KEY:-}
+      FOUNDRY_TIMEOUT_SECONDS: ${FOUNDRY_TIMEOUT_SECONDS:-15}
+      FOUNDRY_MIN_CONFIDENCE: ${FOUNDRY_MIN_CONFIDENCE:-0.55}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${HOME:-${USERPROFILE}}/.codex:/root/.codex:ro
       - ./logs:/app/logs
+      - ./data/workspaces:/workspaces
     depends_on:
       postgres:
+        condition: service_healthy
+      firewall-helper:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8443/api/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    networks:
+      - mirage-net
+
+  # ============ Frontend ============
+  # The API process only serves frontend/dist when that directory exists.
+  # This container is the deployment path for the React UI.
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: mirage-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
         condition: service_healthy
     networks:
       - mirage-net
 
+  # ============ Firewall helper image ============
+  # Exits after creation. Its image is what the API uses to run iptables
+  # on the Docker host. It is not the scanner sandbox.
+  firewall-helper:
+    image: mirage-firewall:local
+    build:
+      context: ./build/egress-fixture
+    command: ["true"]
+    restart: "no"
+    networks:
+      - mirage-net
+
   # ============ Persistent Sandbox ============
-  # This container stays alive permanently. The backend will 
-  # explicitly `docker exec` into it, meaning installed tools
-  # and downloaded payloads will strictly persist across flows.
+  # Full scanner image (nmap, nuclei, sqlmap, ffuf, curl). Flow containers
+  # are created from SANDBOX_IMAGE. This service keeps that image present.
   sandbox:
     image: mirage-tools:latest
+    build:
+      context: ./build/tools
+      dockerfile: Dockerfile
     container_name: mirage-sandbox
-    command: tail -f /dev/null
+    command: ["tail", "-f", "/dev/null"]
+    depends_on:
+      firewall-helper:
+        condition: service_completed_successfully
     networks:
       - mirage-net
 
