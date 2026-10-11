@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -218,6 +219,42 @@ func copyToolFile(src, dest string) error {
 		return err
 	}
 	return nil
+}
+
+// RelativeWorkspaceFiles lists every file under dir, including nested
+// directories, as slash-separated paths relative to dir. The order is sorted.
+func RelativeWorkspaceFiles(dir string) []string {
+	var out []string
+	_ = filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
+		if err != nil || entry == nil || entry.IsDir() {
+			return nil
+		}
+		rel, relErr := filepath.Rel(dir, path)
+		if relErr != nil || rel == "." || strings.HasPrefix(rel, "..") {
+			return nil
+		}
+		out = append(out, filepath.ToSlash(rel))
+		return nil
+	})
+	sort.Strings(out)
+	return out
+}
+
+// WorkspaceRelative converts an absolute or already-relative scanner path into
+// a stable path under the flow workspace.
+func WorkspaceRelative(root, path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if !filepath.IsAbs(path) && !strings.HasPrefix(path, "/") && !strings.HasPrefix(path, `\`) {
+		return filepath.ToSlash(filepath.Clean(path))
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+		return filepath.ToSlash(path)
+	}
+	return filepath.ToSlash(rel)
 }
 
 func safeWorkspaceID(flowID string) string {

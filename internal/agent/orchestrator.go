@@ -2126,6 +2126,9 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 			pocResult,
 		)
 
+		if err := o.queries.SaveFinalReport(flowID, finalReport); err != nil {
+			log.Printf("[report] could not store the final report: %v", err)
+		}
 		o.queries.UpdateTaskStatus(task.ID, models.TaskStatusDone, finalReport)
 		o.queries.UpdateFlowStatus(flowID, models.FlowStatusCompleted)
 
@@ -2324,21 +2327,19 @@ func (o *Orchestrator) runAgentLoop(ctx context.Context, flowID uuid.UUID, taskI
 					if actionErr != nil {
 						log.Printf("[artifact] could not store tool action: %v", actionErr)
 					}
+					root, _ := execution.EnsureWorkspace(flowID.String())
 					for _, path := range strings.Split(fields["artifacts"], ",") {
 						path = strings.TrimSpace(path)
 						if path == "" {
 							continue
 						}
-						name := path
-						if i := strings.LastIndexAny(path, `/\`); i >= 0 && i+1 < len(path) {
-							name = path[i+1:]
-						}
+						rel := execution.WorkspaceRelative(root, path)
 						var actionID *uuid.UUID
 						if action != nil {
 							actionID = &action.ID
 						}
-						if err := o.queries.SaveWorkspaceArtifact(flowID, actionID, name, path, tc.Name, fields["status"]); err != nil {
-							log.Printf("[artifact] could not store %s: %v", name, err)
+						if err := o.queries.SaveWorkspaceArtifact(flowID, actionID, rel, rel, tc.Name, fields["status"]); err != nil {
+							log.Printf("[artifact] could not store %s: %v", rel, err)
 						}
 					}
 				}

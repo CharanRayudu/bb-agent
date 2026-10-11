@@ -3,12 +3,14 @@ package database
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/bb-agent/mirage/internal/models"
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 // Queries provides data access methods
@@ -309,18 +311,77 @@ type WorkspaceArtifact struct {
 }
 
 func (q *Queries) SaveWorkspaceArtifact(flowID uuid.UUID, actionID *uuid.UUID, name, path, tool, status string) error {
-	if q == nil || q.db == nil {
-		return fmt.Errorf("database is not configured")
-	}
 	body, err := json.Marshal(map[string]string{"path": path, "tool": tool, "status": status})
 	if err != nil {
 		return err
 	}
+	return q.upsertArtifact(flowID, actionID, "workspace", name, string(body))
+}
+
+func (q *Queries) SaveFinalReport(flowID uuid.UUID, markdown string) error {
+	return q.upsertArtifact(flowID, nil, "report", "final-report", markdown)
+}
+
+func (q *Queries) GetFinalReport(flowID uuid.UUID) (string, error) {
+	if q == nil || q.db == nil {
+		return "", fmt.Errorf("database is not configured")
+	}
+	var content string
+	err := q.db.QueryRow(
+		`SELECT content FROM artifacts WHERE flow_id = $1 AND type = 'report' AND name = 'final-report'`,
+		flowID,
+	).Scan(&content)
+	if err == nil && strings.TrimSpace(content) != "" {
+		return content, nil
+	}
+	if err != nil && err != sql.ErrNoRows {
+		return "", err
+	}
+	err = q.db.QueryRow(
+		`SELECT result FROM tasks WHERE flow_id = $1 AND name = 'Penetration Test' AND result <> '' ORDER BY updated_at DESC LIMIT 1`,
+		flowID,
+	).Scan(&content)
+	if err == sql.ErrNoRows || strings.TrimSpace(content) == "" {
+		return "", sql.ErrNoRows
+	}
+	return content, err
+}
+
+func (q *Queries) upsertArtifact(flowID uuid.UUID, actionID *uuid.UUID, kind, name, content string) error {
+	if q == nil || q.db == nil {
+		return fmt.Errorf("database is not configured")
+	}
+	res, err := q.db.Exec(
+		`UPDATE artifacts SET action_id = COALESCE($1, action_id), content = $2 WHERE flow_id = $3 AND type = $4 AND name = $5`,
+		actionID, content, flowID, kind, name,
+	)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		return nil
+	}
 	_, err = q.db.Exec(
-		`INSERT INTO artifacts (id, action_id, flow_id, type, name, content) VALUES ($1, $2, $3, 'workspace', $4, $5)`,
-		uuid.New(), actionID, flowID, name, string(body),
+		`INSERT INTO artifacts (id, action_id, flow_id, type, name, content) VALUES ($1, $2, $3, $4, $5, $6)`,
+		uuid.New(), actionID, flowID, kind, name, content,
+	)
+	if err == nil || !isUniqueViolation(err) {
+		return err
+	}
+	_, err = q.db.Exec(
+		`UPDATE artifacts SET action_id = COALESCE($1, action_id), content = $2 WHERE flow_id = $3 AND type = $4 AND name = $5`,
+		actionID, content, flowID, kind, name,
 	)
 	return err
+}
+
+func isUniqueViolation(err error) bool {
+	var pqErr *pq.Error
+	return errors.As(err, &pqErr) && pqErr.Code == "23505"
 }
 
 func (q *Queries) ListWorkspaceArtifacts(flowID uuid.UUID) ([]WorkspaceArtifact, error) {
@@ -328,7 +389,7 @@ func (q *Queries) ListWorkspaceArtifacts(flowID uuid.UUID) ([]WorkspaceArtifact,
 		return nil, fmt.Errorf("database is not configured")
 	}
 	rows, err := q.db.Query(
-		`SELECT id, flow_id, name, content FROM artifacts WHERE flow_id = $1 AND type = 'workspace' ORDER BY created_at ASC`,
+		`SELECT id, flow_id, name, content FROM artifacts WHERE flow_id = $1 AND type = 'workspace' ORDER BY name ASC`,
 		flowID,
 	)
 	if err != nil {

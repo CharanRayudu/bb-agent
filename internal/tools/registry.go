@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"log"
 	"net/url"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -517,16 +515,7 @@ func attachWorkspace(ctx context.Context, result *docker.ExecResult, tool string
 	if len(result.Artifacts) > 0 {
 		return
 	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return
-	}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		result.Artifacts = append(result.Artifacts, filepath.Join(dir, entry.Name()))
-	}
+	result.Artifacts = execution.RelativeWorkspaceFiles(dir)
 }
 
 func toolName(argv []string) string {

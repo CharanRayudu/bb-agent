@@ -102,6 +102,14 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
+// ExecutionModeStatus names the scanner path selected by MIRAGE_EXECUTION_V2.
+func (c *Config) ExecutionModeStatus() string {
+	if c != nil && c.ExecutionV2 {
+		return "execution mode v2: per-flow sandbox and action gateway"
+	}
+	return "execution mode legacy: shared sandbox; set MIRAGE_EXECUTION_V2=true for v2"
+}
+
 // DecisionRoutingStatus reports whether specialist routing will call Foundry.
 // It never includes the API key.
 func (c *Config) DecisionRoutingStatus() string {

@@ -51,6 +51,7 @@ func main() {
 		cancel()
 	}()
 
+	log.Printf("[startup] %s", cfg.ExecutionModeStatus())
 	log.Printf("[startup] %s", cfg.DecisionRoutingStatus())
 	if _, err := os.Stat("frontend/dist/index.html"); err != nil {
 		log.Printf("[startup] frontend/dist is not in this process; the UI is served by the frontend container or npm run dev")

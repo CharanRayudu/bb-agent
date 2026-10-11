@@ -3,9 +3,6 @@ package docker
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
-
 	"github.com/bb-agent/mirage/internal/execution"
 )
 
@@ -42,7 +39,7 @@ func (r FlowRunner) Execute(ctx context.Context, req execution.ToolRequest) (exe
 		return failedOutput(req.FlowID, tool, workspace, nil, err), err
 	}
 	result, err := r.Sandbox.ExecuteArgvInFlow(ctx, req.FlowID, argv, req.TimeoutSeconds)
-	artifacts := workspaceFiles(workspace)
+	artifacts := execution.RelativeWorkspaceFiles(workspace)
 	if err != nil {
 		out := failedOutput(req.FlowID, tool, workspace, artifacts, err)
 		if result != nil {
@@ -90,19 +87,4 @@ func failedOutput(flowID, tool, workspace string, artifacts []string, err error)
 		Reason:    reason,
 		ExitCode:  -1,
 	}
-}
-
-func workspaceFiles(dir string) []string {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil
-	}
-	var out []string
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		out = append(out, filepath.Join(dir, entry.Name()))
-	}
-	return out
 }

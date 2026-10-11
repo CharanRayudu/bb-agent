@@ -207,7 +207,10 @@ func TestOrchestratedScanCompletesThroughTheAPI(t *testing.T) {
 
 func TestProductionScannersRunThroughTheOrchestrator(t *testing.T) {
 	if _, err := exec.Command("docker", "image", "inspect", "mirage-tools:latest").CombinedOutput(); err != nil {
-		t.Skip("mirage-tools:latest is not built")
+		if os.Getenv("MIRAGE_RELEASE_VALIDATION") == "1" {
+			t.Fatal("release validation requires mirage-tools:latest; build it with docker compose build sandbox")
+		}
+		t.Skip("mirage-tools:latest is not built; this is an optional Docker integration test")
 	}
 	checks := []struct {
 		tool string
@@ -283,6 +286,26 @@ func TestProductionScannersRunThroughTheOrchestrator(t *testing.T) {
 	if !strings.Contains(body, "scan.txt") {
 		t.Fatalf("nmap artifact was not recorded: %s", body)
 	}
+	var listed []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal([]byte(body), &listed); err != nil {
+		t.Fatal(err)
+	}
+	var artifactID string
+	for _, item := range listed {
+		if item.Name == "scan.txt" || strings.HasSuffix(item.Name, "/scan.txt") {
+			artifactID = item.ID
+		}
+	}
+	if artifactID == "" {
+		t.Fatalf("artifact list had no scan.txt id: %s", body)
+	}
+	downloaded := getBody(t, fmt.Sprintf("%s/api/flows/%s/artifacts/%s", api.URL, flow.ID, artifactID))
+	if !strings.Contains(downloaded, "Nmap") {
+		t.Fatalf("artifact download was not the nmap output: %s", downloaded)
+	}
 	report := getBody(t, fmt.Sprintf("%s/api/flows/%s/report", api.URL, flow.ID))
 	if !strings.Contains(report, "scan.txt") {
 		t.Fatalf("report missing nmap evidence:\n%s", report)
@@ -291,6 +314,39 @@ func TestProductionScannersRunThroughTheOrchestrator(t *testing.T) {
 	if err != nil || !strings.Contains(string(nmapOut), "Nmap") {
 		t.Fatalf("nmap output=%q err=%v", nmapOut, err)
 	}
+	waitForFlowContainerCleanup(t, flow.ID.String())
+}
+
+func waitForFlowContainerCleanup(t *testing.T, flowID string) {
+	t.Helper()
+	var name strings.Builder
+	for _, r := range flowID {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			name.WriteRune(r)
+		}
+		if name.Len() == 12 {
+			break
+		}
+	}
+	container := "mirage-flow-" + name.String()
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		out, err := exec.Command("docker", "ps", "-a", "--filter", "name="+container, "--format", "{{.Names}}").Output()
+		if err != nil {
+			t.Fatalf("docker ps: %v", err)
+		}
+		found := false
+		for _, line := range strings.Split(string(out), "\n") {
+			if strings.TrimSpace(line) == container {
+				found = true
+			}
+		}
+		if !found {
+			return
+		}
+		time.Sleep(time.Second)
+	}
+	t.Fatalf("per-flow container %s was still present after the scan finished", container)
 }
 
 func TestCancelledScanDoesNotStayActive(t *testing.T) {

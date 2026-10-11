@@ -1879,33 +1879,39 @@ func (s *Server) handleDownloadArtifact(w http.ResponseWriter, r *http.Request, 
 		http.Error(w, "artifact not found", http.StatusNotFound)
 		return
 	}
-	path, ok := workspaceFileAllowed(item.Path)
+	path, ok := resolveWorkspaceArtifact(flowID, item.Path)
 	if !ok {
 		http.Error(w, "artifact path is outside the flow workspace", http.StatusForbidden)
 		return
 	}
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", item.Name))
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filepath.Base(item.Name)))
 	http.ServeFile(w, r, path)
 }
 
 func (s *Server) handleStoredReport(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
-	tasks, err := s.queries.GetTasksByFlow(id)
+	report, err := s.queries.GetFinalReport(id)
+	if err == sql.ErrNoRows || strings.TrimSpace(report) == "" {
+		http.Error(w, "report is not ready", http.StatusNotFound)
+		return
+	}
 	if err != nil {
 		http.Error(w, "failed to load report", http.StatusInternalServerError)
 		return
 	}
-	report := ""
-	for _, task := range tasks {
-		if strings.TrimSpace(task.Result) != "" {
-			report = task.Result
-		}
-	}
-	if report == "" {
-		http.Error(w, "report is not ready", http.StatusNotFound)
-		return
-	}
 	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 	fmt.Fprint(w, report)
+}
+
+func resolveWorkspaceArtifact(flowID uuid.UUID, stored string) (string, bool) {
+	root, err := execution.EnsureWorkspace(flowID.String())
+	if err != nil {
+		return "", false
+	}
+	target := stored
+	if !filepath.IsAbs(stored) && !strings.HasPrefix(stored, "/") && !strings.HasPrefix(stored, `\`) {
+		target = filepath.Join(root, filepath.FromSlash(stored))
+	}
+	return workspaceFileAllowed(target)
 }
 
 func workspaceFileAllowed(path string) (string, bool) {

@@ -1122,10 +1122,11 @@ function FlowDetail() {
                                 <a
                                     key={artifact.id}
                                     href={`${API_BASE}/flows/${id}/artifacts/${artifact.id}`}
-                                    className={`${CHIP_BASE} bg-accent-green/10 text-accent-green border-accent-green/30`}
+                                    title={artifact.name || 'evidence'}
+                                    className={`${CHIP_BASE} bg-accent-green/10 text-accent-green border-accent-green/30 max-w-none`}
                                 >
                                     <Download className="w-3 h-3" />
-                                    {artifact.name || 'evidence'}
+                                    <span className="break-all">{artifact.name || 'evidence'}</span>
                                 </a>
                             ))}
                         </div>

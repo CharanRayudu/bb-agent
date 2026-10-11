@@ -1,6 +1,6 @@
 # Run a full Mirage v2 scan
 
-`MIRAGE_EXECUTION_V2` defaults to off for a native `go run`. Docker Compose sets it to `true` unless you override it. A v2 scan authorizes every tool call, runs the scanner in its own container, and keeps that container's files under `data/workspaces/<flow>`.
+Copy `.env.example` and start Compose. `MIRAGE_EXECUTION_V2=true` is in that file, and Compose also defaults the variable to `true` when it is unset. A v2 scan authorizes every tool call, runs the scanner in its own container, and keeps that container's files under `data/workspaces/<flow>`. A native `go run` that does not set the variable stays on the legacy shared sandbox. Set `MIRAGE_EXECUTION_V2=false` only for that legacy mode.
 
 The scanner image and the firewall image are different:
 
@@ -20,7 +20,16 @@ docker compose up -d
 
 `sandbox` is the Kali tool image in `build/tools/Dockerfile`. That build is large. The firewall helper is the small Alpine image and finishes quickly.
 
-The UI is `http://localhost:3000`. The API is proxied at `/api/` and the websocket at `/ws`. Compose passes `MIRAGE_EXECUTION_V2=true`.
+The UI is `http://localhost:3000`. The API is proxied at `/api/` and the websocket at `/ws`. Startup logs `execution mode v2` or `execution mode legacy`.
+
+Release validation, after the scanner image exists:
+
+```powershell
+$env:MIRAGE_RELEASE_VALIDATION = "1"
+go test ./internal/smoke/ -count=1 -timeout 10m -run TestProductionScannersRunThroughTheOrchestrator
+```
+
+That command fails if `mirage-tools:latest` is missing. An ordinary `go test ./...` skips that Docker integration test when the image is absent.
 
 ## What a v2 scan does
 
@@ -31,7 +40,7 @@ The UI is `http://localhost:3000`. The API is proxied at `/api/` and the websock
 5. Each scanner runs in a container from `mirage-tools:latest`, with its output and any target-list or raw-request file under `/workspace`.
 6. The UI reads status, events, and artifacts back through the API and websocket.
 
-Set `MIRAGE_EXECUTION_V2=false` in the environment before `docker compose up` to keep the legacy shared sandbox. Leave the Foundry variables empty to keep specialist selection on the deterministic rules.
+Set `MIRAGE_EXECUTION_V2=false` before `docker compose up` only when you want the legacy shared sandbox. Leave the Foundry variables empty to keep specialist selection on the deterministic rules.
 
 A target that resolves to a private address is refused unless `MIRAGE_TARGET_ALLOWLIST` names that host, address, or CIDR. Loopback addresses stay refused. Use the allowlist for an isolated lab target, not for a general exception.
 

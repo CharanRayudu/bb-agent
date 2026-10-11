@@ -3,6 +3,7 @@ package execution
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -61,6 +62,29 @@ func TestStageWorkspaceInputsRewritesTargetListAndRequest(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "login.req")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRelativeWorkspaceFilesIncludesNestedPathsOnce(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"a.txt", filepath.Join("sub", "a.txt"), filepath.Join("sub", "b.txt")} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := RelativeWorkspaceFiles(dir)
+	want := []string{"a.txt", "sub/a.txt", "sub/b.txt"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("files=%v", got)
+	}
+	if WorkspaceRelative(dir, filepath.Join(dir, "sub", "a.txt")) != "sub/a.txt" {
+		t.Fatal("absolute path was not made workspace-relative")
+	}
+	if WorkspaceRelative(dir, "sub/b.txt") != "sub/b.txt" {
+		t.Fatal("relative path changed")
 	}
 }
 
