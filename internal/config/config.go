@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"strconv"
@@ -99,6 +100,22 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// DecisionRoutingStatus reports whether specialist routing will call Foundry.
+// It never includes the API key.
+func (c *Config) DecisionRoutingStatus() string {
+	if c == nil {
+		return "Decision-1 routing disabled"
+	}
+	switch {
+	case strings.TrimSpace(c.FoundryEndpoint) == "" && strings.TrimSpace(c.FoundryDeployment) == "" && strings.TrimSpace(c.FoundryAPIKey) == "":
+		return "Decision-1 routing disabled; specialist selection uses deterministic rules"
+	case strings.TrimSpace(c.FoundryEndpoint) == "" || strings.TrimSpace(c.FoundryDeployment) == "" || strings.TrimSpace(c.FoundryAPIKey) == "":
+		return "Decision-1 routing disabled; set FOUNDRY_ENDPOINT, FOUNDRY_DEPLOYMENT, and FOUNDRY_API_KEY together"
+	default:
+		return fmt.Sprintf("Decision-1 routing enabled for deployment %s (min confidence %.2f)", c.FoundryDeployment, c.FoundryMinConfidence)
+	}
 }
 
 func getEnv(key, fallback string) string {

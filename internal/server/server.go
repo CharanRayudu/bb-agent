@@ -92,6 +92,10 @@ type Server struct {
 	authSessions map[string]*base.AuthSession
 	authMu       sync.RWMutex
 
+	// llmOverride and decisionPlanner are test seams. Production leaves them nil.
+	llmOverride     llm.Provider
+	decisionPlanner *agent.Planner
+
 	// llmProvider is used for stateless LLM API requests (e.g. /api/mutate).
 	// May be nil when no auth is configured.
 	llmProvider llm.Provider
@@ -350,7 +354,25 @@ func (s *Server) currentLLMProvider(model string) llm.Provider {
 	if s == nil {
 		return nil
 	}
+	if s.llmOverride != nil {
+		return s.llmOverride
+	}
 	return buildLLMProvider(s.cfg, model)
+}
+
+// UseLLMProvider replaces the generative model for scans started after this call.
+// It does not change specialist routing.
+func (s *Server) UseLLMProvider(provider llm.Provider) {
+	if s != nil {
+		s.llmOverride = provider
+	}
+}
+
+// UseDecisionPlanner installs Decision-1 routing for scans started after this call.
+func (s *Server) UseDecisionPlanner(planner *agent.Planner) {
+	if s != nil {
+		s.decisionPlanner = planner
+	}
 }
 
 // firePlan is the FireFunc called by the schedplan Runner when a schedule fires.
@@ -1165,7 +1187,10 @@ func (s *Server) runAgent(flowID uuid.UUID, prompt string, selectedModel string,
 		conductor.SetAgentTimeout(time.Duration(agentTimeout) * time.Minute)
 	}
 	orchestrator.SetConductor(conductor)
-	if s.cfg != nil && s.cfg.FoundryEndpoint != "" && s.cfg.FoundryAPIKey != "" && s.cfg.FoundryDeployment != "" {
+	if s.decisionPlanner != nil {
+		orchestrator.SetDecisionPlanner(s.decisionPlanner)
+		log.Printf("[planner] Decision-1 specialist routing enabled by the process configuration")
+	} else if s.cfg != nil && s.cfg.FoundryEndpoint != "" && s.cfg.FoundryAPIKey != "" && s.cfg.FoundryDeployment != "" {
 		foundry := decision.NewFoundryClient(s.cfg.FoundryEndpoint, s.cfg.FoundryDeployment, s.cfg.FoundryAPIKey, s.cfg.FoundryTimeout)
 		planner := agent.NewPlanner(provider, orchestrator.GetEventBus(), nil)
 		planner.SetDecisionProvider(foundry, s.cfg.FoundryMinConfidence)

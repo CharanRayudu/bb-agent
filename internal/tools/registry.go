@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -376,6 +378,7 @@ func (r *Registry) executeCommand(ctx context.Context, args json.RawMessage) (st
 	log.Printf("[TOOL] Executing: %s (timeout: %ds)", params.Command, params.Timeout)
 
 	result, err := r.execShell(ctx, params.Command, params.Timeout)
+	attachWorkspace(ctx, result, "shell")
 	if err != nil {
 		return "", fmt.Errorf("sandbox execution failed: %w", err)
 	}
@@ -392,10 +395,14 @@ func (r *Registry) executeSecurityTool(ctx context.Context, args json.RawMessage
 	}
 	log.Printf("[TOOL] Executing argv: %s", strings.Join(argv, " "))
 	result, err := r.execArgv(ctx, argv, timeout)
+	formatted := formatSandboxOutput(result)
 	if err != nil {
-		return "", fmt.Errorf("sandbox execution failed: %w", err)
+		if formatted == "" {
+			return "", fmt.Errorf("sandbox execution failed: %w", err)
+		}
+		return formatted + "\n" + err.Error(), fmt.Errorf("sandbox execution failed: %w", err)
 	}
-	return formatSandboxOutput(result), nil
+	return formatted, nil
 }
 
 func (r *Registry) execArgv(ctx context.Context, argv []string, timeout int) (*docker.ExecResult, error) {
@@ -409,13 +416,15 @@ func (r *Registry) execArgv(ctx context.Context, argv []string, timeout int) (*d
 		}
 		out, err := (docker.FlowRunner{Sandbox: r.flows}).Execute(ctx, execution.ToolRequest{
 			FlowID:         flowID,
+			Tool:           toolName(argv),
 			Argv:           argv,
 			TimeoutSeconds: timeout,
 		})
+		mapped := execFromOutput(out)
 		if err != nil {
-			return &docker.ExecResult{Stdout: out.Stdout, Stderr: out.Stderr, ExitCode: out.ExitCode, Duration: out.Duration, Artifacts: out.Artifacts}, err
+			return mapped, err
 		}
-		return &docker.ExecResult{Stdout: out.Stdout, Stderr: out.Stderr, ExitCode: out.ExitCode, Duration: out.Duration, Artifacts: out.Artifacts}, nil
+		return mapped, nil
 	}
 	if execution.Required(ctx) {
 		return nil, fmt.Errorf("per-flow sandbox is required")
@@ -488,11 +497,78 @@ func (r *Registry) prepareFlow(ctx context.Context, flowID string) error {
 	return r.firewall.ApplyFlowRules(ctx, flowID, rules)
 }
 
+func attachWorkspace(ctx context.Context, result *docker.ExecResult, tool string) {
+	if result == nil {
+		return
+	}
+	if result.Tool == "" {
+		result.Tool = tool
+	}
+	flowID := execution.FlowID(ctx)
+	if flowID == "" {
+		return
+	}
+	result.FlowID = flowID
+	dir, err := execution.EnsureWorkspace(flowID)
+	if err != nil {
+		return
+	}
+	result.Workspace = dir
+	if len(result.Artifacts) > 0 {
+		return
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		result.Artifacts = append(result.Artifacts, filepath.Join(dir, entry.Name()))
+	}
+}
+
+func toolName(argv []string) string {
+	if len(argv) == 0 {
+		return ""
+	}
+	return argv[0]
+}
+
+func execFromOutput(out execution.ToolOutput) *docker.ExecResult {
+	return &docker.ExecResult{
+		FlowID:    out.FlowID,
+		Tool:      out.Tool,
+		Stdout:    out.Stdout,
+		Stderr:    out.Stderr,
+		ExitCode:  out.ExitCode,
+		Duration:  out.Duration,
+		Workspace: out.Workspace,
+		Artifacts: append([]string{}, out.Artifacts...),
+		Status:    out.Status,
+		Reason:    out.Reason,
+	}
+}
+
 func formatSandboxOutput(result *docker.ExecResult) string {
 	if result == nil {
 		return ""
 	}
-	output := result.Stdout
+	status := result.Status
+	if status == "" {
+		if result.ExitCode == 0 {
+			status = "ok"
+		} else {
+			status = "failed"
+		}
+	}
+	output := fmt.Sprintf("[mirage-result] flow_id=%s tool=%s status=%s exit_code=%d duration_ms=%d workspace=%s reason=%s\n",
+		result.FlowID, result.Tool, status, result.ExitCode, result.Duration.Milliseconds(), result.Workspace, result.Reason)
+	if len(result.Artifacts) > 0 {
+		output += "artifacts=" + strings.Join(result.Artifacts, ",") + "\n"
+	}
+	output += result.Stdout
 	if result.Stderr != "" {
 		output += "\n" + result.Stderr
 	}

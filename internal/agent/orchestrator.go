@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -145,14 +146,18 @@ type HallucinationEntry struct {
 
 // SwarmAgentSpec is a richer agent dispatch format from the Planner
 type SwarmAgentSpec struct {
-	Type         string `json:"type"`                    // e.g. "SQLi", "XSS", "Code Review"
-	Target       string `json:"target,omitempty"`        // specific endpoint/param
-	Context      string `json:"context,omitempty"`       // what the planner observed
-	Hypothesis   string `json:"hypothesis,omitempty"`    // focused attack-path hypothesis
-	Proof        string `json:"proof,omitempty"`         // proof required for promotion
-	RequiresAuth bool   `json:"requires_auth,omitempty"` // whether auth continuity matters
-	AuthContext  string `json:"auth_context,omitempty"`  // auth notes/cookies/tokens to preserve
-	Priority     string `json:"priority,omitempty"`      // "critical", "high", "medium", "low"
+	Type               string  `json:"type"`                 // e.g. "SQLi", "XSS", "Code Review"
+	Target             string  `json:"target,omitempty"`     // specific endpoint/param
+	Context            string  `json:"context,omitempty"`    // what the planner observed
+	Hypothesis         string  `json:"hypothesis,omitempty"` // focused attack-path hypothesis
+	Proof              string  `json:"proof,omitempty"`      // proof required for promotion
+	DecisionSource     string  `json:"decision_source,omitempty"`
+	DecisionConfidence float64 `json:"decision_confidence,omitempty"`
+	DecisionLatencyMS  int64   `json:"decision_latency_ms,omitempty"`
+	DecisionReason     string  `json:"decision_reason,omitempty"`
+	RequiresAuth       bool    `json:"requires_auth,omitempty"` // whether auth continuity matters
+	AuthContext        string  `json:"auth_context,omitempty"`  // auth notes/cookies/tokens to preserve
+	Priority           string  `json:"priority,omitempty"`      // "critical", "high", "medium", "low"
 }
 
 // Orchestrator is the main AI agent that plans and executes pentest tasks
@@ -626,6 +631,14 @@ func (o *Orchestrator) SetDecisionPlanner(p *Planner) {
 	if o != nil {
 		o.decisionPlanner = p
 	}
+}
+
+// routeSpecialists asks Decision-1 to label specs. A missing planner leaves them unchanged.
+func (o *Orchestrator) routeSpecialists(ctx context.Context, specs []SwarmAgentSpec) []SwarmAgentSpec {
+	if o == nil || o.decisionPlanner == nil {
+		return specs
+	}
+	return o.decisionPlanner.RouteSpecs(ctx, specs)
 }
 
 // bindExecutionContext attaches the flow gateway so direct browser calls,
@@ -1573,9 +1586,7 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		}
 
 		agentSpecs = filterDispatchSpecs(agentSpecs, dispatchedSpecs, flow.Target, base.BrowserAvailable())
-		if o.decisionPlanner != nil {
-			agentSpecs = o.decisionPlanner.RouteSpecs(plannerCtx, agentSpecs)
-		}
+		agentSpecs = o.routeSpecialists(plannerCtx, agentSpecs)
 
 		o.emit(flowID.String(), Event{
 			Type:     EventMessage,
@@ -2300,15 +2311,19 @@ func (o *Orchestrator) runAgentLoop(ctx context.Context, flowID uuid.UUID, taskI
 					o.queries.CreateAction(subtaskID, models.ActionTypeCommand, tc.Arguments, res, status)
 				}
 
+				toolMeta := map[string]interface{}{
+					"tool":       tc.Name,
+					"subtask_id": subtaskID.String(),
+				}
+				for key, value := range mirageResultFields(res) {
+					toolMeta[key] = value
+				}
 				o.emit(flowID.String(), Event{
-					Type:    EventToolResult,
-					FlowID:  flowID.String(),
-					TaskID:  taskID.String(),
-					Content: res,
-					Metadata: map[string]interface{}{
-						"tool":       tc.Name,
-						"subtask_id": subtaskID.String(),
-					},
+					Type:     EventToolResult,
+					FlowID:   flowID.String(),
+					TaskID:   taskID.String(),
+					Content:  res,
+					Metadata: toolMeta,
 				})
 				chatMsgs = append(chatMsgs, models.ChatMessage{Role: "tool", Content: res, ToolCallID: tc.ID})
 
@@ -3058,6 +3073,28 @@ func buildFallbackAgentSpecs(baseTarget string, brain *Brain) []SwarmAgentSpec {
 
 // isToolOutputFailure detects failure patterns in tool execution output.
 // Returns true if the output indicates a failed/unproductive command execution.
+func mirageResultFields(output string) map[string]string {
+	fields := map[string]string{}
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "artifacts=") {
+			fields["artifacts"] = strings.TrimPrefix(line, "artifacts=")
+			continue
+		}
+		if !strings.HasPrefix(line, "[mirage-result]") {
+			continue
+		}
+		rest := strings.TrimSpace(strings.TrimPrefix(line, "[mirage-result]"))
+		for _, part := range strings.Fields(rest) {
+			key, value, ok := strings.Cut(part, "=")
+			if ok && key != "" {
+				fields[key] = value
+			}
+		}
+	}
+	return fields
+}
+
 func isToolOutputFailure(output string) bool {
 	if output == "" || output == "null" || output == "{}" {
 		return true
@@ -3152,15 +3189,41 @@ func validateScanTarget(target string) error {
 		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
 			return fmt.Errorf("target %s resolves to reserved/loopback address %s — refusing scan", target, addr)
 		}
-		// Block RFC-1918 private ranges
+		// Block RFC-1918 private ranges unless the operator named this host or address.
 		for _, cidr := range []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "fc00::/7"} {
 			_, privateNet, _ := net.ParseCIDR(cidr)
-			if privateNet != nil && privateNet.Contains(ip) {
-				return fmt.Errorf("target %s resolves to private address %s — refusing scan (configure allowlist to override)", target, addr)
+			if privateNet != nil && privateNet.Contains(ip) && !targetAllowlisted(hostname, addr) {
+				return fmt.Errorf("target %s resolves to private address %s — refusing scan (configure MIRAGE_TARGET_ALLOWLIST to override)", target, addr)
 			}
 		}
 	}
 	return nil
+}
+
+// targetAllowlisted reports whether MIRAGE_TARGET_ALLOWLIST names this host or address.
+// Entries are comma-separated hostnames, IPs, or CIDRs. Loopback is never listed here.
+func targetAllowlisted(hostname, address string) bool {
+	raw := strings.TrimSpace(os.Getenv("MIRAGE_TARGET_ALLOWLIST"))
+	if raw == "" {
+		return false
+	}
+	host := strings.ToLower(strings.TrimSpace(hostname))
+	ip := net.ParseIP(address)
+	for _, entry := range strings.Split(raw, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		if strings.EqualFold(entry, host) || entry == address {
+			return true
+		}
+		if ip != nil {
+			if _, network, err := net.ParseCIDR(entry); err == nil && network.Contains(ip) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // AddCausalEdge safely links two nodes in the Brain's CausalGraph

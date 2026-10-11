@@ -220,6 +220,10 @@ func openSmokeDB(t *testing.T) *sql.DB {
 	if err := pingDB(dsn); err != nil {
 		_ = exec.Command("docker", "start", "mirage-budget-pg").Run()
 	}
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) && pingDB(dsn) != nil {
+		time.Sleep(500 * time.Millisecond)
+	}
 	if pingDB(dsn) != nil {
 		out, err := exec.Command("docker", "run", "-d", "--name", "mirage-budget-pg",
 			"-e", "POSTGRES_USER=mirage", "-e", "POSTGRES_PASSWORD=mirage", "-e", "POSTGRES_DB=miragedb",
@@ -228,7 +232,7 @@ func openSmokeDB(t *testing.T) *sql.DB {
 			t.Fatalf("start postgres: %v\n%s", err, out)
 		}
 	}
-	deadline := time.Now().Add(40 * time.Second)
+	deadline = time.Now().Add(40 * time.Second)
 	var last error
 	for time.Now().Before(deadline) {
 		if last = pingDB(dsn); last == nil {

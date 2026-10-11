@@ -27,10 +27,12 @@ The UI is `http://localhost:3000`. The API is proxied at `/api/` and the websock
 1. Create a flow in the UI against a target you are allowed to test.
 2. The API stores the flow in Postgres and starts the orchestrator.
 3. The generative model still writes the plan and the report.
-4. If `FOUNDRY_ENDPOINT`, `FOUNDRY_DEPLOYMENT`, and `FOUNDRY_API_KEY` are set, Decision-1 chooses the specialist. A low-confidence answer, an abstention, or an API error keeps the existing keyword rules and does not replace a plan that Decision-1 could not classify.
+4. Compose passes `FOUNDRY_ENDPOINT`, `FOUNDRY_DEPLOYMENT`, `FOUNDRY_API_KEY`, `FOUNDRY_TIMEOUT_SECONDS`, and `FOUNDRY_MIN_CONFIDENCE` into the API. Startup logs whether Decision-1 routing is enabled. All three of endpoint, deployment, and key are required. Decision-1 only chooses specialists, in batches of eight. A low-confidence answer, an abstention, or an API error keeps the existing keyword rules. The log never prints the API key.
 5. Each scanner runs in a container from `mirage-tools:latest`, with its output and any target-list or raw-request file under `/workspace`.
 6. The UI reads status, events, and artifacts back through the API and websocket.
 
 Set `MIRAGE_EXECUTION_V2=false` in the environment before `docker compose up` to keep the legacy shared sandbox. Leave the Foundry variables empty to keep specialist selection on the deterministic rules.
+
+A target that resolves to a private address is refused unless `MIRAGE_TARGET_ALLOWLIST` names that host, address, or CIDR. Loopback addresses stay refused. Use the allowlist for an isolated lab target, not for a general exception.
 
 Do not put a Foundry key in the repository. Pass it only through the environment.

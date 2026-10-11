@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -98,21 +99,85 @@ func (p *Planner) SelectSpecialist(ctx context.Context, observation, target stri
 	return RouteResult{Specialist: answer.Choice, Source: decision.SourceModel, Confidence: confidence, Latency: resp.Latency}
 }
 
-// RouteSpecs replaces a specialist type only when Decision-1 is confident.
-// Generative plan text and deterministic specs stay in place otherwise.
+const decisionBatchSize = 8
+
+// RouteSpecs asks Decision-1 about a batch of observations in one request.
+// An unavailable or uncertain answer leaves that spec's specialist unchanged.
 func (p *Planner) RouteSpecs(ctx context.Context, specs []SwarmAgentSpec) []SwarmAgentSpec {
 	if p == nil || p.decider == nil || len(specs) == 0 {
 		return specs
 	}
 	out := append([]SwarmAgentSpec(nil), specs...)
-	for i := range out {
-		observation := strings.TrimSpace(strings.Join([]string{out[i].Type, out[i].Context, out[i].Hypothesis}, "\n"))
-		selected := p.SelectSpecialist(ctx, observation, out[i].Target)
-		if selected.Source == decision.SourceModel && selected.Specialist != "" {
-			out[i].Type = selected.Specialist
+	p.mu.RLock()
+	provider := p.decider
+	minConfidence := p.minConfidence
+	p.mu.RUnlock()
+	for start := 0; start < len(out); start += decisionBatchSize {
+		end := start + decisionBatchSize
+		if end > len(out) {
+			end = len(out)
 		}
+		p.routeBatch(ctx, provider, minConfidence, out[start:end])
 	}
 	return out
+}
+
+func (p *Planner) routeBatch(ctx context.Context, provider decision.Provider, minConfidence float64, specs []SwarmAgentSpec) {
+	questions := make(map[string]decision.Question, len(specs))
+	observations := make([]map[string]string, len(specs))
+	for i := range specs {
+		id := fmt.Sprintf("s%d", i)
+		text := strings.TrimSpace(strings.Join([]string{specs[i].Type, specs[i].Context, specs[i].Hypothesis}, "\n"))
+		observations[i] = map[string]string{"id": id, "text": text, "target": specs[i].Target}
+		questions[id] = decision.Question{
+			Type:         decision.TypeChoice,
+			Instructions: "Which specialist should handle observation " + id + "? Choose none when it does not justify a specialist.",
+			Criteria:     catalogCriteria(),
+		}
+	}
+	started := time.Now()
+	resp, err := provider.Decide(ctx, decision.Request{
+		State:     map[string]any{"observations": observations},
+		Questions: questions,
+	})
+	latency := time.Since(started)
+	if resp.Latency > 0 {
+		latency = resp.Latency
+	}
+	if err != nil {
+		log.Printf("[planner] Decision-1 batch unavailable, keeping current specialist labels: %v", err)
+		for i := range specs {
+			specs[i].DecisionSource = decision.SourceRules
+			specs[i].DecisionLatencyMS = latency.Milliseconds()
+			specs[i].DecisionReason = err.Error()
+		}
+		return
+	}
+	for i := range specs {
+		id := fmt.Sprintf("s%d", i)
+		answer, ok := resp.Answers[id]
+		rules := RuleSpecialist(observations[i]["text"])
+		specs[i].DecisionLatencyMS = latency.Milliseconds()
+		if !ok || answer.Type != decision.TypeChoice || !answer.Confident(minConfidence) || answer.Choice == "" || answer.Choice == "none" || !knownSpecialist(answer.Choice) {
+			specs[i].DecisionSource = decision.SourceRules
+			specs[i].DecisionReason = "decision was uncertain"
+			if ok && answer.Choice != "" {
+				specs[i].DecisionReason = "decision chose " + answer.Choice
+			}
+			if rules != "" && specs[i].Type == "" {
+				specs[i].Type = rules
+			}
+			continue
+		}
+		confidence := 0.0
+		if answer.Confidence != nil {
+			confidence = *answer.Confidence
+		}
+		specs[i].Type = answer.Choice
+		specs[i].DecisionSource = decision.SourceModel
+		specs[i].DecisionConfidence = confidence
+		specs[i].DecisionReason = ""
+	}
 }
 
 // RuleSpecialist is the deterministic specialist label for one observation.

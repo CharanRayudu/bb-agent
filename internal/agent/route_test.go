@@ -15,7 +15,7 @@ type scriptDecision struct {
 	wait     time.Duration
 }
 
-func (s scriptDecision) Decide(ctx context.Context, _ decision.Request) (decision.Response, error) {
+func (s scriptDecision) Decide(ctx context.Context, req decision.Request) (decision.Response, error) {
 	if s.wait > 0 {
 		timer := time.NewTimer(s.wait)
 		defer timer.Stop()
@@ -28,7 +28,20 @@ func (s scriptDecision) Decide(ctx context.Context, _ decision.Request) (decisio
 	if s.err != nil {
 		return decision.Response{}, s.err
 	}
-	return s.response, nil
+	resp := s.response
+	if len(req.Questions) == 0 || len(resp.Answers) == 0 {
+		return resp, nil
+	}
+	var seed decision.Answer
+	for _, answer := range resp.Answers {
+		seed = answer
+		break
+	}
+	resp.Answers = make(map[string]decision.Answer, len(req.Questions))
+	for id := range req.Questions {
+		resp.Answers[id] = seed
+	}
+	return resp, nil
 }
 
 func choiceResponse(label string, confidence float64, latency time.Duration) decision.Response {
@@ -114,6 +127,89 @@ func TestDecisionRoutingAgainstDeterministicRules(t *testing.T) {
 	if agreed == 0 || disagreed == 0 || failed == 0 {
 		t.Fatalf("comparison did not cover agreement, disagreement, and failure: agreed=%d disagreed=%d failed=%d latency=%s", agreed, disagreed, failed, latency)
 	}
+}
+
+func TestOrchestratorInvokesDecisionRouting(t *testing.T) {
+	orch := &Orchestrator{}
+	planner := NewPlanner(nil, nil, nil)
+	planner.SetDecisionProvider(scriptDecision{response: choiceResponse("SQLi", 0.96, 3*time.Millisecond)}, 0.55)
+	orch.SetDecisionPlanner(planner)
+	got := orch.routeSpecialists(context.Background(), []SwarmAgentSpec{{
+		Type:    "Visual Crawler",
+		Context: "script in the search parameter",
+		Target:  "http://app.example/search",
+	}})
+	if len(got) != 1 || got[0].Type != "SQLi" || got[0].DecisionSource != decision.SourceModel || got[0].DecisionConfidence < 0.9 {
+		t.Fatalf("orchestrator routing=%+v", got)
+	}
+}
+
+func TestRoutingCostWhenEnabledDisabledAndUnavailable(t *testing.T) {
+	specs := make([]SwarmAgentSpec, 5)
+	for i := range specs {
+		specs[i] = SwarmAgentSpec{Type: "Visual Crawler", Context: "spa route", Target: "http://app.example"}
+	}
+	disabled := NewPlanner(nil, nil, nil)
+	disabledStarted := time.Now()
+	disabledGot := disabled.RouteSpecs(context.Background(), specs)
+	disabledLatency := time.Since(disabledStarted)
+	if disabledGot[0].Type != "Visual Crawler" || disabledGot[0].DecisionSource != "" {
+		t.Fatalf("disabled routing changed the spec: %+v", disabledGot[0])
+	}
+
+	enabledCounter := &countingDecision{delay: 20 * time.Millisecond, choice: "XSS", confidence: 0.91}
+	enabled := NewPlanner(nil, nil, nil)
+	enabled.SetDecisionProvider(enabledCounter, 0.55)
+	enabledStarted := time.Now()
+	enabledGot := enabled.RouteSpecs(context.Background(), specs)
+	enabledLatency := time.Since(enabledStarted)
+	if enabledCounter.calls != 1 {
+		t.Fatalf("enabled calls=%d, want one batched request", enabledCounter.calls)
+	}
+	if enabledGot[4].Type != "XSS" || enabledGot[4].DecisionSource != decision.SourceModel {
+		t.Fatalf("enabled routing=%+v", enabledGot[4])
+	}
+
+	downCounter := &countingDecision{err: errors.New("foundry unavailable")}
+	down := NewPlanner(nil, nil, nil)
+	down.SetDecisionProvider(downCounter, 0.55)
+	downGot := down.RouteSpecs(context.Background(), specs)
+	if downCounter.calls != 1 || downGot[0].Type != "Visual Crawler" || downGot[0].DecisionSource != decision.SourceRules {
+		t.Fatalf("unavailable calls=%d routing=%+v", downCounter.calls, downGot[0])
+	}
+	if enabledLatency < 15*time.Millisecond || disabledLatency > enabledLatency {
+		t.Fatalf("latency disabled=%s enabled=%s", disabledLatency, enabledLatency)
+	}
+}
+
+type countingDecision struct {
+	calls      int
+	delay      time.Duration
+	err        error
+	choice     string
+	confidence float64
+}
+
+func (c *countingDecision) Decide(ctx context.Context, req decision.Request) (decision.Response, error) {
+	c.calls++
+	if c.delay > 0 {
+		timer := time.NewTimer(c.delay)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return decision.Response{}, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	if c.err != nil {
+		return decision.Response{}, c.err
+	}
+	answers := make(map[string]decision.Answer, len(req.Questions))
+	confidence := c.confidence
+	for id := range req.Questions {
+		answers[id] = decision.Answer{Type: decision.TypeChoice, Choice: c.choice, Confidence: &confidence}
+	}
+	return decision.Response{Model: "decision-1", Latency: c.delay, Answers: answers}, nil
 }
 
 func TestRouteSpecsLeavesGenerativeChoiceWhenDecisionIsDown(t *testing.T) {

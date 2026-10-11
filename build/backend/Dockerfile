@@ -15,6 +15,7 @@ WORKDIR /app
 RUN apk add --no-cache \
     ca-certificates \
     docker-cli \
+    wget \
     chromium \
     nss \
     freetype \

@@ -43,6 +43,13 @@ services:
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.3-codex}
       # Optional API key fallback (not needed if using codex login)
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # Decision-1 specialist routing. Leave empty to keep deterministic rules.
+      # The generative model above still writes plans, tool calls, and reports.
+      FOUNDRY_ENDPOINT: ${FOUNDRY_ENDPOINT:-}
+      FOUNDRY_DEPLOYMENT: ${FOUNDRY_DEPLOYMENT:-}
+      FOUNDRY_API_KEY: ${FOUNDRY_API_KEY:-}
+      FOUNDRY_TIMEOUT_SECONDS: ${FOUNDRY_TIMEOUT_SECONDS:-15}
+      FOUNDRY_MIN_CONFIDENCE: ${FOUNDRY_MIN_CONFIDENCE:-0.55}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${HOME:-${USERPROFILE}}/.codex:/root/.codex:ro
@@ -53,6 +60,12 @@ services:
         condition: service_healthy
       firewall-helper:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8443/api/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
     networks:
       - mirage-net
 
@@ -67,7 +80,8 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     networks:
       - mirage-net
 
