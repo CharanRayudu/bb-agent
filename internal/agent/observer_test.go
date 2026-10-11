@@ -3,6 +3,7 @@ package agent
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -50,8 +51,10 @@ func TestReportIncludesEvidenceTrailAndHealth(t *testing.T) {
 		[]ReportEvidenceRef{{Kind: "workspace", Name: "scan.txt", Path: "scan.txt", Tool: "nmap", Status: "ok"}},
 		[]ReportEvidenceRef{{Kind: "evidence_pack", Name: "xss", Path: "11111111-1111-1111-1111-111111111111", Tool: "XSS", Status: "confirmed"}},
 		ExecutionHealth{SecurityToolRuns: 1, ToolCalls: 2, Verdict: ObserverContinue},
+		VerificationPartition{},
+		EnvironmentSnapshot{GoVersion: "go1.test", SandboxImage: "mirage-tools:test", LLMProvider: "stub", LLMModel: "stub-model", CapturedAt: time.Unix(0, 0).UTC()},
 	)
-	for _, want := range []string{"## Evidence Trail", "scan.txt", "evidence_pack", "## Execution Health", "Security tool runs: 1"} {
+	for _, want := range []string{"## Evidence Trail", "scan.txt", "evidence_pack", "## Execution Health", "Security tool runs: 1", "## Environment Snapshot", "mirage-tools:test"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("report missing %q\n%s", want, out)
 		}

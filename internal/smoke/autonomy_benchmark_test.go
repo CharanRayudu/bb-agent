@@ -65,6 +65,8 @@ func TestAutonomyBenchmarkStubbedScenarios(t *testing.T) {
 		[]agent.ReportEvidenceRef{{Kind: "workspace", Name: "nmap.txt", Path: "nmap.txt", Tool: "nmap", Status: "ok"}},
 		[]agent.ReportEvidenceRef{{Kind: "evidence_pack", Name: "xss", Path: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", Tool: "XSS", Status: "confirmed"}},
 		agent.ExecutionHealth{SecurityToolRuns: 1, ToolCalls: 3, Verdict: agent.ObserverContinue},
+		agent.VerificationPartition{},
+		agent.EnvironmentSnapshot{GoVersion: "go1.test", CapturedAt: time.Unix(0, 0).UTC()},
 	)
 	metrics["report_has_evidence_trail"] = strings.Contains(report, "## Evidence Trail")
 	metrics["report_has_execution_health"] = strings.Contains(report, "## Execution Health")

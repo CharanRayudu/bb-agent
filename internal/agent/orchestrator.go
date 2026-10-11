@@ -2060,6 +2060,7 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 				Content: fmt.Sprintf("[OOB] CONFIRMED: %d blind vulnerabilities received callbacks!", len(oobInteractions))})
 
 			brainMu.Lock()
+			oobAccepted := 0
 			for _, interaction := range oobInteractions {
 				oobFinding := &Finding{
 					Type:       interaction.VulnType,
@@ -2074,12 +2075,19 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 						"oob_token":    interaction.Token,
 					},
 				}
-				brain.Findings = append(brain.Findings, oobFinding)
+				if ok, reason := shouldPromoteFinding(oobFinding); ok {
+					brain.Findings = append(brain.Findings, oobFinding)
+					oobAccepted++
+					o.recordEvidencePack(flowID, &task.ID, subtaskIDFromFinding(oobFinding), oobFinding, models.EvidenceStatusConfirmed, reason)
+				} else {
+					brain.Leads = append(brain.Leads, fmt.Sprintf("OOB candidate %s at %s needs proof: %s", oobFinding.Type, oobFinding.URL, reason))
+					o.recordEvidencePack(flowID, &task.ID, subtaskIDFromFinding(oobFinding), oobFinding, models.EvidenceStatusNeedsProof, reason)
+				}
 			}
 			brainMu.Unlock()
 			persistBrainState("oob_finding")
 
-			pocResult += fmt.Sprintf("\n\n## OOB Confirmed Findings\n%d blind vulnerabilities confirmed via out-of-band callbacks.\n", len(oobInteractions))
+			pocResult += fmt.Sprintf("\n\n## OOB Confirmed Findings\n%d/%d blind callbacks passed deterministic promotion.\n", oobAccepted, len(oobInteractions))
 		} else if o.oobManager.PendingCount() > 0 {
 			o.emit(flowID.String(), Event{Type: EventMessage, FlowID: flowID.String(), TaskID: task.ID.String(),
 				Content: fmt.Sprintf("⏳ %d OOB tokens still pending (callbacks may arrive later).", o.oobManager.PendingCount())})
@@ -2184,12 +2192,41 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 		if o.observer != nil {
 			health = o.observer.Health()
 		}
+		var packModels []models.EvidencePack
+		if o.queries != nil {
+			if packs, packErr := o.queries.GetEvidencePacksByFlow(flowID); packErr == nil {
+				packModels = packs
+			}
+		}
+		verification := PartitionFindingsForReport(brain.Findings, packModels)
+		confirmedOnly := verification.ConfirmedFindings()
+		for _, item := range verification.NeedsProof {
+			if item.Finding != nil {
+				brain.Leads = append(brain.Leads, fmt.Sprintf("[UNVERIFIED] %s at %s — %s", item.Finding.Type, item.Finding.URL, item.Reason))
+			}
+		}
+		for _, item := range verification.Hypothesis {
+			if item.Finding != nil {
+				brain.Leads = append(brain.Leads, fmt.Sprintf("[HYPOTHESIS] %s at %s — %s", item.Finding.Type, item.Finding.URL, item.Reason))
+			}
+		}
+		envSnap := CaptureEnvironmentSnapshot(o.llmProvider)
+		o.emit(flowID.String(), Event{
+			Type:    EventMessage,
+			FlowID:  flowID.String(),
+			TaskID:  task.ID.String(),
+			Content: fmt.Sprintf("[VERIFY] deterministic oracle: confirmed=%d needs_proof=%d hypothesis=%d rejected=%d", len(verification.Confirmed), len(verification.NeedsProof), len(verification.Hypothesis), len(verification.Rejected)),
+			Metadata: map[string]interface{}{
+				"verification": verification.Counts(),
+				"environment":  envSnap,
+			},
+		})
 		finalReport := o.reporter.GenerateReportWithEvidence(
 			flow.Target,
 			flowID,
 			time.Since(task.CreatedAt),
 			brain.PivotContext,
-			brain.Findings,
+			confirmedOnly,
 			brain.Leads,
 			brain.Exclusions,
 			swarmRes,
@@ -2197,6 +2234,8 @@ func (o *Orchestrator) RunFlow(ctx context.Context, flowID uuid.UUID, userPrompt
 			artifactTrail,
 			packTrail,
 			health,
+			verification,
+			envSnap,
 		)
 
 		if err := o.queries.SaveFinalReport(flowID, finalReport); err != nil {
